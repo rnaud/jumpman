@@ -7,7 +7,7 @@ use super::game::*;
 use super::minis::*;
 use crate::audio::SfxCue;
 use crate::experiments::{ExperimentSlot, Shell};
-use jumpman_sim::state::A_BUTTON;
+use jumpman_sim::state::{A_BUTTON, B_BUTTON};
 use crate::input::PlayerInput;
 use crate::shell::AppState;
 use bevy::prelude::*;
@@ -137,7 +137,7 @@ fn start_anim(app: &mut PartyApp, shell: &mut Shell, anim: &Anim) {
             cue(shell, "flutter");
         }
         Ev::Tide(n) => {
-            app.say(if *n == 1 { "The lava tide rises!" } else { "The lava rises again!" }, 0xff8a4a);
+            app.say(if *n == 1 { "The Bob-omb barrage moves in!" } else { "The barrage moves in again!" }, 0xff8a4a);
             cue(shell, "explosion");
             app.shake = 0.6;
         }
@@ -322,7 +322,7 @@ pub fn handle_ui(app: &mut PartyApp, shell: &mut Shell, slot: &mut ExperimentSlo
 }
 
 /// Gather the live device state for the human seats of a running mini-game.
-fn gather(run: &mut MiniRun, input: &PlayerInput, keys: &ButtonInput<KeyCode>, pads: &Query<&Gamepad>, prev_a: &mut [bool; 4], tiles: usize) {
+fn gather(run: &mut MiniRun, input: &PlayerInput, keys: &ButtonInput<KeyCode>, pads: &Query<&Gamepad>, prev_a: &mut [bool; 8], tiles: usize) {
     let st = input.stick / 64.0;
     let mut x = st.x.clamp(-1.0, 1.0);
     let mut y = (-st.y).clamp(-1.0, 1.0);
@@ -339,7 +339,8 @@ fn gather(run: &mut MiniRun, input: &PlayerInput, keys: &ButtonInput<KeyCode>, p
         y = 1.0;
     }
     let a_down = input.down & A_BUTTON != 0 || keys.pressed(KeyCode::Space) || keys.pressed(KeyCode::Enter);
-    let mut seats: Vec<(usize, f32, f32, bool, i32)> = vec![(0, x, y, a_down, 0)];
+    let b_down = input.down & B_BUTTON != 0;
+    let mut seats: Vec<(usize, f32, f32, bool, i32, bool)> = vec![(0, x, y, a_down, 0, b_down)];
     // Seats 1.. are driven by gamepads in order (the first pad also drives seat 0 through the touch/keyboard merge).
     let mut seat = 1;
     for pad in pads.iter() {
@@ -354,13 +355,17 @@ fn gather(run: &mut MiniRun, input: &PlayerInput, keys: &ButtonInput<KeyCode>, p
         } else {
             0
         };
-        seats.push((seat, ls.x, -ls.y, pad.pressed(GamepadButton::South), dir));
+        seats.push((seat, ls.x, -ls.y, pad.pressed(GamepadButton::South), dir, pad.pressed(GamepadButton::West) || pad.pressed(GamepadButton::East)));
         seat += 1;
     }
-    for (s, sx, sy, a, dir) in seats {
+    for (s, sx, sy, a, dir, b) in seats {
         if !run.human[s] {
             continue;
         }
+        if b && !prev_a[4 + s] {
+            run.inp[s].b = true;
+        }
+        prev_a[4 + s] = b;
         let dz = |v: f32| if v.abs() < 0.12 { 0.0 } else { v };
         run.inp[s].x = dz(sx);
         run.inp[s].y = dz(sy);
@@ -405,6 +410,7 @@ fn gather(run: &mut MiniRun, input: &PlayerInput, keys: &ButtonInput<KeyCode>, p
 
 fn mini_flow(app: &mut PartyApp, shell: &mut Shell, dt: f64, gather_in: &mut dyn FnMut(&mut MiniRun, usize)) {
     let (fast, autoplay) = (app.fast, app.autoplay);
+    let physics = app.pieces.len() >= 4;
     let t_now = app.t;
     let mut bump = false;
     let mut auto_finish = false;
@@ -443,33 +449,29 @@ fn mini_flow(app: &mut PartyApp, shell: &mut Shell, dt: f64, gather_in: &mut dyn
                 }
             }
             MStage::Play => {
-                let tiles = run.scene.tiles.len();
-                gather_in(run, tiles);
-                run.acc += dt as f32 * if fast { 6.0 } else { 1.0 };
+                gather_in(run, 0);
                 run.t += dt as f32;
-                let mut steps = 0;
-                while run.acc >= DT && steps < 12 && !run.session.done() {
-                    let inp = run.inp;
-                    run.session.step(&inp);
-                    run.acc -= DT;
-                    steps += 1;
-                    for p in 0..4 {
-                        run.inp[p].act = false;
-                        run.inp[p].pick = None;
+                // With the four Marios in the world the physics steps the game (`view::drive_pieces`, 30 Hz); without them
+                // (unit tests) the kinematic stand-in does.
+                if !physics {
+                    run.acc += dt as f32 * if fast { 6.0 } else { 1.0 };
+                    let mut steps = 0;
+                    while run.acc >= DT && steps < 12 && !run.session.done() {
+                        let human: [Drive; 4] = std::array::from_fn(|p| run.human_drive(p));
+                        run.session.step_kin(&human);
+                        run.acc -= DT;
+                        steps += 1;
+                        for p in 0..4 {
+                            run.inp[p].act = false;
+                            run.inp[p].b = false;
+                            run.inp[p].pick = None;
+                        }
                     }
                 }
                 let mut s = Stage::default();
                 run.session.game.scene(&mut s);
                 run.scene = s;
-                // Human feedback: score up = coin, down = bonk.
                 let sc = run.session.game.scores();
-                if run.human[0] {
-                    if sc[0] > run.prev_scores[0] + 1e-3 && sc[0].is_finite() {
-                        cue(shell, "coin");
-                    } else if sc[0] < run.prev_scores[0] - 1e-3 && sc[0].is_finite() {
-                        cue(shell, "bonk");
-                    }
-                }
                 run.prev_scores = sc;
                 if run.session.done() {
                     run.final_scores = sc;
@@ -628,6 +630,25 @@ pub fn tick(app: &mut PartyApp, shell: &mut Shell, slot: &mut ExperimentSlot, dt
         Screen::Mini => mini_flow(app, shell, dt, gather_in),
         _ => {}
     }
+    for (kind, pos) in std::mem::take(&mut app.cues) {
+        shell.cues.push(SfxCue::Effect { kind, pos: Some(pos) });
+    }
+    if (app.t * 2.0).floor() != ((app.t - dt) * 2.0).floor() {
+        set_status(status_line(app));
+    }
+}
+
+/// One line on the state of the party (the `JUMPMAN_XP_LOG` hook prints it through the experiment's `debug`).
+pub fn status_line(app: &PartyApp) -> String {
+    let mut s = format!("screen {:?}", app.screen);
+    if let Some(g) = app.game.as_ref() {
+        s += &format!(" | round {}/{} turn {} phase {:?} | sun {:?} coins {:?}", g.round.min(g.cfg.turns), g.cfg.turns, g.cur, std::mem::discriminant(&g.phase), g.players.iter().map(|p| p.sun).collect::<Vec<_>>(), g.players.iter().map(|p| p.coins).collect::<Vec<_>>());
+    }
+    if let Some(m) = app.mini.as_ref() {
+        let pos: Vec<[i64; 3]> = app.pieces.iter().map(|p| p.mario.runtime.pos.map(|v| v as i64)).collect();
+        s += &format!(" | {} {:?} t {:.1} left {:.1} scores {:?} at {:?}", m.session.kind.info().name, m.stage, m.t, m.session.game.time_left(), m.session.game.scores().map(|v| if v.is_finite() { (v * 10.0).round() / 10.0 } else { -1.0 }), pos);
+    }
+    s
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -641,7 +662,7 @@ pub fn flow(
     keys: Res<ButtonInput<KeyCode>>,
     pads: Query<&Gamepad>,
     mut touch: ResMut<crate::touch::TouchControls>,
-    mut prev_a: Local<[bool; 4]>,
+    mut prev_a: Local<[bool; 8]>,
 ) {
     if *state != AppState::Playing {
         return;
@@ -650,8 +671,8 @@ pub fn flow(
     app.pads = pads.iter().count();
     let mut gather_in = |run: &mut MiniRun, tiles: usize| gather(run, &input, &keys, &pads, &mut prev_a, tiles);
     tick(&mut app, &mut shell, &mut slot, dt, &mut gather_in);
-    // The touch pad only shows while a stick game is being played.
-    let want_pad = app.screen == Screen::Mini && app.mini.as_ref().is_some_and(|m| m.stage == MStage::Play && matches!(m.kind.info().control, Control::Stick | Control::StickA) && m.human[0]);
+    // The touch pad (stick, A, B) only shows while a mini-game is being played.
+    let want_pad = app.screen == Screen::Mini && app.mini.as_ref().is_some_and(|m| m.stage == MStage::Play && m.human[0]);
     if touch.hide_pad == want_pad {
         touch.hide_pad = !want_pad;
         touch.suppress = !want_pad;
@@ -835,7 +856,7 @@ mod tests {
             ("start", UiCmd::Start),
             ("board.2", UiCmd::PickBoard(2)),
             ("minis", UiCmd::OpenMinis),
-            ("practice.bumper", UiCmd::Practice(Mini::BumperBrawl)),
+            ("practice.crown", UiCmd::Practice(Mini::SummitCrown)),
         ] {
             assert_eq!(parse_ui_cmd(word), Some(want), "{word}");
         }
@@ -849,7 +870,7 @@ mod tests {
         a.cmds.push(UiCmd::OpenMinis);
         step(&mut a, 0.1);
         assert_eq!(a.screen, Screen::Minis);
-        a.cmds.push(UiCmd::Practice(Mini::PowerMeter));
+        a.cmds.push(UiCmd::Practice(Mini::CoinScramble));
         step(&mut a, 0.1);
         assert_eq!(a.screen, Screen::Mini);
         assert_eq!(a.mini.as_ref().unwrap().stage, MStage::Intro);

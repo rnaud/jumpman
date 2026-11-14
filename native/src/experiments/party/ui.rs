@@ -147,14 +147,6 @@ fn fmt_score(kind: Mini, s: f32) -> String {
     let u = kind.info().unit;
     if u.contains("seconds") {
         format!("{:.1}s", s.min(60.0))
-    } else if kind == Mini::ShellLane {
-        if s > 500.0 {
-            format!("finished {:.1}s", (1000.0 - s) / 10.0)
-        } else {
-            format!("{:.0} m", s)
-        }
-    } else if kind == Mini::QuickDraw {
-        format!("{} pts", (s / 10.0).round().max(0.0))
     } else {
         format!("{:.0}", s)
     }
@@ -276,7 +268,7 @@ fn build_title(commands: &mut Commands, a: &UiAssets, area: &SafeArea, app: &Par
         r.spawn(Node { flex_direction: FlexDirection::Row, justify_content: JustifyContent::SpaceBetween, align_items: AlignItems::Center, margin: UiRect::right(Val::Px(PAUSE_W)), ..default() }).with_children(|h| {
             let t = outlined(h, a, "SUNSTONE SHINDIG", if small { 30.0 } else { 38.0 }, GOLD_HI);
             let _ = t;
-            h.spawn(body(a, "A 4-player board party. You + 3 CPUs.", 12.0, CREAM));
+            h.spawn(body(a, "A 4-player board party on Bob-omb Battlefield. You + 3 CPUs.", 12.0, CREAM));
         });
         // On a phone the cards start under the pause button's row, never beneath it.
         r.spawn(Node { height: Val::Px(if small { 38.0 } else { 4.0 }), ..default() });
@@ -311,7 +303,7 @@ fn build_title(commands: &mut Commands, a: &UiAssets, area: &SafeArea, app: &Par
         r.spawn(Node { height: Val::Px(6.0), ..default() });
         r.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(10.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, flex_wrap: FlexWrap::Wrap, row_gap: Val::Px(4.0), ..default() }).with_children(|row| {
             row.spawn(body(a, "Rounds", 13.0, CREAM));
-            for t in [10u32, 12, 15] {
+            for t in super::app::TURN_CHOICES {
                 let sel = app.cfg.turns == t;
                 let mut b = act_button(row, a, ButtonKind::Blue, 56.0, 44.0, 17.0, &t.to_string(), UiCmd::PickTurns(t));
                 if sel {
@@ -369,10 +361,8 @@ fn build_minis(commands: &mut Commands, a: &UiAssets, area: &SafeArea, app: &Par
                 let info = m.info();
                 let rec = app.saved.records.iter().find(|r| r.0 == info.key).map(|r| fmt_score(m, r.1));
                 let ctl = match info.control {
-                    Control::Stick => "stick",
-                    Control::StickA => "stick + A",
-                    Control::Tap => "tap",
-                    Control::Tiles => "tiles",
+                    Control::Run => "run + jump",
+                    Control::Fight => "run, jump, punch",
                 };
                 let label = match rec {
                     Some(r) => format!("{}\n{ctl}  best {r}", info.name),
@@ -557,14 +547,11 @@ fn build_mini(commands: &mut Commands, a: &UiAssets, area: &SafeArea, app: &Part
                             card.spawn(Node { max_width: Val::Px(520.0), ..default() }).with_children(|t| {
                                 t.spawn(body(a, info.blurb, 15.0, Color::WHITE));
                             });
-                            let touch = true;
+                            card.spawn(body(a, &format!("On {}.", info.place), 12.0, CREAM));
                             let ctl = match info.control {
-                                Control::Stick => "Controls: drag the stick (or WASD / arrows / left stick).",
-                                Control::StickA => "Controls: drag the stick to steer, tap A (or Space) to dash.",
-                                Control::Tap => "Controls: tap the big button (or Space / Enter / A).",
-                                Control::Tiles => "Controls: tap the tiles (or 1-9, or arrows + Space).",
+                                Control::Run => "Controls: stick (WASD / arrows / left stick) to run, A (Space) to jump.",
+                                Control::Fight => "Controls: stick to run, A (Space) to jump, B (Shift / J) to punch; punch in the air to dive.",
                             };
-                            let _ = touch;
                             crate::hints::note(ctl);
                             card.spawn((crate::hints::ControlHint, body(a, ctl, 12.0, GOLD_HI)));
                             card.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(10.0), ..default() }).with_children(|row| {
@@ -577,20 +564,7 @@ fn build_mini(commands: &mut Commands, a: &UiAssets, area: &SafeArea, app: &Part
                 });
             }
             MStage::Count => {}
-            MStage::Play => {
-                if info.control == Control::Tap && run.human[0] {
-                    r.spawn(Node { justify_content: JustifyContent::Center, margin: UiRect::bottom(Val::Px(2.0)), ..default() }).with_children(|c| {
-                        let w = (win.x * 0.56).clamp(220.0, 520.0);
-                        act_button(c, a, ButtonKind::Gold, w, 68.0, 30.0, match run.kind {
-                            Mini::BarrelHop => "JUMP!",
-                            Mini::QuickDraw => "TAP!",
-                            Mini::BlockStack => "DROP!",
-                            Mini::PowerMeter => "STOP!",
-                            _ => "TAP!",
-                        }, UiCmd::Tap);
-                    });
-                }
-            }
+            MStage::Play => {}
             MStage::Done => {
                 r.spawn(Node { position_type: PositionType::Absolute, left: Val::Px(0.0), right: Val::Px(0.0), top: Val::Px(0.0), bottom: Val::Px(0.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }).with_children(|c| {
                     c.spawn(Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(3.0), padding: UiRect::all(Val::Px(12.0)), min_width: Val::Px(360.0), border: UiRect::all(Val::Px(3.0)), ..default() })
@@ -657,7 +631,7 @@ fn build_results(commands: &mut Commands, a: &UiAssets, area: &SafeArea, app: &P
                 let order = g.standings();
                 let winners = g.winners();
                 c.spawn((Node { flex_direction: FlexDirection::Column, padding: UiRect::all(Val::Px(8.0)), border: UiRect::all(Val::Px(3.0)), row_gap: Val::Px(2.0), ..default() }, BackgroundColor(Color::srgba(0.03, 0.06, 0.2, 0.92)), BorderColor::all(GOLD), BorderRadius::all(Val::Px(14.0)))).with_children(|b| {
-                    let headline = if winners.len() > 1 { format!("{} share the win!", winners.iter().map(|&p| g.players[p].name).collect::<Vec<_>>().join(" & ")) } else { format!("{} wins!", g.players[winners[0]].name) };
+                    let headline = if winners.len() > 1 { format!("{} share the win!", winners.iter().map(|&p| g.players[p].name).collect::<Vec<_>>().join(" & ")) } else if g.players[winners[0]].name == "You" { "You win!".to_string() } else { format!("{} wins!", g.players[winners[0]].name) };
                     b.spawn(disp(a, &headline, 20.0, GOLD_HI));
                     for (i, &p) in order.iter().enumerate() {
                         b.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(8.0), ..default() }).with_children(|row| {
@@ -768,7 +742,6 @@ fn space_labels(app: Res<PartyApp>, cameras: Query<(&Camera, &GlobalTransform), 
     let id = app.board_built.unwrap_or(0);
     let board = board(id);
     let cond = app.game.as_ref().map_or(Conditions::default(), |g| g.cond);
-    let origin = crate::render::to_bevy(BOARD_O);
     let options: Vec<usize> = match app.game.as_ref().map(|g| &g.phase) {
         Some(Phase::Branch(o)) => o.clone(),
         _ => vec![],
@@ -781,7 +754,7 @@ fn space_labels(app: Res<PartyApp>, cameras: Query<(&Camera, &GlobalTransform), 
             continue;
         }
         let s = &board.spaces[i];
-        let wp = origin + Vec3::new(s.pos[0], 0.32, s.pos[1]);
+        let wp = crate::render::to_bevy(app.board_world(s.pos, 32.0));
         let Ok(p) = camera.world_to_viewport(gt, wp) else {
             *vis = Visibility::Hidden;
             continue;
@@ -953,7 +926,7 @@ fn overlays(
 fn tiles(app: Res<PartyApp>, area: Res<SafeArea>, windows: Query<&Window, With<PrimaryWindow>>, mut btns: Query<(&TileBtn, &mut Node, &mut BackgroundColor, &mut Visibility, &mut Outline, &Children)>, mut labels: Query<&mut Text, With<TileLabel>>) {
     let win = windows.single().map_or(Vec2::new(874.0, 402.0), |w| w.size());
     let run = app.mini.as_ref().filter(|m| app.screen == Screen::Mini && m.stage == MStage::Play);
-    let tap = run.is_some_and(|m| m.kind.info().control == Control::Tap);
+    let tap = false;
     let rect_l = area.left.max(10.0) + 10.0;
     let rect_r = win.x - area.right.max(10.0) - 10.0;
     let rect_t = 72.0 + area.top.max(6.0);

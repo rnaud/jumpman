@@ -1,135 +1,160 @@
-//! Coin Scramble: run around the arena and grab the coins. Gold coins are worth three.
-use crate::experiments::party::common::*;
+//! Coin Scramble: coins keep appearing all over the hills; run, jump onto the ledges and grab the most. A gold coin is
+//! worth three. 30 seconds.
+use super::*;
 
-const LIMIT: f32 = 20.0;
-const SPEED: f32 = 5.6;
+pub const SECS: f32 = 30.0;
+/// Coins on the field at any time.
+const ON_FIELD: usize = 9;
+/// Pick-up reach (horizontal) and height window.
+const REACH: f64 = 105.0;
 
-#[derive(Clone, Copy)]
-struct Coin {
-    x: f32,
-    z: f32,
-    gold: bool,
-    life: f32,
+#[derive(Clone, Debug)]
+pub struct Coin {
+    pub pos: [f64; 3],
+    pub gold: bool,
+    /// Seconds since it appeared (it pops up for a moment before it can be taken).
+    pub age: f32,
 }
 
 pub struct CoinScramble {
     r: Roster,
-    t: f32,
-    pos: [[f32; 2]; 4],
-    face: [f32; 4],
-    coins: Vec<Coin>,
-    score: [f32; 4],
-    spawn: f32,
     rng: Rng,
-    brng: Rng,
-    target: [Option<usize>; 4],
+    field: Arc<Field>,
+    pub coins: Vec<Coin>,
+    score: [f32; 4],
+    t: f32,
+    think: [f32; 4],
+    goal: [Option<usize>; 4],
+    evs: Vec<MiniEv>,
 }
 
 impl CoinScramble {
-    pub fn new(seed: u64, active: [bool; 4]) -> Self {
-        let starts = [[-6.0, -2.5], [6.0, -2.5], [-6.0, 2.5], [6.0, 2.5]];
-        let mut g = CoinScramble { r: Roster::new(active), t: 0.0, pos: starts, face: [0.0; 4], coins: vec![], score: [0.0; 4], spawn: 0.0, rng: Rng::new(seed), brng: Rng::new(seed ^ 0xc01), target: [None; 4] };
-        for _ in 0..7 {
-            g.add_coin();
+    pub fn new(seed: u64, active: [bool; 4], field: Arc<Field>) -> Self {
+        let mut g = CoinScramble { r: Roster::new(active), rng: Rng::new(seed), field, coins: vec![], score: [0.0; 4], t: 0.0, think: [0.0; 4], goal: [None; 4], evs: vec![] };
+        for _ in 0..ON_FIELD {
+            let c = g.fresh_coin();
+            g.coins.push(Coin { age: 1.0, ..c });
         }
         g
     }
-    fn add_coin(&mut self) {
-        let gold = self.rng.chance(0.14);
-        let c = Coin { x: self.rng.range(-8.0, 8.0), z: self.rng.range(-3.7, 3.7), gold, life: if gold { 4.0 } else { 7.0 } };
-        self.coins.push(c);
+
+    /// A new coin on a random point of the arena, away from the other coins.
+    fn fresh_coin(&mut self) -> Coin {
+        let mut best = self.field.rand_point(&mut self.rng);
+        for _ in 0..6 {
+            if self.coins.iter().all(|c| hdist(c.pos, best) > 260.0) {
+                break;
+            }
+            best = self.field.rand_point(&mut self.rng);
+        }
+        Coin { pos: best, gold: self.rng.chance(0.2), age: 0.0 }
+    }
+
+    fn value(c: &Coin) -> f32 {
+        if c.gold {
+            3.0
+        } else {
+            1.0
+        }
     }
 }
 
 impl MiniGame for CoinScramble {
-    fn step(&mut self, dt: f32, inp: &Inputs) {
+    fn start(&self, p: usize) -> [f64; 3] {
+        self.field.start(p, 0.18)
+    }
+
+    fn step(&mut self, dt: f32, bodies: &[Body; 4], _drives: &[Drive; 4]) {
+        if self.done() {
+            return;
+        }
         self.t += dt;
-        for p in self.r.ids().collect::<Vec<_>>() {
-            let (mut x, mut y) = (inp[p].x, inp[p].y);
-            let m = (x * x + y * y).sqrt();
-            if m > 1.0 {
-                x /= m;
-                y /= m;
-            }
-            if m > 0.08 {
-                self.face[p] = x.atan2(y);
-            }
-            self.pos[p][0] = clamp(self.pos[p][0] + x * SPEED * dt, -HALF_X + 0.4, HALF_X - 0.4);
-            self.pos[p][1] = clamp(self.pos[p][1] + y * SPEED * dt, -HALF_Z + 0.4, HALF_Z - 0.4);
+        for c in &mut self.coins {
+            c.age += dt;
         }
-        // Pickups: first player in range takes it.
-        let mut i = 0;
-        while i < self.coins.len() {
-            let c = self.coins[i];
-            let hit = self.r.ids().filter(|&p| dist(self.pos[p][0], self.pos[p][1], c.x, c.z) < 0.7).min_by(|&a, &b| dist(self.pos[a][0], self.pos[a][1], c.x, c.z).partial_cmp(&dist(self.pos[b][0], self.pos[b][1], c.x, c.z)).unwrap());
-            if let Some(p) = hit {
-                self.score[p] += if c.gold { 3.0 } else { 1.0 };
-                self.coins.swap_remove(i);
+        // Players take a coin they touch (ties go round the seats, see `seat_order`).
+        for p in seat_order(self.t) {
+            if !self.r.active[p] {
                 continue;
             }
-            self.coins[i].life -= dt;
-            if self.coins[i].life <= 0.0 {
-                self.coins.swap_remove(i);
-                continue;
+            let b = bodies[p].pos;
+            if let Some(i) = self.coins.iter().position(|c| c.age > 0.35 && hdist(c.pos, b) < REACH && b[1] > c.pos[1] - 120.0 && b[1] < c.pos[1] + 190.0) {
+                let c = self.coins[i].clone();
+                self.score[p] += Self::value(&c);
+                self.evs.push(MiniEv::Cue { kind: if c.gold { "red_coin" } else { "coin" }, pos: c.pos });
+                self.coins[i] = self.fresh_coin();
             }
-            i += 1;
-        }
-        self.spawn -= dt;
-        if self.spawn <= 0.0 && self.coins.len() < 12 {
-            self.add_coin();
-            self.spawn = 0.35;
         }
     }
-    fn bot(&mut self, p: usize, lvl: Level) -> PadIn {
-        // Re-pick a target now and then: skilled bots take the best coin by value / distance.
-        let retarget = self.target[p].map_or(true, |i| i >= self.coins.len()) || self.brng.chance(0.03);
-        if retarget && !self.coins.is_empty() {
-            let me = self.pos[p];
-            let mut best = 0;
-            let mut bs = f32::MIN;
+
+    fn bot(&mut self, p: usize, lvl: Level, bodies: &[Body; 4]) -> Drive {
+        let me = bodies[p].pos;
+        self.think[p] -= DT;
+        let gone = self.goal[p].is_none_or(|i| i >= self.coins.len());
+        if self.think[p] <= 0.0 || gone {
+            self.think[p] = lvl.react() + self.rng.f() * 0.25;
+            let skill = lvl.skill() as f64;
+            let mut best = (f64::MIN, None);
             for (i, c) in self.coins.iter().enumerate() {
-                let d = dist(me[0], me[1], c.x, c.z);
-                let v = if c.gold { 3.0 } else { 1.0 };
-                let s = v / (d + 0.6) * if self.brng.chance(lvl.skill()) { 1.0 } else { self.brng.range(0.2, 1.0) };
-                if s > bs {
-                    bs = s;
-                    best = i;
+                let d = hdist(me, c.pos) + (c.pos[1] - me[1]).max(0.0) * 1.5;
+                // Better bots leave a coin to a rival who is clearly closer.
+                let rival_closer = (0..4).any(|q| q != p && self.r.active[q] && hdist(bodies[q].pos, c.pos) + 150.0 < hdist(me, c.pos));
+                let mut v = Self::value(c) as f64 / (d + 260.0);
+                if rival_closer {
+                    v *= 1.0 - skill * 0.7;
+                }
+                v *= 1.0 + (self.rng.f() as f64 - 0.5) * (1.0 - skill) * 1.6;
+                if v > best.0 {
+                    best = (v, Some(i));
                 }
             }
-            self.target[p] = Some(best);
+            self.goal[p] = best.1;
         }
-        let Some(i) = self.target[p].filter(|&i| i < self.coins.len()) else { return PadIn::default() };
-        let c = self.coins[i];
-        let (dx, dz) = (c.x - self.pos[p][0], c.z - self.pos[p][1]);
-        let m = (dx * dx + dz * dz).sqrt().max(1e-3);
-        let speed = match lvl {
-            Level::Easy => 0.7,
-            Level::Normal => 0.88,
-            Level::Hard => 1.0,
-        };
-        PadIn { x: dx / m * speed, y: dz / m * speed, ..Default::default() }
+        let Some(c) = self.goal[p].and_then(|i| self.coins.get(i)) else { return Drive::default() };
+        let mut d = run_to(me, c.pos, 0.0);
+        d.mag = d.mag.max(0.6) * (0.82 + 0.18 * lvl.skill() as f64);
+        // A coin on a ledge: jump for it.
+        if c.pos[1] > me[1] + 90.0 && hdist(me, c.pos) < 330.0 && bodies[p].grounded {
+            d.jump = true;
+            d.hold = true;
+        }
+        d
     }
+
+    fn events(&mut self) -> Vec<MiniEv> {
+        std::mem::take(&mut self.evs)
+    }
+
     fn done(&self) -> bool {
-        self.t >= LIMIT
+        self.t >= SECS
     }
+
     fn time_left(&self) -> f32 {
-        (LIMIT - self.t).max(0.0)
+        (SECS - self.t).max(0.0)
     }
+
     fn scores(&self) -> [f32; 4] {
         self.r.mask(self.score)
     }
+
     fn scene(&self, out: &mut Stage) {
-        out.shape(Sh::Box, [0.0, -0.06, 0.0], [18.6, 0.12, 9.4], 0x3f7f4a);
         for c in &self.coins {
-            let y = 0.45 + (self.t * 4.0 + c.x).sin() * 0.08;
-            let fade = if c.life < 1.2 && (self.t * 10.0) as i32 % 2 == 0 { 0.0 } else { 1.0 };
-            if fade > 0.0 {
-                out.shape_yaw(Sh::Disc, [c.x, y, c.z], [if c.gold { 0.5 } else { 0.34 }, 0.08, 0.0], 0.0, if c.gold { 0xffe14a } else { 0xf5b81c });
+            let pop = (c.age / 0.35).min(1.0);
+            let y = c.pos[1] + 70.0 + 10.0 * (self.t * 4.0 + c.pos[0] as f32 * 0.01).sin() as f64;
+            let spin = self.t * 5.0 + c.pos[2] as f32 * 0.01;
+            if c.gold {
+                out.coin([c.pos[0], y, c.pos[2]], 0.5 * pop, spin, 0xff9a1f);
+            } else {
+                out.coin([c.pos[0], y, c.pos[2]], 0.36 * pop, spin, 0xffd21f);
             }
         }
         for p in self.r.ids() {
-            out.avatar(p, self.pos[p][0], self.pos[p][1], 0.0, self.face[p], false);
-            out.tags[p] = format!("{}", self.score[p] as u32);
+            out.tags[p] = format!("{}", self.score[p] as i32);
+        }
+        if self.t < 1.0 {
+            out.banner = "GRAB THE COINS!".into();
+        } else if self.time_left() < 5.0 {
+            out.banner = format!("{}", self.time_left().ceil() as i32);
         }
     }
 }

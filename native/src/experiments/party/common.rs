@@ -100,6 +100,8 @@ pub struct PadIn {
     pub y: f32,
     pub act: bool,
     pub held: bool,
+    /// B pressed this step (punch).
+    pub b: bool,
     /// Index of a tapped [`Tile`].
     pub pick: Option<usize>,
 }
@@ -109,34 +111,26 @@ pub type Inputs = [PadIn; 4];
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Sh {
     Box,
-    /// A cylinder around the vertical axis: `s = [radius, height, radius]`.
+    /// A cylinder around the vertical axis: `s = [radius, height, radius]` (a zero third radius copies the first).
     Disc,
     Ball,
     Cone,
+    /// A coin standing on its edge, spinning by `yaw`: `s = [radius, thickness, _]`.
+    Coin,
 }
 
-/// A coloured primitive on the stage (x right, y up, z toward the camera; one unit = 100 SM64 units).
+/// A coloured primitive at a course position (SM64 units); sizes in stage units (one = 100 SM64 units).
 #[derive(Clone, Debug)]
 pub struct Shape {
     pub sh: Sh,
-    pub p: [f32; 3],
+    pub p: [f64; 3],
     pub s: [f32; 3],
     pub yaw: f32,
     pub col: u32,
 }
 
-#[derive(Clone, Debug)]
-pub struct Avatar {
-    pub p: usize,
-    pub x: f32,
-    pub z: f32,
-    pub y: f32,
-    pub yaw: f32,
-    /// Knocked out / fallen: the view hides the piece.
-    pub out: bool,
-}
-
-/// A tappable screen tile (fractions of the playfield, origin top-left).
+/// A tappable screen tile (fractions of the playfield, origin top-left). No current mini-game uses tiles; the UI keeps
+/// the pool for touch menus.
 #[derive(Clone, Debug)]
 pub struct Tile {
     pub id: usize,
@@ -148,55 +142,40 @@ pub struct Tile {
     pub text: String,
 }
 
+/// What a running mini-game shows: primitives and models at course positions, plus the HUD text.
 #[derive(Clone, Debug, Default)]
 pub struct Stage {
     pub shapes: Vec<Shape>,
-    pub avatars: Vec<Avatar>,
     pub tiles: Vec<Tile>,
-    /// Large centred text ("GO!", "Watch...", "Round 2").
+    /// Goombas: (position, heading in radians, scale).
+    pub goombas: Vec<([f64; 3], f32, f32)>,
+    /// Falling Bob-ombs.
+    pub bombs: Vec<[f64; 3]>,
+    /// A Power Star sitting here...
+    pub star_at: Option<[f64; 3]>,
+    /// ...or carried over this player's head.
+    pub star_on: Option<usize>,
+    /// The player wearing the crown.
+    pub crown: Option<usize>,
+    /// Large centred text ("GO!", "3").
     pub banner: String,
     /// Short status per player shown on its chip ("x3", "OUT").
     pub tags: [String; 4],
 }
 
 impl Stage {
-    pub fn shape(&mut self, sh: Sh, p: [f32; 3], s: [f32; 3], col: u32) {
+    pub fn shape_w(&mut self, sh: Sh, p: [f64; 3], s: [f32; 3], col: u32) {
         self.shapes.push(Shape { sh, p, s, yaw: 0.0, col });
     }
-    pub fn shape_yaw(&mut self, sh: Sh, p: [f32; 3], s: [f32; 3], yaw: f32, col: u32) {
-        self.shapes.push(Shape { sh, p, s, yaw, col });
-    }
-    pub fn avatar(&mut self, p: usize, x: f32, z: f32, y: f32, yaw: f32, out: bool) {
-        self.avatars.push(Avatar { p, x, z, y, yaw, out });
-    }
-    pub fn tile(&mut self, id: usize, rect: [f32; 4], col: u32, text: impl Into<String>) {
-        self.tiles.push(Tile { id, x: rect[0], y: rect[1], w: rect[2], h: rect[3], col, text: text.into() });
+    /// A spinning coin of radius `r` (stage units).
+    pub fn coin(&mut self, p: [f64; 3], r: f32, spin: f32, col: u32) {
+        self.shapes.push(Shape { sh: Sh::Coin, p, s: [r, 0.08, r], yaw: spin, col });
     }
 }
 
-/// Stage half-extents (x, z) in stage units.
-pub const HALF_X: f32 = 9.0;
-pub const HALF_Z: f32 = 4.5;
 /// Player colours (cap tints): red, blue, green, gold.
 pub const PLAYER_COLORS: [u32; 4] = [0xe23b2e, 0x3d7bff, 0x2fbf5a, 0xf5c518];
 pub const PLAYER_NAMES: [&str; 4] = ["You", "Rosa", "Teo", "Mina"];
-
-/// Lane centre (z) for player `p` in lane games.
-pub fn lane_z(p: usize) -> f32 {
-    -3.3 + 2.2 * p as f32
-}
-
-/// The mini-game contract: a deterministic core stepped at a fixed `dt`.
-pub trait MiniGame: Send + Sync {
-    fn step(&mut self, dt: f32, inp: &Inputs);
-    /// The CPU policy for player `p`, called once per step before [`MiniGame::step`].
-    fn bot(&mut self, p: usize, lvl: Level) -> PadIn;
-    fn done(&self) -> bool;
-    fn time_left(&self) -> f32;
-    /// Higher is better; inactive players report `f32::NEG_INFINITY`.
-    fn scores(&self) -> [f32; 4];
-    fn scene(&self, out: &mut Stage);
-}
 
 /// Competition ranking (1 = best, ties share) among the active players; inactive get 0.
 pub fn ranks(scores: &[f32; 4], active: &[bool; 4]) -> [u8; 4] {
@@ -208,14 +187,6 @@ pub fn ranks(scores: &[f32; 4], active: &[bool; 4]) -> [u8; 4] {
         r[p] = 1 + (0..4).filter(|&q| active[q] && scores[q] > scores[p] + 1e-4).count() as u8;
     }
     r
-}
-
-pub fn clamp(v: f32, a: f32, b: f32) -> f32 {
-    v.max(a).min(b)
-}
-
-pub fn dist(ax: f32, az: f32, bx: f32, bz: f32) -> f32 {
-    ((ax - bx).powi(2) + (az - bz).powi(2)).sqrt()
 }
 
 /// Shared bookkeeping for the active mask.

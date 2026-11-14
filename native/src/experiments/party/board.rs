@@ -1,8 +1,8 @@
 //! The three boards of Sunstone Shindig: graphs of spaces with a gimmick each.
 //!
-//! * Hourglass Keep: a castle courtyard with two drawbridges that flip every round (one open at a time).
-//! * Cloudtop Isles: sky islands with updraft shortcuts that only open when the wind blows.
-//! * Cinder Crown: a volcano of three rings; the lava tide rises and floods the low rings.
+//! * Meadow Gates (the start meadow): two gate shortcuts that flip every round (one open at a time).
+//! * Windy Hills (the eastern hills): updraft shortcuts that only open when the wind blows.
+//! * Bob-omb Flats (the flats by the start): three rings; a Bob-omb barrage creeps in and "floods" the low rings.
 use super::common::Rng;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -122,14 +122,14 @@ pub struct Board {
 }
 
 pub const BOARD_COUNT: usize = 3;
-pub const BOARD_NAMES: [&str; BOARD_COUNT] = ["Hourglass Keep", "Cloudtop Isles", "Cinder Crown"];
+pub const BOARD_NAMES: [&str; BOARD_COUNT] = ["Meadow Gates", "Windy Hills", "Bob-omb Flats"];
 
 /// What changes between rounds on a board.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct Conditions {
     pub flip: bool,
     pub wind: bool,
-    /// Number of flooded tiers (Cinder Crown).
+    /// Number of flooded tiers (Bob-omb Flats).
     pub tide: u8,
 }
 
@@ -272,7 +272,7 @@ fn hourglass() -> Board {
     b.chain(ring[5], &east, ring[15], Rule::Flip(true));
     let sites = vec![ring[7], ring[11], ring[19], ring[22]];
     paint(&mut b, ring[0], &sites, 0x4b33, true);
-    Board { id: 0, name: BOARD_NAMES[0], blurb: "Two drawbridges swing over the courtyard, but only one is down at a time. Cross it for a big shortcut.", gimmick: Gimmick::Bridge, spaces: b.spaces, edges: b.edges, start: ring[0], sites, sky: [0x2a3a78, 0x6c78c8, 0xf0b890], ground: 0x4c5a4a }
+    Board { id: 0, name: BOARD_NAMES[0], blurb: "Laid on the meadow where Mario starts. Two gates cut across it, but only one is open each round: a big shortcut.", gimmick: Gimmick::Bridge, spaces: b.spaces, edges: b.edges, start: ring[0], sites, sky: [0x2a3a78, 0x6c78c8, 0xf0b890], ground: 0x4c5a4a }
 }
 
 fn cloudtop() -> Board {
@@ -296,7 +296,7 @@ fn cloudtop() -> Board {
     }
     let sites = vec![ring[5], ring[11], ring[18], ring[24]];
     paint(&mut b, ring[0], &sites, 0xc10d, true);
-    Board { id: 1, name: BOARD_NAMES[1], blurb: "Floating isles ringed by cloud paths. Updrafts open shortcuts, but only when the wind blows.", gimmick: Gimmick::Wind, spaces: b.spaces, edges: b.edges, start: ring[0], sites, sky: [0x3a86e8, 0x8cc8ff, 0xfff0d0], ground: 0xd8ecff }
+    Board { id: 1, name: BOARD_NAMES[1], blurb: "A loop over the eastern hills. Updraft shortcuts open across it, but only when the wind blows.", gimmick: Gimmick::Wind, spaces: b.spaces, edges: b.edges, start: ring[0], sites, sky: [0x3a86e8, 0x8cc8ff, 0xfff0d0], ground: 0xd8ecff }
 }
 
 fn cinder() -> Board {
@@ -332,7 +332,7 @@ fn cinder() -> Board {
     b.chain(m[4], &[d2], o[13], Rule::Always);
     let sites = vec![o[9], m[2], m[9], i[3], i[0]];
     paint(&mut b, o[0], &sites, 0x0ca1, true);
-    Board { id: 2, name: BOARD_NAMES[2], blurb: "A volcano of three rings. Every few rounds the lava tide rises and floods the lowest ring: climb or burn.", gimmick: Gimmick::Tide, spaces: b.spaces, edges: b.edges, start: o[0], sites, sky: [0x2a0c14, 0x8a2a24, 0xff9a3a], ground: 0x3a2a2a }
+    Board { id: 2, name: BOARD_NAMES[2], blurb: "Three rings on the flats where the Bob-ombs march. Every few rounds their barrage pounds the outer ring: move in or pay up.", gimmick: Gimmick::Tide, spaces: b.spaces, edges: b.edges, start: o[0], sites, sky: [0x2a0c14, 0x8a2a24, 0xff9a3a], ground: 0x3a2a2a }
 }
 
 pub fn board(id: usize) -> Board {

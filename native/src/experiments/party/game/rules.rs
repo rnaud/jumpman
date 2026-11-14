@@ -49,7 +49,7 @@ impl Party {
             }
             Kind::Pit => {
                 if flooded {
-                    self.text("Lava! The tide scorches your pockets.");
+                    self.text("Blasted! The barrage costs you coins.");
                     self.coins(p, -4);
                 } else {
                     self.text("Into the pit!");
