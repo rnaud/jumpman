@@ -668,6 +668,8 @@ pub struct PlayerFrame {
 /// What happened during the last tick (sound, particles, toasts, physics requests).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Events {
+    /// Stepped on a real floor's exit before its room was cleared.
+    pub stairs_locked: bool,
     pub swing: bool,
     pub hit: u32,
     pub crit: bool,
@@ -791,6 +793,8 @@ pub struct Relic {
     pub freeze: bool,
     /// Test hook: foes stand still (screenshots).
     pub hold_foes: bool,
+    /// Floors built from real levels, one per floor (`relic_real.rs`); None generates them.
+    pub plan: Option<std::sync::Arc<Vec<Dungeon>>>,
     next_item: u32,
     cap: usize,
     dodge_id: u16,
@@ -801,9 +805,27 @@ impl Relic {
         Self::with_cap(seed, hero, start_floor, legacy_stash, enemy_cap())
     }
 
+    /// A run on prebuilt floors (one per floor, the last a boss floor); falls back to generated floors when the plan
+    /// does not hold `FLOORS` of them.
+    pub fn with_plan(seed: u64, hero: Hero, start_floor: u32, legacy_stash: u32, plan: Option<std::sync::Arc<Vec<Dungeon>>>) -> Self {
+        Self::build(seed, hero, start_floor, legacy_stash, enemy_cap(), plan.filter(|p| p.len() >= FLOORS as usize))
+    }
+
     pub fn with_cap(seed: u64, hero: Hero, start_floor: u32, legacy_stash: u32, cap: usize) -> Self {
+        Self::build(seed, hero, start_floor, legacy_stash, cap, None)
+    }
+
+    /// The dungeon of a floor: the plan's, or a generated one.
+    fn floor_dungeon(seed: u64, floor: u32, plan: &Option<std::sync::Arc<Vec<Dungeon>>>) -> Dungeon {
+        match plan.as_ref().and_then(|p| p.get(floor as usize - 1)) {
+            Some(d) => d.clone(),
+            None => generate(seed, floor, floor == FLOORS),
+        }
+    }
+
+    fn build(seed: u64, hero: Hero, start_floor: u32, legacy_stash: u32, cap: usize, plan: Option<std::sync::Arc<Vec<Dungeon>>>) -> Self {
         let floor = start_floor.clamp(1, FLOORS);
-        let dungeon = generate(seed, floor, floor == FLOORS);
+        let dungeon = Self::floor_dungeon(seed, floor, &plan);
         let legacy = legacy_bonus(legacy_stash);
         let tree = Tree { points: 2, ..Default::default() };
         let eq = Equipment::default();
@@ -846,6 +868,7 @@ impl Relic {
             lastlight_used: false,
             freeze: false,
             hold_foes: false,
+            plan,
             next_item: 1,
             cap,
             dodge_id: 0,
@@ -860,6 +883,11 @@ impl Relic {
 
     pub fn start_pos(&self) -> [f32; 2] {
         self.dungeon.rooms[self.dungeon.start].center()
+    }
+
+    /// The room the player stands in.
+    pub fn room_at_player(&self) -> Option<usize> {
+        self.dungeon.room_at(self.player.pos)
     }
 
     pub fn stairs_pos(&self) -> Option<[f32; 2]> {
@@ -1479,16 +1507,18 @@ impl Relic {
             return;
         }
         let mut pack = [PackSlot { kind: EnemyKind::Scamp, mods: 0 }; PACK_MAX];
-        let n = plan_pack(&mut rng, self.floor, room.kind, room.w * room.h, &mut pack);
+        let n = plan_pack(&mut rng, self.floor, room.kind, room.area, &mut pack);
         let me = self.player.pos;
         let c = room.center();
-        let h = room.half();
+        let (m, h) = (room.mid, room.half());
+        // A real room is an irregular shape inside its box: more tries, and the spot must be on its own floor.
+        let (tries, real) = if self.dungeon.zones.is_empty() { (12, false) } else { (40, true) };
         for slot in pack.iter().take(n) {
             // A free spot at least 650 units from the player.
             let mut placed = false;
-            for _ in 0..12 {
-                let p = [c[0] + rng.range(-h[0] + 180.0, h[0] - 180.0), c[1] + rng.range(-h[1] + 180.0, h[1] - 180.0)];
-                if dist(p, me) > 650.0 && self.dungeon.circle_free(p, 90.0) {
+            for _ in 0..tries {
+                let p = [m[0] + rng.range(-h[0] + 180.0, (h[0] - 180.0).max(-h[0] + 181.0)), m[1] + rng.range(-h[1] + 180.0, (h[1] - 180.0).max(-h[1] + 181.0))];
+                if dist(p, me) > 650.0 && self.dungeon.circle_free(p, 90.0) && (!real || self.dungeon.room_at(p) == Some(r)) {
                     self.spawn_enemy(slot.kind, p, r as u8, slot.mods);
                     placed = true;
                     break;
@@ -1651,10 +1681,10 @@ impl Relic {
     fn update_rooms(&mut self) {
         let p = self.player.pos;
         for r in 0..self.rooms.len() {
-            if !self.rooms[r].active && self.dungeon.rooms[r].contains(p, -TILE * 0.6) {
+            if !self.rooms[r].active && self.dungeon.in_room(r, p, -TILE * 0.6) {
                 self.activate_room(r);
             }
-            if self.dungeon.rooms[r].contains(p, 0.0) {
+            if self.dungeon.in_room(r, p, 0.0) {
                 self.rooms[r].visited = true;
             }
         }
@@ -1732,6 +1762,16 @@ impl Relic {
     fn update_stairs(&mut self) {
         let Some(s) = self.stairs_pos() else { return };
         if dist(s, self.player.pos) < 170.0 {
+            // On a real dungeon floor the way down opens once the exit room's guards are beaten (a real room can sit
+            // close to the entrance; this keeps a fight between the player and every exit).
+            let exit = self.dungeon.exit;
+            if self.dungeon.real.is_some() && !self.rooms[exit].cleared {
+                if self.stairs_t == 0 {
+                    self.ev.stairs_locked = true;
+                }
+                self.stairs_t = 1;
+                return;
+            }
             self.stairs_t += 1;
             if self.stairs_t >= 24 {
                 self.descend();
@@ -1747,7 +1787,7 @@ impl Relic {
             return;
         }
         self.floor += 1;
-        self.dungeon = generate(self.seed, self.floor, self.floor == FLOORS);
+        self.dungeon = Self::floor_dungeon(self.seed, self.floor, &self.plan);
         self.setup_floor();
         self.ev.descended = true;
         self.player.iframes = 45;
@@ -2734,10 +2774,11 @@ mod tests {
 
     /// Tile-grid breadth-first path (waypoints are tile centres) between two floor points.
     fn bot_path(d: &Dungeon, from: [f32; 2], to: [f32; 2]) -> Vec<[f32; 2]> {
-        let (sx, sy) = Dungeon::tile_of(from);
-        let (tx, ty) = Dungeon::tile_of(to);
-        let idx = |x: i32, y: i32| y as usize * W + x as usize;
-        let mut prev = vec![usize::MAX; W * H];
+        let (sx, sy) = d.tile_of(from);
+        let (tx, ty) = d.tile_of(to);
+        let w = d.w;
+        let idx = |x: i32, y: i32| y as usize * w + x as usize;
+        let mut prev = vec![usize::MAX; d.w * d.h];
         let mut queue = std::collections::VecDeque::new();
         prev[idx(sx, sy)] = idx(sx, sy);
         queue.push_back((sx, sy));
@@ -2759,7 +2800,7 @@ mod tests {
             return out;
         }
         while cur != idx(sx, sy) {
-            out.push([((cur % W) as f32 + 0.5) * TILE, ((cur / W) as f32 + 0.5) * TILE]);
+            out.push(d.tile_center((cur % w) as i32, (cur / w) as i32));
             cur = prev[cur];
         }
         out.reverse();
