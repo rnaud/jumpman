@@ -110,6 +110,10 @@ pub struct Call {
 
 /// Seconds the CPU waits for a call before it rolls anyway.
 pub const CALL_SECS: f64 = 1.6;
+/// After this many calls in a row left unanswered the CPU stops waiting long for one ([`CALL_SECS_IDLE`]): a person who does
+/// not play the call game should not sit through the wait (the next call they make restores it).
+pub const CALL_IGNORED: u32 = 2;
+pub const CALL_SECS_IDLE: f64 = 0.5;
 /// CPU turns play at this share of the animation time while a person watches (and at `CPU_SKIP` with fast-forward on).
 pub const CPU_PACE: f64 = 0.5;
 pub const CPU_SKIP: f64 = 0.15;
@@ -356,6 +360,8 @@ pub struct PartyApp {
     pub call: Option<Call>,
     /// Right calls and calls made this game.
     pub calls: (u32, u32),
+    /// Call windows in a row that closed without a call (see [`CALL_IGNORED`]).
+    pub unanswered: u32,
     /// Sounds the mini-game asked for (played by the frame flow).
     pub cues: Vec<(&'static str, [f64; 3])>,
 }
@@ -425,6 +431,7 @@ impl PartyApp {
             pace: 1.0,
             call: None,
             calls: (0, 0),
+            unanswered: 0,
             cues: vec![],
         }
     }
@@ -560,6 +567,11 @@ impl PartyApp {
     /// The first person at the table (who makes the calls).
     pub fn caller(&self) -> Option<usize> {
         self.game.as_ref().and_then(|g| (0..4).find(|&p| !g.is_cpu(p)))
+    }
+
+    /// How long the CPU waits for a call on its roll.
+    pub fn call_window(&self) -> f64 {
+        if self.unanswered >= CALL_IGNORED { CALL_SECS_IDLE } else { CALL_SECS }
     }
 
     /// A call is open: the CPU waits for it.

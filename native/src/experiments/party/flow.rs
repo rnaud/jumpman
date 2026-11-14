@@ -347,6 +347,7 @@ pub fn handle_ui(app: &mut PartyApp, shell: &mut Shell, slot: &mut ExperimentSlo
                     c.high = Some(high);
                     c.rolled = true;
                 }
+                app.unanswered = 0;
                 cue(shell, "move_menu");
                 app.send(Cmd::Roll(None));
             }
@@ -634,8 +635,11 @@ fn board_flow(app: &mut PartyApp, shell: &mut Shell, dt: f64) {
             let cur = app.game.as_ref().map_or(0, |g| g.cur);
             // A call is open on this CPU's roll: wait for it (a little), then roll.
             if let Some(c) = app.call.as_ref().filter(|c| !c.rolled && c.seat == cur) {
-                if c.high.is_none() && app.t - c.t0 < CALL_SECS {
+                if c.high.is_none() && app.t - c.t0 < app.call_window() {
                     return;
+                }
+                if c.high.is_none() {
+                    app.unanswered += 1;
                 }
                 if let Some(c) = app.call.as_mut() {
                     c.rolled = true;
@@ -1096,6 +1100,119 @@ mod tests {
         assert_eq!(coins(&a), c0 + CALL_PRIZE, "5 is LOW");
         assert_eq!(a.calls, (1, 2));
         assert_eq!((Die::Normal.call_line(), Die::Dash.call_line(), Die::Twin.call_line()), (6, 8, 7));
+    }
+
+    /// One solo party measured against the research checklist (`MINIGAMES_RESEARCH.md` section 8): how long the person waits
+    /// between moments they act (their own choices, a call on a CPU roll, playing a mini-game), how long a CPU turn takes, the
+    /// real time per round (mini-game to mini-game), the mini-game length and the session length. CPU turns are paced
+    /// (`fast_fwd` off) unless asked.
+    struct SoloAudit {
+        session: f64,
+        gaps: Vec<f64>,
+        cpu_turn: f64,
+        rounds: Vec<f64>,
+        minis: Vec<f64>,
+        calls: u32,
+    }
+
+    fn solo_audit(board: usize, seed: u64, fast_fwd: bool, call: bool) -> SoloAudit {
+        let mut a = app(false, board, seed);
+        a.humans = 1;
+        a.cfg.turns = DEFAULT_TURNS;
+        a.cpu_fast = fast_fwd;
+        a.cmds.push(UiCmd::Start);
+        let (mut shell, mut slot) = (Shell::default(), ExperimentSlot::default());
+        let (mut n, mut t, mut cpu_t, mut cpu_turns) = (0u32, 0.0f64, 0.0f64, 0u32);
+        let (mut last_act, mut gaps) = (0.0f64, vec![]);
+        let (mut mini_starts, mut minis, mut play_t0) = (vec![], vec![], None::<f64>);
+        let mut was_cpu = None::<usize>;
+        while a.screen != Screen::Results && n < 600_000 {
+            let mut acted = false;
+            if let Some(c) = person_acts(&a, n / 7) {
+                if n % 7 == 0 {
+                    a.cmds.push(c);
+                }
+                acted = true;
+            }
+            if call && a.call_open() {
+                if n % 9 == 0 {
+                    a.cmds.push(UiCmd::Call(n % 2 == 0));
+                }
+                acted = true;
+            }
+            if let Some(m) = a.mini.as_ref() {
+                match (m.stage, play_t0) {
+                    (MStage::Play, None) => {
+                        play_t0 = Some(t);
+                        mini_starts.push(t);
+                    }
+                    (MStage::Play, _) => {}
+                    (_, Some(t0)) => {
+                        minis.push(t - t0);
+                        play_t0 = None;
+                    }
+                    _ => {}
+                }
+            }
+            if acted {
+                if t - last_act > 0.5 {
+                    gaps.push(t - last_act);
+                }
+                last_act = t;
+            }
+            let cpu = a.screen == Screen::Board && a.game.as_ref().is_some_and(|g| g.is_cpu(g.cur) && matches!(g.phase, Phase::TurnStart | Phase::Branch(_) | Phase::KeeperOffer | Phase::ShopMenu | Phase::DuelPick));
+            let cur = a.game.as_ref().map(|g| g.cur);
+            if cpu && was_cpu != cur {
+                cpu_turns += 1;
+            }
+            was_cpu = if cpu { cur } else { None };
+            tick(&mut a, &mut shell, &mut slot, 0.04, &mut |_, _| {});
+            if cpu {
+                cpu_t += 0.04;
+            }
+            t += 0.04;
+            n += 1;
+        }
+        let rounds = mini_starts.windows(2).map(|w| w[1] - w[0]).collect();
+        SoloAudit { session: t, gaps, cpu_turn: cpu_t / cpu_turns.max(1) as f64, rounds, minis, calls: a.calls.1 }
+    }
+
+    /// Solo, a person who never plays the call game does not sit through the CPU's wait for a call: CPU turns stay under 4 s
+    /// and the person is never left more than 15 s without something to do (the research checklist's solo downtime).
+    #[test]
+    fn a_person_who_never_calls_is_not_kept_waiting() {
+        for seed in 0..3u64 {
+            let r = solo_audit(seed as usize % 3, 300 + seed, false, false);
+            let worst = r.gaps.iter().copied().fold(0.0, f64::max);
+            eprintln!("seed {seed}: CPU turn {:.1}s, longest wait {worst:.1}s, session {:.0}s", r.cpu_turn, r.session);
+            assert!(r.cpu_turn < 4.0, "a CPU turn takes {:.1}s", r.cpu_turn);
+            assert!(worst <= 15.0, "the person waited {worst:.1}s");
+        }
+    }
+
+    /// `cargo test --release -p jumpman --lib audit_shindig_solo -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn audit_shindig_solo() {
+        for (label, fast, call) in [("paced, calls", false, true), ("paced, no calls", false, false), ("fast-forward", true, false)] {
+            let (mut sess, mut mean_gap, mut worst, mut cpu, mut round, mut mini, mut over15, mut calls, mut n) = (0.0, 0.0, 0.0f64, 0.0, 0.0, 0.0, 0usize, 0, 0.0);
+            let mut rounds_n = 0usize;
+            for seed in 0..6u64 {
+                let r = solo_audit((seed % 3) as usize, 300 + seed, fast, call);
+                sess += r.session;
+                // The person's wait between acts, averaged over the session (time not acting / number of waits).
+                mean_gap += r.gaps.iter().sum::<f64>() / r.gaps.len().max(1) as f64;
+                worst = worst.max(r.gaps.iter().copied().fold(0.0, f64::max));
+                over15 += r.gaps.iter().filter(|g| **g > 15.0).count();
+                cpu += r.cpu_turn;
+                round += r.rounds.iter().sum::<f64>() / r.rounds.len().max(1) as f64;
+                rounds_n += r.rounds.iter().filter(|x| **x > 90.0).count();
+                mini += r.minis.iter().sum::<f64>() / r.minis.len().max(1) as f64;
+                calls += r.calls;
+                n += 1.0;
+            }
+            eprintln!("AUDIT SHINDIG [{label}]: session {:.0}s, mean wait between acts {:.1}s, longest wait {:.1}s, waits over 15 s {over15} in 6 games, CPU turn {:.1}s, round {:.0}s (rounds over 90 s: {rounds_n}), mini-game {:.0}s, calls {calls}", sess / n, mean_gap / n, worst, cpu / n, round / n, mini / n);
+        }
     }
 
     /// Whole games with every people count, played only through the commands the touch UI sends.

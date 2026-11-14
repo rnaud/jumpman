@@ -465,3 +465,29 @@ fn every_mini_game_comes_up_before_any_repeats() {
         assert!(hi - lo <= 1, "seed {seed}: plays {:?}", p.mini_plays);
     }
 }
+
+/// Comeback (research checklist, Sunstone Shindig 5): how often the seat in last place after round 3 (fewest Sunstones, then
+/// coins) wins a 6-round CPU game. `cargo test --release -p jumpman --lib comeback_report -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn comeback_report() {
+    let n = 600u64;
+    let mut wins = 0.0f32;
+    for seed in 0..n {
+        let mut p = Party::new(cpu_cfg((seed % 3) as usize, 6, seed + 1));
+        let mut last = None;
+        while p.auto_step() {
+            if last.is_none() && p.round >= 4 {
+                let key = |q: usize| (p.players[q].sun, p.players[q].coins);
+                last = (0..4).min_by_key(|&q| key(q));
+            }
+        }
+        let w = p.winners();
+        if let Some(l) = last {
+            if w.contains(&l) {
+                wins += 1.0 / w.len() as f32;
+            }
+        }
+    }
+    println!("COMEBACK: last after round 3 wins {:.1}% of {n} games (target 10-25%)", wins / n as f32 * 100.0);
+}
