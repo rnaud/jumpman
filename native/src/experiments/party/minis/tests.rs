@@ -345,3 +345,71 @@ fn balance_report() {
         println!("{:<14} {:>5.0}% {:>5.0}% {:>5.0}% {:>5.0}% | {:>5.1}s | {:>4.0}%", m.info().name, wins[0] / n as f32 * 100.0, wins[1] / n as f32 * 100.0, wins[2] / n as f32 * 100.0, wins[3] / n as f32 * 100.0, len / n as f32, hard / n as f32 * 100.0);
     }
 }
+
+/// Bodies never pass through each other: in every game the bots' bodies (they crowd the same coin, the crown, the star) stay
+/// two body radii apart, on the kinematic stand-in as on the real physics (`physics_tests`).
+#[test]
+fn marios_do_not_pass_through_each_other() {
+    for kind in ALL_MINIS {
+        let f = flat(kind);
+        for seed in 0..4u64 {
+            let mut s = Session::new(kind, seed + 3, ALL4, [false; 4], [Level::Hard; 4], f.clone());
+            let mut worst = 0.0f64;
+            while !s.done() && s.steps < 30 * 90 {
+                s.step_kin(&[Drive::default(); 4]);
+                let b = s.kin.bodies();
+                for x in 0..4 {
+                    for y in x + 1..4 {
+                        // Bodies over the field's floor (one going over the edge is falling, not standing).
+                        let over = |p: [f64; 3]| s.kin.field.height(p[0], p[2]).is_some();
+                        if (b[x].pos[1] - b[y].pos[1]).abs() < 100.0 && over(b[x].pos) && over(b[y].pos) {
+                            let o = 2.0 * BODY_R - hdist(b[x].pos, b[y].pos);
+                            if o > 2.0 && std::env::var_os("PARTY_OVERLAP").is_some() {
+                                eprintln!("{kind:?} step {} bodies {x} {y}: {:?} {:?} heights {:?} {:?}", s.steps, b[x].pos, b[y].pos, s.kin.field.height(b[x].pos[0], b[x].pos[2]), s.kin.field.height(b[y].pos[0], b[y].pos[2]));
+                            }
+                            worst = worst.max(o);
+                        }
+                    }
+                }
+            }
+            // A push that would put a body off the field's floor or into a trunk is not made, so a little overlap can stay at
+            // the summit's edge.
+            assert!(worst < 10.0, "{kind:?} seed {seed}: two bodies overlapped by {worst:.1}");
+        }
+    }
+}
+
+#[test]
+fn separating_bodies_pushes_overlaps_apart_half_each() {
+    let pos = [[0.0, 0.0, 0.0], [20.0, 0.0, 0.0], [500.0, 0.0, 0.0], [20.0, 400.0, 0.0]];
+    let m = separate_bodies_fixed(&pos, &[true; 4], &[true, false, false, false]);
+    assert!(m[0] == [0.0, 0.0] && (m[1][0] - 54.0).abs() < 1e-6, "the free body takes the whole push: {m:?}");
+    let m = separate_bodies(&pos, &[true; 4]);
+    assert!((m[0][0] + 27.0).abs() < 1e-6 && (m[1][0] - 27.0).abs() < 1e-6, "{m:?}");
+    assert_eq!(m[2], [0.0, 0.0]);
+    assert_eq!(m[3], [0.0, 0.0], "a body far above is not pushed");
+    let m = separate_bodies(&pos, &[true, false, true, true]);
+    assert_eq!(m[0], [0.0, 0.0], "a seat out of the game is left alone");
+}
+
+/// Goombas are solid: one never walks through a Mario standing on the ground, even in the second after a bump when it cannot
+/// hurt him again.
+#[test]
+fn goombas_do_not_walk_through_marios() {
+    let f = flat(Mini::GoombaStomp);
+    let mut g = goomba_stomp::GoombaStomp::new(4, ALL4, f.clone());
+    let c = f.center;
+    // Four Marios standing still in the Goombas' way.
+    let b: [Body; 4] = std::array::from_fn(|p| body([c[0] + (p as f64 - 1.5) * 300.0, c[1], c[2]]));
+    let mut worst: f64 = 0.0;
+    for _ in 0..30 * 20 {
+        g.step(DT, &b, &[Drive::default(); 4]);
+        let _ = g.events();
+        for m in g.goombas.iter().filter(|m| m.dead.is_none()) {
+            for x in &b {
+                worst = worst.max(goomba_stomp::GOOMBA_BODY - hdist(m.pos, x.pos));
+            }
+        }
+    }
+    assert!(worst < 1e-6, "a Goomba stood {worst:.1} inside a Mario");
+}

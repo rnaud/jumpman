@@ -133,7 +133,8 @@ impl MiniGame for StarTag {
                 }
                 let to = self.flee[p].unwrap_or(self.field.center);
                 let mut d = run_to(me.pos, to, 0.0);
-                d.mag = 1.0;
+                // A sharper holder keeps running flat out; a sloppy one dawdles (Easy 0.85, Hard 0.98 of a full stick).
+                d.mag = 0.7 + 0.3 * skill;
                 d
             }
             Some(h) => {
@@ -145,7 +146,7 @@ impl MiniGame for StarTag {
                 let mut d = run_to(me.pos, aim, 0.0);
                 d.mag = 1.0;
                 let dist = hdist(me.pos, them.pos);
-                if dist < REACH * (0.7 + 0.25 * skill) && facing(&me, them.pos, 0.45) && self.guard <= 0.0 && self.rng.chance(0.2 + 0.5 * skill as f32) {
+                if dist < REACH * (0.7 + 0.25 * skill) && facing(&me, them.pos, 0.45) && self.guard <= 0.0 && self.rng.chance(0.03 + 0.35 * (skill * skill * skill) as f32) {
                     d.punch = true;
                 }
                 d

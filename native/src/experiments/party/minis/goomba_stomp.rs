@@ -7,6 +7,9 @@ const ON_FIELD: usize = 7;
 const WALK: f64 = 7.0;
 const CHASE: f64 = 520.0;
 const POWER: f64 = 24.0;
+/// A Goomba's body against a Mario standing on the ground: it is pushed out to this distance and never walks through him (the
+/// bump that hurts still lands, at 85).
+pub const GOOMBA_BODY: f64 = 80.0;
 
 #[derive(Clone, Debug)]
 pub struct Goomba {
@@ -103,6 +106,23 @@ impl MiniGame for GoombaStomp {
                 _ => {
                     g.goal = self.field.rand_point(&mut self.rng);
                     g.dir = [-g.dir[0], -g.dir[1]];
+                }
+            }
+            // Solid against the Marios on the ground (one coming down on it from above is a stomp, not a wall).
+            for &p in &ids {
+                let b = bodies[p];
+                if !b.grounded || (b.pos[1] - g.pos[1]).abs() > 100.0 {
+                    continue;
+                }
+                let (dx, dz) = (g.pos[0] - b.pos[0], g.pos[2] - b.pos[2]);
+                let d = dx.hypot(dz);
+                if d >= GOOMBA_BODY {
+                    continue;
+                }
+                let (ux, uz) = if d > 0.01 { (dx / d, dz / d) } else { (g.dir[0], g.dir[1]) };
+                let (nx, nz) = (b.pos[0] + ux * GOOMBA_BODY, b.pos[2] + uz * GOOMBA_BODY);
+                if let Some(h) = self.field.height(nx, nz) {
+                    g.pos = [nx, h, nz];
                 }
             }
         }

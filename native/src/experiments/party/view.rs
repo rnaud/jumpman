@@ -485,6 +485,30 @@ pub fn keep_out_of_solids(m: &mut MarioRuntime, solids: &[Solid]) {
     }
 }
 
+/// The four Marios of a mini-game do not pass through each other: overlapping bodies are pushed apart (half each), onto
+/// floor only and never into a tree (the crowd physics steps each body alone, so it does not do this itself).
+pub fn keep_apart(pieces: &mut [Piece], live: &[bool; 4], solids: &[Solid]) {
+    if pieces.len() < 4 {
+        return;
+    }
+    let pos: [[f64; 3]; 4] = std::array::from_fn(|p| pieces[p].mario.runtime.pos);
+    let moved = super::minis::field::separate_bodies(&pos, live);
+    for p in 0..4 {
+        if moved[p] == [0.0, 0.0] {
+            continue;
+        }
+        let m = &mut pieces[p].mario.runtime;
+        let q = [m.pos[0] + moved[p][0], m.pos[1], m.pos[2] + moved[p][1]];
+        let floor = m.world.find_floor(q[0], q[1] + 100.0, q[2]);
+        if floor.surface.is_some() && (floor.height - m.pos[1]).abs() < 120.0 || m.action & ACT_FLAG_AIR != 0 && floor.surface.is_some() {
+            if push_out(solids, q).is_none() {
+                m.pos[0] = q[0];
+                m.pos[2] = q[2];
+            }
+        }
+    }
+}
+
 /// A rules drive as synthetic controller input.
 pub fn drive_input(d: &Drive) -> DriveInput {
     DriveInput { yaw: d.dir.map(|v| atan2s(v[1], v[0]) as f64), mag: Some(d.mag.clamp(0.0, 1.0) * 64.0), jump: d.jump, hold_a: d.hold || d.jump, punch: d.punch, ..Default::default() }
@@ -533,6 +557,7 @@ pub fn step_session(session: &mut Session, pieces: &mut [Piece], human: &[Drive;
         pieces[p].mario.drive(&input);
         keep_out_of_solids(&mut pieces[p].mario.runtime, &session.field.solids);
     }
+    keep_apart(pieces, &std::array::from_fn(|p| session.active[p] && !session.game.out(p)), &session.field.solids);
     let after: [Body; 4] = std::array::from_fn(|p| body_of(&pieces[p].mario.runtime));
     for ev in session.advance(&after, &drives) {
         match ev {
@@ -545,6 +570,8 @@ pub fn step_session(session: &mut Session, pieces: &mut [Piece], human: &[Drive;
             MiniEv::Cue { kind, pos } => cues.push((kind, pos)),
         }
     }
+    // A Mario put back on the field may land on another: part them again.
+    keep_apart(pieces, &std::array::from_fn(|p| session.active[p] && !session.game.out(p)), &session.field.solids);
 }
 
 pub fn drive_pieces(mut app: ResMut<PartyApp>) {
@@ -711,8 +738,21 @@ mod physics_tests {
         let mut cues = vec![];
         let trees = session.field.solids.clone();
         let mut near_trees = 0;
+        let mut worst = 0.0f64;
         while !session.done() && session.steps < 30 * 60 {
             step_session(&mut session, &mut pieces, &[Drive::default(); 4], &mut cues);
+            // No two Marios stand inside each other (body radius each, a little tolerance for a shove that a wall held back).
+            for a in 0..4 {
+                for b in a + 1..4 {
+                    if pieces[a].hidden || pieces[b].hidden {
+                        continue;
+                    }
+                    let (p, q) = (pieces[a].mario.pos(), pieces[b].mario.pos());
+                    if (p[1] - q[1]).abs() < 100.0 {
+                        worst = worst.max(2.0 * BODY_R - hdist(p, q));
+                    }
+                }
+            }
             for pc in &pieces {
                 let p = pc.mario.pos();
                 for t in trees.iter().filter(|t| p[1] > t.pos[1] - 120.0 && p[1] < t.pos[1] + t.h) {
@@ -726,6 +766,8 @@ mod physics_tests {
             eprintln!("{kind:?}: {} trees in the arena, {near_trees} body-steps close to one", trees.len());
         }
         assert!(session.done(), "{kind:?} ended");
+        eprintln!("{kind:?}: worst overlap between two Marios {worst:.1}");
+        assert!(worst < 15.0, "{kind:?}: two Marios overlapped by {worst:.1}");
         (session.game.scores(), cues.len())
     }
 

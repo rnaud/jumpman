@@ -42,7 +42,7 @@ pub const FINAL_SECS: f32 = 420.0;
 /// The Star Tyrant's base health (scaled by the clock and the tier like every foe). Below each of [`TYRANT_GATES`] of its
 /// health it stops, shields itself for [`TYRANT_SHIELD_TICKS`] (damage is mostly turned away), fires a great ring and calls
 /// its guard, and fights harder in the next phase: four phases in all, so the last fight is a fight.
-pub const TYRANT_HP: f32 = 80000.0;
+pub const TYRANT_HP: f32 = 130000.0;
 pub const TYRANT_GATES: [f32; 3] = [0.75, 0.5, 0.25];
 pub const TYRANT_SHIELD_TICKS: u32 = 4 * TICKS_PER_SEC;
 /// Share of the damage that gets through the Tyrant's shield.
@@ -68,6 +68,11 @@ pub struct Meteor {
 }
 /// The dawn: the clock the HUD counts to. A Tyrant still standing then is enraged.
 pub const WIN_SECS: f32 = 480.0;
+/// Kills in one tick that make a big clear (a flash ring, a stronger shake).
+pub const BIG_CLEAR: u32 = 10;
+/// The breather after a boss: for this long the director keeps only this share (percent) of its usual crowd.
+pub const LULL_TICKS: u32 = 12 * TICKS_PER_SEC;
+pub const LULL_SHARE: usize = 45;
 const SURGE_PERIOD_TICKS: u32 = 40 * TICKS_PER_SEC;
 const STAMPEDE_PERIOD_TICKS: u32 = 75 * TICKS_PER_SEC;
 const BOLT_SPEED: f32 = 42.0;
@@ -131,8 +136,38 @@ impl Rng {
 
 /// XP needed to go from `level` to `level + 1` (levels start at 1).
 pub fn xp_to_next(level: u32) -> u32 {
-    5 + 3 * level + level * level / 2
+    let (a, b, c) = xp_curve();
+    a + b * level + c * level * level / 10
 }
+
+#[cfg(not(test))]
+fn xp_curve() -> (u32, u32, u32) {
+    XP_CURVE
+}
+
+/// Tests can sweep the curve: `SWARM_XP_CURVE=a,b,c` (c in tenths).
+#[cfg(test)]
+fn xp_curve() -> (u32, u32, u32) {
+    static C: std::sync::OnceLock<(u32, u32, u32)> = std::sync::OnceLock::new();
+    *C.get_or_init(|| {
+        let v: Vec<u32> = std::env::var("SWARM_XP_CURVE").unwrap_or_default().split(',').filter_map(|x| x.trim().parse().ok()).collect();
+        if v.len() == 3 { (v[0], v[1], v[2]) } else { XP_CURVE }
+    })
+}
+
+/// A constant, which tests may override from the environment for sweeps (A/B of a rule).
+#[cfg(not(test))]
+fn test_knob(_key: &str, v: usize) -> usize {
+    v
+}
+
+#[cfg(test)]
+fn test_knob(key: &str, v: usize) -> usize {
+    std::env::var(key).ok().and_then(|x| x.parse().ok()).unwrap_or(v)
+}
+
+/// `xp_to_next(l) = a + b l + c l^2 / 10`.
+const XP_CURVE: (u32, u32, u32) = (5, 3, 5);
 
 fn minutes(secs: f32) -> f32 {
     secs / 60.0
@@ -439,6 +474,12 @@ impl Upgrade {
     pub fn is_weapon(self) -> bool {
         matches!(self, Upgrade::Nova | Upgrade::Orbit | Upgrade::Boomerang | Upgrade::Lightning | Upgrade::Whirl | Upgrade::Stars | Upgrade::Sword | Upgrade::Flame | Upgrade::Fireball | Upgrade::Frost | Upgrade::Poison | Upgrade::Gravity | Upgrade::Missiles)
     }
+    /// Whether taking this card changes what is on screen (a new or changed weapon pattern, bigger areas, more
+    /// projectiles, an evolution), not only a number (the research checklist's "every card changes what you see").
+    pub fn visible_change(self, _owned: &Upgrades) -> bool {
+        // The Power Tome draws every projectile bigger (`swarm::power_look`).
+        self.is_weapon() || self.is_evolution() || matches!(self, Upgrade::Area | Upgrade::Bolts | Upgrade::Damage | Upgrade::Quake | Upgrade::Dive)
+    }
     /// Evolutions open once two other upgrades are high enough.
     pub fn requirement(self) -> Option<[(Upgrade, u8); 2]> {
         Some(match self {
@@ -511,6 +552,9 @@ impl Choices {
     }
 }
 
+/// Cards per offer that change what is on screen, when the build has that many left (see [`Upgrade::visible_change`]).
+pub const VISIBLE_CARDS: usize = 2;
+
 /// Weighted random draw of up to three distinct, non-maxed upgrades the player qualifies for.
 pub fn roll_choices(rng: &mut Rng, owned: &Upgrades, player_level: u32) -> Choices {
     roll_choices_ex(rng, owned, player_level, false)
@@ -572,6 +616,34 @@ pub fn roll_choices_ex(rng: &mut Rng, owned: &Upgrades, player_level: u32, chest
         new_taken += 1;
     }
     let weight = |u: Upgrade| u.info().weight * if chest && u.info().rare { 3 } else { 1 };
+    // Two of the three cards change what is on screen (a weapon level, area, quantity, an evolution) whenever the build has
+    // such cards left: a hand of three hidden numbers is a level-up nobody sees.
+    let visible = |u: &Upgrade| u.visible_change(owned);
+    while out.len < 3 && out.items[..out.len].iter().filter(|u| visible(u)).count() < test_knob("SWARM_VISIBLE", VISIBLE_CARDS) {
+        let total: u32 = pool[..n].iter().filter(|u| visible(u)).map(|u| weight(*u)).sum();
+        if total == 0 {
+            break;
+        }
+        let mut roll = rng.below(total);
+        let mut pick = usize::MAX;
+        for (i, u) in pool[..n].iter().enumerate() {
+            if visible(u) {
+                let w = weight(*u);
+                if roll < w {
+                    pick = i;
+                    break;
+                }
+                roll -= w;
+            }
+        }
+        if pick == usize::MAX {
+            break;
+        }
+        out.items[out.len] = pool[pick];
+        out.len += 1;
+        pool[pick] = pool[n - 1];
+        n -= 1;
+    }
     while out.len < 3 && n > 0 {
         let total: u32 = pool[..n].iter().map(|u| weight(*u)).sum();
         let mut roll = rng.below(total);
@@ -954,6 +1026,8 @@ pub struct Events {
     pub pot_pos: [f32; 2],
     pub split: bool,
     pub crit: bool,
+    /// Foes killed this tick when it was a big clear (at least [`BIG_CLEAR`]), else 0.
+    pub big_clear: u16,
     /// The Tyrant passed a phase gate this tick (the new phase, 1..=3) and shields itself.
     pub tyrant_phase: u8,
 }
@@ -1240,6 +1314,8 @@ pub struct Swarm {
     volley_n: u32,
     echo: (u8, [f32; 2], f32, f32),
     tyrant_dead: bool,
+    /// After a boss falls the director lets the field thin out until this tick (a breather before the next rise).
+    pub lull_until: u32,
     /// Phases the Tyrant has passed (0..=3), ticks of its shield left, and a gate burst waiting for its next move.
     pub tyrant_gate: u8,
     pub tyrant_shield: u32,
@@ -1360,6 +1436,7 @@ impl Swarm {
             volley_n: 0,
             echo: (0, [0.0; 2], 0.0, 0.0),
             tyrant_dead: false,
+            lull_until: 0,
             tyrant_gate: 0,
             tyrant_shield: 0,
             tyrant_burst: false,
@@ -1530,6 +1607,13 @@ impl Swarm {
         }
         if !self.shrines.is_empty() || !self.pots.is_empty() {
             self.update_shrines();
+        }
+        // A big clear (a quake, a bomb, an evolution sweeping a crowd) answers with a flash that grows with the haul; single
+        // kills stay a small pop (the host adds shake and a beat by `ev.big_clear`).
+        if self.ev.kills as u32 >= BIG_CLEAR {
+            self.ev.big_clear = self.ev.kills;
+            let c = self.player.pos;
+            self.add_ring(RingKind::Revive, c, (500.0 + 25.0 * self.ev.kills as f32).min(1300.0), 12);
         }
         self.update_rings();
         self.update_boss_bar();
@@ -1772,7 +1856,10 @@ impl Swarm {
                 }
             }
         }
-        let want = target_live_at(secs, self.cap, self.tier.spawn * super::swarm_shrines::curse_spawn(self.curses));
+        let mut want = target_live_at(secs, self.cap, self.tier.spawn * super::swarm_shrines::curse_spawn(self.curses));
+        if self.tick < self.lull_until {
+            want = want * test_knob("SWARM_LULL", LULL_SHARE) / 100;
+        }
         let deficit = want.saturating_sub(self.alive_enemies);
         let mut budget = 3 + (deficit / 14).min(5);
         while self.alive_enemies < want && budget > 0 {
@@ -2892,6 +2979,7 @@ impl Swarm {
         match kind {
             EnemyKind::King | EnemyKind::Chomp | EnemyKind::Tyrant => {
                 self.ev.boss_killed = true;
+                self.lull_until = self.tick + LULL_TICKS;
                 for k in 0..5 {
                     let a = k as f32 * 1.2566;
                     self.drop_gem(GemKind::Xp, [pos[0] + a.cos() * 140.0, pos[1] + a.sin() * 140.0], xp / 5);
@@ -3878,7 +3966,12 @@ mod tests {
     }
 
     /// `speed_k` below 1 is a clumsier player who runs slower and turns late (a casual human).
-    fn kite_skill(mut s: Swarm, until_secs: f32, hp_cheat: bool, speed_k: f32) -> Swarm {
+    fn kite_skill(s: Swarm, until_secs: f32, hp_cheat: bool, speed_k: f32) -> Swarm {
+        kite_obs(s, until_secs, hp_cheat, speed_k, &mut |_, _| {})
+    }
+
+    /// As [`kite_skill`], calling `obs` after every tick with the core and the cards picked during it (audits).
+    fn kite_obs(mut s: Swarm, until_secs: f32, hp_cheat: bool, speed_k: f32, obs: &mut dyn FnMut(&Swarm, &[(Choices, usize)])) -> Swarm {
         const PRIORITY: &[Upgrade] = &[
             Upgrade::StarStorm,
             Upgrade::Supernova,
@@ -4028,11 +4121,18 @@ mod tests {
                 None => 0.0,
             };
             s.tick(&PlayerFrame { pos, height, pound_land: pounds && t % 240 == 0 && height == 0.0, ..Default::default() });
+            let mut picked: [(Choices, usize); 8] = [(Choices { items: [Upgrade::Damage; 3], len: 0, chest: false }, 0); 8];
+            let mut np = 0;
             while s.choices.is_some() {
                 let c = s.choices.unwrap();
                 let best = (0..c.len).min_by_key(|&i| PRIORITY.iter().position(|u| *u == c.items[i]).unwrap_or(99)).unwrap();
+                if np < picked.len() {
+                    picked[np] = (c, best);
+                    np += 1;
+                }
                 s.pick(best);
             }
+            obs(&s, &picked[..np]);
             if s.over {
                 break;
             }
@@ -4054,8 +4154,9 @@ mod tests {
             assert!(s.bosses >= 1 || s.over, "seed {seed}: no boss by {}", s.secs());
         }
         // NORMAL is meant to be a real fight now: a skilled kiter with only the starting stars (no hero kit) reaches the Tyrant
-        // on some seeds (3 of 8 at the last tune); `tune_tier` measures the heroes with their own kits.
-        assert!(reached >= 3, "only {reached} of 8 kiting players reached the Tyrant");
+        // on some seeds (3 of 8 before the visible-card rule, 2 of 8 after it: a hand of weapon levels leaves the kitless stand-in
+        // fewer defensive tomes); `tune_tier` and `audit_swarm_run` measure the heroes with their own kits.
+        assert!(reached >= 2, "only {reached} of 8 kiting players reached the Tyrant");
     }
 
     /// And it can be beaten: a player with a full build (what seven minutes of picks and chests buy: six weapons) kills it.
@@ -4297,15 +4398,19 @@ mod tests {
         assert!(stopped_by_heavy > 0, "brutes and splitters should stop the hero now and then");
     }
 
+    fn env_tier() -> super::super::swarm_meta::Tier {
+        let base = super::super::swarm_meta::tier(std::env::var("SWARM_TUNE_TIER").ok().and_then(|v| v.parse().ok()).unwrap_or(0));
+        let v: Vec<f32> = std::env::var("SWARM_TUNE").unwrap_or_default().split(',').filter_map(|x| x.trim().parse().ok()).collect();
+        if v.len() == 5 { super::super::swarm_meta::Tier { hp: v[0], speed: v[1], spawn: v[2], damage: v[3], xp: v[4], ..base } } else { base }
+    }
+
     /// Balance sweep: `SWARM_TUNE="hp,speed,spawn,damage,xp"` replaces the multipliers of tier `SWARM_TUNE_TIER` (default
     /// 0) and prints, per hero and player, how many of 8 seeds reach the Tyrant. `cargo test --release -p jumpman tune_tier
     /// -- --ignored --nocapture`.
     #[test]
     #[ignore]
     fn tune_tier() {
-        let base = super::super::swarm_meta::tier(std::env::var("SWARM_TUNE_TIER").ok().and_then(|v| v.parse().ok()).unwrap_or(0));
-        let v: Vec<f32> = std::env::var("SWARM_TUNE").unwrap_or_default().split(',').filter_map(|x| x.trim().parse().ok()).collect();
-        let t = if v.len() == 5 { super::super::swarm_meta::Tier { hp: v[0], speed: v[1], spawn: v[2], damage: v[3], xp: v[4], ..base } } else { base };
+        let t = env_tier();
         let seeds: u64 = std::env::var("SWARM_TUNE_SEEDS").ok().and_then(|v| v.parse().ok()).unwrap_or(8);
         // Seconds of the Tyrant fight allowed after it arrives (`SWARM_TUNE_FIGHT`, default 240: the dawn and a bit).
         let fight: f32 = std::env::var("SWARM_TUNE_FIGHT").ok().and_then(|v| v.parse().ok()).unwrap_or(240.0);
@@ -4344,6 +4449,269 @@ mod tests {
                     lvl as f32 / n
                 );
             }
+        }
+    }
+
+    /// Two of the three cards of an offer change what is on screen whenever the build still has two such cards to give (the
+    /// research checklist's "every card changes what you see"); with the slots full and the weapons maxed it falls back to tomes.
+    #[test]
+    fn offers_show_two_visible_cards_while_the_build_has_them() {
+        let mut rng = Rng::new(11);
+        let (mut offers, mut short) = (0, 0);
+        for build in 0..400u32 {
+            let mut up = Upgrades::default();
+            let mut r = Rng::new(build as u64 * 31 + 7);
+            for _ in 0..r.below(60) {
+                up.take(ALL_UPGRADES[r.below(UPGRADE_COUNT as u32) as usize]);
+            }
+            let level = 1 + r.below(60);
+            for chest in [false, true] {
+                let c = roll_choices_ex(&mut rng, &up, level, chest);
+                let eligible = ALL_UPGRADES.iter().filter(|u| up.eligible(**u, level) && u.visible_change(&up)).count();
+                let shown = c.as_slice().iter().filter(|u| u.visible_change(&up)).count();
+                offers += 1;
+                if shown < VISIBLE_CARDS.min(eligible).min(c.len) {
+                    short += 1;
+                }
+            }
+        }
+        assert_eq!(short, 0, "{short} of {offers} offers had fewer visible cards than the build allowed");
+    }
+
+    /// After a boss falls the crowd thins out for a breather (the density curve's dip), then rises again.
+    #[test]
+    fn a_fallen_boss_brings_a_lull() {
+        let crowd_after = |kill: bool| {
+            let s = Swarm::start(4, 300, Hero::Mario, super::super::swarm_meta::tier(0), Perks { damage: 1.0, max_hp: 0.0, xp: 1.0 });
+            let mut s = kite_skill(s, 220.0, true, 1.0);
+            let at_kill = s.alive_enemies;
+            if kill {
+                let p = s.player.pos;
+                s.spawn_enemy(EnemyKind::King, [p[0] + 600.0, p[1]], s.secs());
+                let k = s.enemies.iter().position(|e| e.alive && e.kind == EnemyKind::King).unwrap();
+                s.damage_enemy(k, 1e9);
+                assert!(s.lull_until > s.tick);
+            }
+            let s = kite_skill(s, 10.0, true, 1.0);
+            (at_kill, s.alive_enemies)
+        };
+        let (before, lull) = crowd_after(true);
+        let (_, usual) = crowd_after(false);
+        eprintln!("live foes: {before} at the kill, {lull} ten seconds later (without a kill {usual})");
+        assert!((lull as f32) < 0.7 * usual as f32, "lull {lull} against {usual}");
+    }
+
+    /// Single kills stay a small pop; a big clear gets a flash ring (and the host a stronger shake).
+    #[test]
+    fn a_big_clear_flashes_and_a_single_kill_does_not() {
+        let crowd = |n: usize| {
+            let mut s = Swarm::start(3, 300, Hero::Mario, super::super::swarm_meta::tier(0), Perks { damage: 1.0, max_hp: 0.0, xp: 1.0 });
+            s.tick(&frame_at(0.0, 0.0));
+            for k in 0..n {
+                let a = k as f32 * 0.7;
+                s.spawn_enemy(EnemyKind::Skitter, [a.cos() * 200.0, a.sin() * 200.0], 0.0);
+            }
+            for e in s.enemies.iter_mut().filter(|e| e.alive) {
+                e.hp = 0.5;
+            }
+            s.rings = [Ring { alive: false, ..s.rings[0] }; RING_SLOTS];
+            s.tick(&PlayerFrame { pound_land: true, ..frame_at(0.0, 0.0) });
+            (s.ev.kills, s.ev.big_clear, s.rings.iter().any(|r| r.alive && r.kind == RingKind::Revive))
+        };
+        let (kills, big, flash) = crowd(16);
+        assert!(kills as u32 >= BIG_CLEAR && big == kills && flash, "{kills} kills: big {big}, flash {flash}");
+        let (kills, big, flash) = crowd(1);
+        assert!(kills == 1 && big == 0 && !flash);
+    }
+
+    /// What a run looks like against the research checklist (`MINIGAMES_RESEARCH.md` section 2), per hero and player:
+    /// level-up cadence, power spikes (new weapon, evolution, chest), the density curve and how many cards per offer change
+    /// what is on screen. `SWARM_AUDIT_SEEDS` (default 8). `cargo test --release -p jumpman --lib audit_swarm_run -- --ignored
+    /// --nocapture`.
+    #[test]
+    #[ignore]
+    fn audit_swarm_run() {
+        let seeds: u64 = std::env::var("SWARM_AUDIT_SEEDS").ok().and_then(|v| v.parse().ok()).unwrap_or(8);
+        for (label, k) in [("skilled", 1.0f32), ("casual", 0.5)] {
+            for hero in [Hero::Mario, Hero::Link, Hero::Banjo] {
+                let mut r = RunAudit::default();
+                for seed in 1..=seeds {
+                    let s = Swarm::start(seed, 300, hero, env_tier(), Perks { damage: 1.0, max_hp: 0.0, xp: 1.0 });
+                    r.run(s, k);
+                }
+                eprintln!("AUDIT {hero:?} [{label}] {}", r.report(seeds));
+            }
+        }
+    }
+
+    #[derive(Default)]
+    struct RunAudit {
+        first_level: Vec<f32>,
+        gaps_3min: Vec<f32>,
+        max_gap_3min: Vec<f32>,
+        levels_at: [Vec<u32>; 3],
+        first_evo: Vec<f32>,
+        spike_gaps: Vec<f32>,
+        max_spike_gap: Vec<f32>,
+        offers: u32,
+        offers_two_visible: u32,
+        density: Vec<[f32; 48]>,
+        dens_n: Vec<[u32; 48]>,
+        reached: u32,
+        won: u32,
+        evolutions: u32,
+        survival: Vec<f32>,
+        /// Live foes 10 s after a boss died over live foes as it died (the lull after a boss).
+        lull: Vec<f32>,
+        /// Live foes in the last minute before the Tyrant over the run's busiest earlier 30 s.
+        crescendo: Vec<f32>,
+    }
+
+    impl RunAudit {
+        fn run(&mut self, s: Swarm, k: f32) {
+            let mut levels: Vec<f32> = vec![];
+            let mut spikes: Vec<f32> = vec![];
+            let mut first_evo = None;
+            let mut dens = [0.0f32; 48];
+            let mut dn = [0u32; 48];
+            let mut lv_at = [0u32; 3];
+            let mut evos = 0;
+            let (mut offers, mut two) = (0, 0);
+            let mut boss_at: Vec<(u32, usize)> = vec![];
+            let mut lull: Vec<f32> = vec![];
+            let fight: f32 = std::env::var("SWARM_TUNE_FIGHT").ok().and_then(|v| v.parse().ok()).unwrap_or(240.0);
+            let s = kite_obs(s, FINAL_SECS + fight, false, k, &mut |s, picks| {
+                let t = s.secs();
+                if s.ev.boss_killed && !s.final_spawned {
+                    boss_at.push((s.tick + 10 * TICKS_PER_SEC, s.alive_enemies.max(1)));
+                }
+                boss_at.retain(|(at, n)| {
+                    if s.tick == *at {
+                        lull.push(s.alive_enemies as f32 / *n as f32);
+                    }
+                    s.tick < *at
+                });
+                if s.ev.level_up {
+                    levels.push(t);
+                }
+                if s.ev.chest_opened {
+                    spikes.push(t);
+                }
+                for (c, i) in picks {
+                    offers += 1;
+                    if c.as_slice().iter().filter(|u| u.visible_change(&s.up)).count() >= 2 {
+                        two += 1;
+                    }
+                    let u = c.items[*i];
+                    if u.is_evolution() {
+                        evos += 1;
+                        first_evo.get_or_insert(t);
+                        spikes.push(t);
+                    } else if u.is_weapon() && s.up.level(u) == 1 {
+                        spikes.push(t);
+                    }
+                }
+                let b = ((t / 10.0) as usize).min(47);
+                dens[b] += s.alive_enemies as f32;
+                dn[b] += 1;
+                for (j, at) in [180.0f32, 300.0, 420.0].iter().enumerate() {
+                    if (t - at).abs() < 0.02 {
+                        lv_at[j] = s.player.level;
+                    }
+                }
+            });
+            self.survival.push(s.secs());
+            self.reached += (s.won || s.final_spawned) as u32;
+            self.won += s.won as u32;
+            self.evolutions += evos;
+            if let Some(f) = levels.first() {
+                self.first_level.push(*f);
+            }
+            let early: Vec<f32> = levels.iter().copied().filter(|t| *t <= 180.0).collect();
+            let gaps: Vec<f32> = early.windows(2).map(|w| w[1] - w[0]).collect();
+            self.gaps_3min.extend(gaps.iter());
+            self.max_gap_3min.push(gaps.iter().copied().fold(0.0, f32::max));
+            for j in 0..3 {
+                if lv_at[j] > 0 {
+                    self.levels_at[j].push(lv_at[j]);
+                }
+            }
+            if let Some(e) = first_evo {
+                self.first_evo.push(e);
+            }
+            // Power spikes before the Tyrant (from 0:00, so a slow first spike counts).
+            spikes.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let end = s.secs().min(FINAL_SECS);
+            let mut prev = 0.0;
+            let mut worst = 0.0f32;
+            for t in spikes.iter().copied().filter(|t| *t <= end) {
+                self.spike_gaps.push(t - prev);
+                worst = worst.max(t - prev);
+                prev = t;
+            }
+            worst = worst.max(end - prev);
+            self.max_spike_gap.push(worst);
+            self.offers += offers;
+            self.offers_two_visible += two;
+            self.lull.extend(lull);
+            if s.secs() >= FINAL_SECS {
+                let w = |b: usize| dens[b] / dn[b].max(1) as f32;
+                let last = (w(36) + w(37) + w(38) + w(39) + w(40) + w(41)) / 6.0;
+                let busiest = (0..12).map(|k| (w(3 * k) + w(3 * k + 1) + w(3 * k + 2)) / 3.0).fold(0.0, f32::max);
+                self.crescendo.push(last / busiest.max(1.0));
+            }
+            self.density.push(dens);
+            self.dens_n.push(dn);
+        }
+
+        fn report(&self, seeds: u64) -> String {
+            let mean = |v: &[f32]| if v.is_empty() { f32::NAN } else { v.iter().sum::<f32>() / v.len() as f32 };
+            let meanu = |v: &[u32]| if v.is_empty() { f32::NAN } else { v.iter().sum::<u32>() as f32 / v.len() as f32 };
+            let max = |v: &[f32]| v.iter().copied().fold(0.0f32, f32::max);
+            let over = |v: &[f32], x: f32| v.iter().filter(|g| **g > x).count();
+            // Mean live foes per 30 s, over the runs alive in that window.
+            let mut curve = String::new();
+            for w in 0..16 {
+                let (mut sum, mut n) = (0.0, 0);
+                for (d, c) in self.density.iter().zip(&self.dens_n) {
+                    for b in w * 3..w * 3 + 3 {
+                        sum += d[b];
+                        n += c[b];
+                    }
+                }
+                curve += &format!("{:.0} ", if n > 0 { sum / n as f32 } else { 0.0 });
+            }
+            format!(
+                "lull after a boss {:.2} (live 10 s after / at the kill, {} bosses); last minute before the Tyrant / busiest earlier 30 s {:.2}; first level-up {:.1}s (max {:.1}); level-up gap to 3:00 mean {:.1}s, worst run's longest gap {:.1}s (mean of longest {:.1}); level at 3/5/7 min {:.1}/{:.1}/{:.1}; first evolution {:.0}s in {}/{} runs, {:.1} evolutions a run; power-spike gap mean {:.0}s, longest {:.0}s (mean longest {:.0}s, runs with a >90 s gap {}/{}); offers with 2+ visible cards {}/{} ({:.0}%); reached Tyrant {}/{}, won {}; mean survival {:.0}s; live foes per 30 s: {}",
+                mean(&self.lull),
+                self.lull.len(),
+                mean(&self.crescendo),
+                mean(&self.first_level),
+                max(&self.first_level),
+                mean(&self.gaps_3min),
+                max(&self.max_gap_3min),
+                mean(&self.max_gap_3min),
+                meanu(&self.levels_at[0]),
+                meanu(&self.levels_at[1]),
+                meanu(&self.levels_at[2]),
+                mean(&self.first_evo),
+                self.first_evo.len(),
+                seeds,
+                self.evolutions as f32 / seeds as f32,
+                mean(&self.spike_gaps),
+                max(&self.max_spike_gap),
+                mean(&self.max_spike_gap),
+                over(&self.max_spike_gap, 90.0),
+                seeds,
+                self.offers_two_visible,
+                self.offers,
+                100.0 * self.offers_two_visible as f32 / self.offers.max(1) as f32,
+                self.reached,
+                seeds,
+                self.won,
+                mean(&self.survival),
+                curve
+            )
         }
     }
 
