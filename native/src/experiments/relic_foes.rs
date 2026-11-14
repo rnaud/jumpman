@@ -29,6 +29,10 @@ use super::*;
 use crate::experiments::foes::{Pose, Species};
 
 const HP_UNIT: f32 = 16.0;
+/// Ticks a biter rears back before it bites (half a second: the research checklist's minimum telegraph).
+pub const BITE_WINDUP: u16 = 15;
+/// The shortest wind-up of any other attack (a lunge, a dive, a shot).
+pub const MIN_WINDUP: u16 = 16;
 const HEART_DMG: f32 = 22.0;
 
 /// Map a species to its core kind.
@@ -362,16 +366,27 @@ impl Relic {
         }
     }
 
-    /// Pursue with the Scamp's bite.
-    fn bite(&mut self, i: usize, dir: [f32; 2], d: f32, cd: u16) {
+    /// Pursue with the Scamp's bite: in reach it rears back for [`BITE_WINDUP`] ticks (the shake and attack pose are the
+    /// warning), then bites if the hero is still close; stepping or diving away makes it miss.
+    pub(super) fn bite(&mut self, i: usize, dir: [f32; 2], d: f32, cd: u16) {
         let e = self.enemies[i];
         let reach = e.radius + PLAYER_RADIUS + 25.0;
+        if e.state == EState::Windup {
+            if self.tick_down(i) == 0 {
+                if d < reach * 1.2 {
+                    self.melee_hit(i);
+                }
+                self.goto(i, EState::Chase, 0);
+                self.enemies[i].cd = cd;
+            }
+            return;
+        }
         if d > reach * 0.8 {
             self.step_enemy(i, dir, e.speed);
         }
         if d < reach && e.cd == 0 {
-            self.melee_hit(i);
-            self.enemies[i].cd = cd;
+            self.goto(i, EState::Windup, BITE_WINDUP);
+            self.enemies[i].dir = dir;
         }
     }
 
@@ -413,7 +428,7 @@ impl Relic {
                 }
                 _ => {
                     if d < 340.0 && e.cd == 0 {
-                        self.goto(i, EState::Windup, 14);
+                        self.goto(i, EState::Windup, MIN_WINDUP);
                         self.enemies[i].dir = dir;
                     }
                 }
@@ -426,8 +441,8 @@ impl Relic {
                         let land = [me[0] + from_me[0] * 130.0, me[1] + from_me[1] * 130.0];
                         let land = if self.dungeon.circle_free(land, 60.0) { land } else { me };
                         self.enemies[i].pos = land;
-                        self.goto(i, EState::Air, 14);
-                        self.add_hazard(land, 200.0, 14, e.dmg);
+                        self.goto(i, EState::Air, MIN_WINDUP);
+                        self.add_hazard(land, 200.0, MIN_WINDUP, e.dmg);
                     }
                 }
                 EState::Air => {
@@ -478,11 +493,10 @@ impl Relic {
                             self.enemies[i].phase = 0;
                             self.goto(i, EState::Hidden, 40);
                         } else if e.cd == 0 && d < 1300.0 && d > 120.0 {
-                            self.goto(i, EState::Windup, 12);
+                            self.goto(i, EState::Windup, MIN_WINDUP);
                         } else if !burrower && d < reach && e.cd == 0 {
-                            // Cornered: it spits point blank.
-                            self.melee_hit(i);
-                            self.enemies[i].cd = 40;
+                            // Cornered: it spits point blank (the same wind-up as a shot).
+                            self.goto(i, EState::Windup, MIN_WINDUP);
                         }
                     }
                 }
@@ -505,15 +519,21 @@ impl Relic {
                         self.enemies[i].cd = 20 + (self.tick % 24) as u16;
                     }
                 }
-                _ => {
-                    if e.cd == 0 && d < 950.0 {
+                EState::Windup => {
+                    // Crouched: the hop goes where the hero stood when it crouched.
+                    if self.tick_down(i) == 0 {
                         let v = (d / 16.0).clamp(12.0, 30.0);
                         let en = &mut self.enemies[i];
                         en.state = EState::Air;
                         en.timer = 18;
-                        en.dir = dir;
                         en.struck = false;
                         en.speed = v;
+                    }
+                }
+                _ => {
+                    if e.cd == 0 && d < 950.0 {
+                        self.goto(i, EState::Windup, MIN_WINDUP);
+                        self.enemies[i].dir = dir;
                     }
                 }
             },
@@ -584,7 +604,7 @@ impl Relic {
                         self.step_enemy(i, perp, e.speed * 0.9);
                     }
                     if e.cd == 0 && d < 650.0 {
-                        self.goto(i, EState::Windup, 10);
+                        self.goto(i, EState::Windup, MIN_WINDUP);
                         self.enemies[i].dir = dir;
                     }
                 }
@@ -626,7 +646,7 @@ impl Relic {
                         self.step_enemy(i, perp, e.speed * 0.8);
                     }
                     if e.cd == 0 && d < 900.0 {
-                        self.goto(i, EState::Windup, 8);
+                        self.goto(i, EState::Windup, MIN_WINDUP);
                     }
                 }
             },
@@ -649,13 +669,20 @@ impl Relic {
                         self.enemies[i].cd = 14;
                     }
                 }
+                EState::Windup => {
+                    if self.tick_down(i) == 0 {
+                        if d < reach * 1.2 {
+                            self.melee_hit(i);
+                        }
+                        self.goto(i, EState::Recover, 28);
+                    }
+                }
                 _ => {
                     if d > reach * 0.8 {
                         self.step_enemy(i, dir, e.speed);
                     }
                     if d < reach && e.cd == 0 {
-                        self.melee_hit(i);
-                        self.goto(i, EState::Recover, 28);
+                        self.goto(i, EState::Windup, BITE_WINDUP);
                     }
                 }
             },
@@ -692,12 +719,9 @@ impl Relic {
                 }
                 _ => {
                     self.step_enemy(i, dir, e.speed);
-                    if d > 240.0 && d < 950.0 && e.cd == 0 {
+                    if d < 950.0 && e.cd == 0 {
                         self.goto(i, EState::Windup, 30);
                         self.enemies[i].dir = dir;
-                    } else if d < reach && e.cd == 0 {
-                        self.melee_hit(i);
-                        self.enemies[i].cd = 45;
                     }
                 }
             },
