@@ -1,51 +1,47 @@
 //! Sunstone Shindig, the Bevy side: the experiment shell, the app state ([`PartyApp`]), the flow that plays the core's
 //! events back as animations, the mini-game runner, save file and env test hooks. 3D lives in `view.rs`, screens in `ui.rs`.
+//! Everything happens on the real Bob-omb Battlefield: the board is laid on its floor and every mini-game is played on one
+//! of its spots ([`super::sites`]) by four real Marios.
 //!
 //! Env hooks (screenshots / tests; runs using them never touch the saved records):
-//! `JUMPMAN_PARTY_BOARD=0|1|2` (start that board directly), `_MINIGAME=<key>` (practice one mini-game: barrelhop, mash, echo,
-//! coins, bombs, pound, plank, lane, odd, bumper, crumble, draw, stack, stars, meter), `_SEED=<n>`, `_TURNS=10..15`,
-//! `_LEVEL=easy|normal|hard`, `_AUTOPLAY=1` (the bots play every seat, including yours), `_SKIP=<rounds>` (fast-forward that many
-//! rounds with bots before the first frame), `_START=title|minis|results|overview`, `_SCRIPT=2.0=roll,3.2=stop,5=choose.1,...`
-//! (see [`parse_ui_cmd`]), `_FAST=1` (short animations), `_HUMANS=<n>` (seats 0..n are people; extra seats use gamepads).
+//! `JUMPMAN_PARTY_BOARD=0|1|2` (start that board directly), `_MINIGAME=<key>` (practice one mini-game: coins, crown, bombs,
+//! star, stomp), `_SEED=<n>`, `_TURNS=4..8`, `_LEVEL=easy|normal|hard`, `_AUTOPLAY=1` (the bots play every seat, including
+//! yours), `_SKIP=<rounds>` (fast-forward that many rounds with bots before the first frame),
+//! `_START=title|minis|results|overview`, `_SCRIPT=2.0=roll,3.2=stop,5=choose.1,...` (see [`parse_ui_cmd`]), `_FAST=1` (short
+//! animations), `_HUMANS=<n>` (seats 0..n are people; extra seats use gamepads).
 use super::board::*;
 use super::common::*;
 use super::game::*;
 use super::minis::*;
+use super::sites::{Frame, Ground, MiniSite, BOARD_SITES};
 use crate::experiments::crowd::{init_clips, CrowdMario};
-use crate::experiments::geometry::add_box_collision;
 use crate::experiments::{Experiment, ExperimentId, Host, StepOverride};
 use bevy::math::DVec3;
 use bevy::prelude::*;
-use jumpman_sim::collision::{CollisionWorld, SurfaceOptions};
+use jumpman_sim::collision::CollisionWorld;
 use jumpman_sim::state::*;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-/// Far from every course object and from the other experiments.
-pub const BOARD_O: [f64; 3] = [-300000.0, 1000.0, -300000.0];
-pub const MINI_O: [f64; 3] = [-292000.0, 1000.0, -300000.0];
-pub const PODIUM_O: [f64; 3] = [-284000.0, 1000.0, -300000.0];
+/// The latest [`super::flow::status_line`] (the app state is a resource; the experiment's `debug` reads this copy).
+static STATUS: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 
-/// SM64 position of a board point (board units are 100 SM64 units).
-pub fn board_pos(p: [f32; 2]) -> [f64; 3] {
-    [BOARD_O[0] + p[0] as f64 * 100.0, BOARD_O[1], BOARD_O[2] + p[1] as f64 * 100.0]
+pub fn set_status(s: String) {
+    if let Ok(mut g) = STATUS.lock() {
+        *g = s;
+    }
 }
 
-pub fn mini_pos(x: f32, z: f32) -> [f64; 3] {
-    [MINI_O[0] + x as f64 * 100.0, MINI_O[1], MINI_O[2] + z as f64 * 100.0]
-}
-
-/// Podium step for place `i` (0 = winner) and its pedestal height in SM64 units.
-pub fn podium_slot(i: usize) -> ([f64; 3], f64) {
-    const X: [f64; 4] = [0.0, 155.0, 310.0, 465.0];
-    const H: [f64; 4] = [120.0, 85.0, 55.0, 30.0];
-    ([PODIUM_O[0] + X[i], PODIUM_O[1], PODIUM_O[2]], H[i])
-}
+/// Rounds in a party: short enough for an 8-12 minute session (a round is four turns and a mini-game).
+pub const DEFAULT_TURNS: u32 = 6;
+pub const TURN_CHOICES: [u32; 3] = [5, 6, 8];
 
 /// Where a piece stands on a space (four slots so pieces on the same space do not overlap).
 pub fn slot_offset(p: usize) -> [f32; 2] {
-    [[-0.36, -0.3], [0.36, -0.3], [-0.36, 0.34], [0.36, 0.34]][p]
+    [[-0.4, -0.32], [0.4, -0.32], [-0.4, 0.36], [0.4, 0.36]][p]
 }
+
+pub use super::sites::podium_spot;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Screen {
@@ -128,6 +124,27 @@ pub struct MiniRun {
     pub final_scores: [f32; 4],
     pub new_record: bool,
     pub tile_focus: usize,
+    /// The real spot it is played on.
+    pub site: MiniSite,
+}
+
+impl MiniRun {
+    fn new(session: Session, kind: Mini, ctx: Option<MiniCtx>, human: [bool; 4], levels: [Level; 4]) -> Self {
+        let practice = ctx.is_none();
+        MiniRun { session, kind, ctx, practice, stage: MStage::Intro, t: 0.0, acc: 0.0, inp: [PadIn::default(); 4], scene: Stage::default(), prev_scores: [0.0; 4], human, levels, final_scores: [0.0; 4], new_record: false, tile_focus: 0, site: super::sites::mini_site(kind) }
+    }
+
+    /// A person's controls as a world drive: the stick is read relative to the mini-game camera, which looks along the
+    /// site's `look` (stick up runs away from the camera).
+    pub fn human_drive(&self, p: usize) -> Drive {
+        let i = self.inp[p];
+        let f = self.site.look;
+        let right = [-f[1], f[0]];
+        let (x, y) = (i.x as f64, -i.y as f64);
+        let dir = [f[0] * y + right[0] * x, f[1] * y + right[1] * x];
+        let len = dir[0].hypot(dir[1]);
+        Drive { dir: (len > 0.05).then(|| [dir[0] / len, dir[1] / len]), mag: len.min(1.0), jump: i.act, hold: i.held, punch: i.b }
+    }
 }
 
 pub struct Piece {
@@ -297,6 +314,12 @@ pub struct PartyApp {
     pub last_places: Vec<usize>,
     pub over_since: Option<f64>,
     pub hooks_done: bool,
+    /// The ground under each board on the course (index: board id).
+    pub grounds: Vec<Arc<Ground>>,
+    /// Each mini-game's arena (index: [`Mini::idx`]).
+    pub fields: Vec<Arc<Field>>,
+    /// Sounds the mini-game asked for (played by the frame flow).
+    pub cues: Vec<(&'static str, [f64; 3])>,
 }
 
 impl PartyApp {
@@ -305,7 +328,7 @@ impl PartyApp {
         let level = std::env::var("JUMPMAN_PARTY_LEVEL").ok().and_then(|s| Level::from_name(&s)).unwrap_or(Level::Normal);
         let humans: usize = env("JUMPMAN_PARTY_HUMANS").unwrap_or(1).clamp(1, 4);
         let autoplay = env::<u32>("JUMPMAN_PARTY_AUTOPLAY").unwrap_or(0) != 0;
-        let mut cfg = Config { board: env("JUMPMAN_PARTY_BOARD").unwrap_or(0) % BOARD_COUNT, turns: env::<u32>("JUMPMAN_PARTY_TURNS").unwrap_or(12).clamp(10, 15), seed, players: [None; 4] };
+        let mut cfg = Config { board: env("JUMPMAN_PARTY_BOARD").unwrap_or(0) % BOARD_COUNT, turns: env::<u32>("JUMPMAN_PARTY_TURNS").unwrap_or(DEFAULT_TURNS).clamp(4, 8), seed, players: [None; 4] };
         cfg.players = std::array::from_fn(|i| if i < humans && !autoplay { None } else { Some(level) });
         let script = std::env::var("JUMPMAN_PARTY_SCRIPT")
             .ok()
@@ -357,7 +380,21 @@ impl PartyApp {
             last_places: vec![],
             over_since: None,
             hooks_done: false,
+            grounds: BOARD_SITES.iter().map(|s| Arc::new(Ground::flat(Frame { origin: [s.0[0], 0.0, s.0[1]], turn: s.1 }))).collect(),
+            fields: stand_in_fields(),
+            cues: vec![],
         }
+    }
+
+    /// The ground of the board in play (or picked on the title screen).
+    pub fn ground(&self) -> &Ground {
+        let id = self.game.as_ref().map_or(self.cfg.board, |g| g.cfg.board);
+        &self.grounds[id % self.grounds.len()]
+    }
+
+    /// Course position `lift` units above the board floor at a board-local point.
+    pub fn board_world(&self, p: [f32; 2], lift: f64) -> [f64; 3] {
+        self.ground().world(p, lift)
     }
 
     pub fn bump(&mut self) {
@@ -382,6 +419,7 @@ impl PartyApp {
         let mut cfg = self.cfg.clone();
         cfg.players = std::array::from_fn(|i| if i < self.humans && !self.autoplay { None } else { Some(self.level) });
         let mut g = Party::new(cfg);
+        g.fields = self.fields.clone();
         if let Some(skip) = env::<u32>("JUMPMAN_PARTY_SKIP") {
             // Fast-forward with bots until a human decision in the wanted round.
             let mut guard = 0;
@@ -420,8 +458,8 @@ impl PartyApp {
             human = [false; 4];
         }
         let seed = self.cfg.seed.wrapping_add(self.t as u64 * 31 + 5);
-        let session = Session::new(kind, seed, [true; 4], human, [level; 4]);
-        self.mini = Some(MiniRun { session, kind, ctx: None, practice: true, stage: MStage::Intro, t: 0.0, acc: 0.0, inp: [PadIn::default(); 4], scene: Stage::default(), prev_scores: [0.0; 4], human, levels: [level; 4], final_scores: [0.0; 4], new_record: false, tile_focus: 0 });
+        let session = Session::new(kind, seed, [true; 4], human, [level; 4], self.fields[kind.idx()].clone());
+        self.mini = Some(MiniRun::new(session, kind, None, human, [level; 4]));
         self.screen = Screen::Mini;
         self.place = true;
         self.bump();
@@ -431,8 +469,9 @@ impl PartyApp {
         let g = self.game.as_ref().unwrap();
         let human: [bool; 4] = std::array::from_fn(|i| !g.is_cpu(i) && ctx.active[i] && (i == 0 || i <= self.pads));
         let levels: [Level; 4] = std::array::from_fn(|i| g.players[i].cpu.unwrap_or(self.level));
-        let session = Session::new(ctx.kind, ctx.seed, ctx.active, human, levels);
-        self.mini = Some(MiniRun { session, kind: ctx.kind, ctx: Some(ctx), practice: false, stage: MStage::Intro, t: 0.0, acc: 0.0, inp: [PadIn::default(); 4], scene: Stage::default(), prev_scores: [0.0; 4], human, levels, final_scores: [0.0; 4], new_record: false, tile_focus: 0 });
+        let session = Session::new(ctx.kind, ctx.seed, ctx.active, human, levels, self.fields[ctx.kind.idx()].clone());
+        let kind = ctx.kind;
+        self.mini = Some(MiniRun::new(session, kind, Some(ctx), human, levels));
         self.screen = Screen::Mini;
         self.place = true;
         self.bump();
@@ -556,11 +595,13 @@ pub fn anim_len(ev: &Ev, fast: bool) -> f64 {
 
 pub struct PartyExperiment {
     runs: u32,
+    /// Course objects switched off for the party (restored on exit).
+    benched: Vec<usize>,
 }
 
 impl PartyExperiment {
     pub fn new() -> Self {
-        Self { runs: 0 }
+        Self { runs: 0, benched: vec![] }
     }
 }
 
@@ -574,38 +615,47 @@ impl Experiment for PartyExperiment {
     fn id(&self) -> ExperimentId {
         ExperimentId::Party
     }
-    fn replaces_course(&self) -> bool {
+    fn course(&self) -> Option<&'static str> {
+        Some(super::sites::COURSE)
+    }
+    fn keeps_course(&self) -> bool {
         true
     }
     fn freezes_player(&self) -> bool {
         true
     }
     fn enter(&mut self, host: &mut Host) {
-        host.set_clear(Color::srgb(0.10, 0.14, 0.30));
-        host.set_sky(crate::fx::sky::SkyPalette::from_hex(0x2a3a78, 0x6c78c8, 0xf0b890).with_clouds(0.4));
         host.cam.fog = None;
         host.shell.plain_camera = true;
         host.set_player_visible(false);
-        let mut world = CollisionWorld::new(1024.0, 1e9);
-        let o = SurfaceOptions::default();
-        let mut faces = vec![];
-        add_box_collision(&mut world, [BOARD_O[0], BOARD_O[1] - 200.0, BOARD_O[2]], [3400.0, 400.0, 1900.0], 0.0, &mut faces, &o);
-        add_box_collision(&mut world, [MINI_O[0], MINI_O[1] - 200.0, MINI_O[2]], [2200.0, 400.0, 1300.0], 0.0, &mut faces, &o);
-        add_box_collision(&mut world, [PODIUM_O[0], PODIUM_O[1] - 200.0, PODIUM_O[2]], [1800.0, 400.0, 900.0], 0.0, &mut faces, &o);
-        for i in 0..4 {
-            let (p, h) = podium_slot(i);
-            add_box_collision(&mut world, [p[0], p[1] + h / 2.0 - 2.0, p[2]], [150.0, h, 150.0], 0.0, &mut faces, &o);
+        // The real battlefield: the pieces run on its collision, the board and the arenas are sampled from it once.
+        let world = host.course_world();
+        let real = !world.surfaces().is_empty();
+        let grounds: Vec<Arc<Ground>> = (0..BOARD_COUNT)
+            .map(|id| {
+                let (c, turn) = BOARD_SITES[id];
+                Arc::new(if real { Ground::sample(&world, c, turn, [14.0, 8.0]) } else { Ground::flat(Frame { origin: [c[0], 0.0, c[1]], turn }) })
+            })
+            .collect();
+        let fields: Vec<Arc<Field>> = if real { ALL_MINIS.iter().map(|m| Arc::new(super::sites::sample_field(&world, *m))).collect() } else { stand_in_fields() };
+        // King Bob-omb would stand in the middle of the Summit Crown circle: he sits this party out.
+        self.benched.clear();
+        for (i, o) in host.sim.mario.objects.objects.iter_mut().enumerate() {
+            if o.behavior == jumpman_sim::object::ObjectBehaviorKind::KingBobomb && o.active {
+                o.active = false;
+                self.benched.push(i);
+            }
         }
-        world.finalize();
-        let world = Arc::new(world);
         let meta = init_clips(host);
-        super::view::build_static(host);
         self.runs += 1;
         let runs = self.runs;
         host.commands.queue(move |w: &mut World| {
             let cache = super::view::ViewCache::from_world(w);
             w.insert_resource(cache);
-            w.insert_resource(PartyApp::new(world, meta, runs));
+            let mut app = PartyApp::new(world, meta, runs);
+            app.grounds = grounds;
+            app.fields = fields;
+            w.insert_resource(app);
             w.resource_mut::<crate::hud::HudMinimal>().0 = true;
             let mut t = w.resource_mut::<crate::touch::TouchControls>();
             t.hide_pad = true;
@@ -621,7 +671,12 @@ impl Experiment for PartyExperiment {
             t.hide_pad = false;
             t.suppress = false;
         });
-        host.restore_mario_world();
+        for &i in &self.benched {
+            if let Some(o) = host.sim.mario.objects.objects.get_mut(i) {
+                o.active = true;
+            }
+        }
+        self.benched.clear();
         host.sim.mario.reset_to_spawn();
         host.set_player_visible(true);
         host.cam.fog = None;
@@ -631,7 +686,7 @@ impl Experiment for PartyExperiment {
         StepOverride { controller: Some(ControllerSnapshot::default()), camera_yaw: None }
     }
     fn debug(&self) -> String {
-        format!("sunstone shindig run {}", self.runs)
+        format!("sunstone shindig run {} | {}", self.runs, STATUS.lock().map(|s| s.clone()).unwrap_or_default())
     }
 }
 

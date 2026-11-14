@@ -1,72 +1,39 @@
-//! The mini-game collection. Each game is its own engine-free module with a deterministic seeded core
-//! and a bot policy; [`Mini`] is the catalogue and [`Session`] steps a game with humans and bots mixed.
+//! The mini-games: every one is played by four real Marios on a real spot of Bob-omb Battlefield (the summit, the
+//! meadows, the bridge field...). Each game is an engine-free module with a deterministic seeded core and a bot policy:
+//! the core reads where the four bodies are ([`Body`]), turns the controls into [`Drive`]s, and asks for knockbacks and
+//! pick-ups ([`MiniEv`]); the app plays them on the full SM64 physics (`CrowdMario`), while tests and the board's headless
+//! mode use [`Kin`], a small kinematic stand-in on the same [`Field`].
 use super::common::*;
+use std::sync::Arc;
 
-pub mod barrel_hop;
-pub mod block_stack;
-pub mod bomb_drizzle;
-pub mod bumper_brawl;
+pub mod bomb_rain;
 pub mod coin_scramble;
-pub mod crumble_floor;
-pub mod echo_pads;
-pub mod mash_mountain;
-pub mod odd_one_out;
-pub mod plank_balance;
-pub mod pound_grid;
-pub mod power_meter;
-pub mod quick_draw;
-pub mod shell_lane;
-pub mod star_count;
+pub mod field;
+pub mod goomba_stomp;
+pub mod star_tag;
+pub mod summit_crown;
 
-/// How a game is controlled (shown on the intro card and used to pick the touch layout).
+pub use field::*;
+
+/// How a game is controlled (shown on the intro card).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Control {
-    /// Left stick (touch pad) to move.
-    Stick,
-    /// Stick plus the A button.
-    StickA,
-    /// One big A / tap button.
-    Tap,
-    /// Tap the tiles on the screen.
-    Tiles,
+    /// Run with the stick, A jumps.
+    Run,
+    /// Run, A jumps, B punches (a punch in the air is a dive).
+    Fight,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Mini {
-    BarrelHop,
-    MashMountain,
-    EchoPads,
     CoinScramble,
-    BombDrizzle,
-    PoundGrid,
-    PlankBalance,
-    ShellLane,
-    OddOneOut,
-    BumperBrawl,
-    CrumbleFloor,
-    QuickDraw,
-    BlockStack,
-    StarCount,
-    PowerMeter,
+    SummitCrown,
+    BombRain,
+    StarTag,
+    GoombaStomp,
 }
 
-pub const ALL_MINIS: [Mini; 15] = [
-    Mini::BarrelHop,
-    Mini::MashMountain,
-    Mini::EchoPads,
-    Mini::CoinScramble,
-    Mini::BombDrizzle,
-    Mini::PoundGrid,
-    Mini::PlankBalance,
-    Mini::ShellLane,
-    Mini::OddOneOut,
-    Mini::BumperBrawl,
-    Mini::CrumbleFloor,
-    Mini::QuickDraw,
-    Mini::BlockStack,
-    Mini::StarCount,
-    Mini::PowerMeter,
-];
+pub const ALL_MINIS: [Mini; 5] = [Mini::CoinScramble, Mini::SummitCrown, Mini::BombRain, Mini::StarTag, Mini::GoombaStomp];
 
 pub struct MiniInfo {
     pub key: &'static str,
@@ -75,62 +42,189 @@ pub struct MiniInfo {
     pub control: Control,
     /// What the score means, for the results list.
     pub unit: &'static str,
+    /// Where on the battlefield it is played.
+    pub place: &'static str,
 }
 
 impl Mini {
     pub fn info(self) -> MiniInfo {
         use Control::*;
-        let (key, name, blurb, control, unit) = match self {
-            Mini::BarrelHop => ("barrelhop", "Barrel Hop", "Barrels roll down your lane. Tap JUMP in time to hop them. Cleared barrels score, hits cost.", Tap, "net hops"),
-            Mini::MashMountain => ("mash", "Mash Mountain", "Tap as fast as you can to climb the pole. Mash too hard and you tire out.", Tap, "climbed"),
-            Mini::EchoPads => ("echo", "Echo Pads", "Watch the pads flash, then tap them in the same order. One slip and you are out.", Tiles, "longest run"),
-            Mini::CoinScramble => ("coins", "Coin Scramble", "Run around with the stick and grab coins. Gold coins are worth three.", Stick, "points"),
-            Mini::BombDrizzle => ("bombs", "Bomb Drizzle", "Bombs fall where the shadows grow. Stay clear of them. Last one standing wins.", Stick, "seconds alive"),
-            Mini::PoundGrid => ("pound", "Pound Grid", "Tap the glowing pad before anyone else. A wrong pad costs a point.", Tiles, "points"),
-            Mini::PlankBalance => ("plank", "Plank Balance", "Keep the plank level: push the stick against the tilt. Last one balanced wins.", Stick, "seconds up"),
-            Mini::ShellLane => ("lane", "Shell Lane", "Race down your lane. Push the stick up or down to swap rows: dodge rocks, hit gold pads.", Stick, "distance"),
-            Mini::OddOneOut => ("odd", "Odd One Out", "One tile is different from the rest. Tap it first. Wrong taps cost a point.", Tiles, "points"),
-            Mini::BumperBrawl => ("bumper", "Bumper Brawl", "Steer your bumper car and shove rivals off the shrinking ring. A dashes.", StickA, "seconds on"),
-            Mini::CrumbleFloor => ("crumble", "Crumble Floor", "Tiles flash and drop away. Keep running onto solid floor.", Stick, "seconds alive"),
-            Mini::QuickDraw => ("draw", "Quick Draw", "Wait for the flag to go green, then tap. Tap early and you are out of the round.", Tap, "points"),
-            Mini::BlockStack => ("stack", "Block Stack", "Tap to drop the sliding block. Only the overlap stays. Stack the tallest tower.", Tap, "blocks"),
-            Mini::StarCount => ("stars", "Star Count", "Count the stars that flit by, then tap the right number. Faster is better.", Tiles, "points"),
-            Mini::PowerMeter => ("meter", "Power Meter", "Stop the swinging marker inside the gold zone. Three tries.", Tap, "points"),
+        let (key, name, blurb, control, unit, place) = match self {
+            Mini::CoinScramble => ("coins", "Coin Scramble", "Coins rain on the hills. Grab the most: gold coins are worth three, and some sit on the ledges.", Run, "coins", "the hills east of the mountain"),
+            Mini::SummitCrown => ("crown", "Summit Crown", "Hold the crown circle on the summit alone to score. Punch rivals out of it, and off the mountain.", Fight, "seconds", "the summit"),
+            Mini::BombRain => ("bombs", "Bob-omb Rain", "Bob-ombs fall where the red rings grow. Dodge the blasts: three hits and you are out.", Run, "points", "the field of wooden posts north of the start"),
+            Mini::StarTag => ("star", "Star Tag", "Grab the star and keep it: it scores while you hold it. Punch the holder to steal it.", Fight, "seconds", "the floating island"),
+            Mini::GoombaStomp => ("stomp", "Goomba Stomp", "Goombas pour in and chase you. Jump on them to score; bounce from one onto the next for double. Walking into one hurts.", Run, "points", "the high meadow in the north-west"),
         };
-        MiniInfo { key, name, blurb, control, unit }
+        MiniInfo { key, name, blurb, control, unit, place }
     }
 
     pub fn from_key(s: &str) -> Option<Mini> {
         let s = s.to_ascii_lowercase();
-        ALL_MINIS.iter().copied().find(|m| m.info().key == s || m.info().name.to_ascii_lowercase().replace(' ', "") == s.replace(['_', '-', ' '], ""))
+        ALL_MINIS.iter().copied().find(|m| m.info().key == s || m.info().name.to_ascii_lowercase().replace([' ', '-'], "") == s.replace(['_', '-', ' '], ""))
     }
 
-    /// Build the game for the `active` players.
-    pub fn make(self, seed: u64, active: [bool; 4]) -> Box<dyn MiniGame> {
+    pub fn idx(self) -> usize {
+        ALL_MINIS.iter().position(|m| *m == self).unwrap()
+    }
+
+    /// Radius of the arena (SM64 units).
+    pub fn radius(self) -> f64 {
         match self {
-            Mini::BarrelHop => Box::new(barrel_hop::BarrelHop::new(seed, active)),
-            Mini::MashMountain => Box::new(mash_mountain::MashMountain::new(seed, active)),
-            Mini::EchoPads => Box::new(echo_pads::EchoPads::new(seed, active)),
-            Mini::CoinScramble => Box::new(coin_scramble::CoinScramble::new(seed, active)),
-            Mini::BombDrizzle => Box::new(bomb_drizzle::BombDrizzle::new(seed, active)),
-            Mini::PoundGrid => Box::new(pound_grid::PoundGrid::new(seed, active)),
-            Mini::PlankBalance => Box::new(plank_balance::PlankBalance::new(seed, active)),
-            Mini::ShellLane => Box::new(shell_lane::ShellLane::new(seed, active)),
-            Mini::OddOneOut => Box::new(odd_one_out::OddOneOut::new(seed, active)),
-            Mini::BumperBrawl => Box::new(bumper_brawl::BumperBrawl::new(seed, active)),
-            Mini::CrumbleFloor => Box::new(crumble_floor::CrumbleFloor::new(seed, active)),
-            Mini::QuickDraw => Box::new(quick_draw::QuickDraw::new(seed, active)),
-            Mini::BlockStack => Box::new(block_stack::BlockStack::new(seed, active)),
-            Mini::StarCount => Box::new(star_count::StarCount::new(seed, active)),
-            Mini::PowerMeter => Box::new(power_meter::PowerMeter::new(seed, active)),
+            Mini::CoinScramble => 950.0,
+            Mini::SummitCrown => 700.0,
+            Mini::BombRain => 800.0,
+            Mini::StarTag => 800.0,
+            Mini::GoombaStomp => 850.0,
+        }
+    }
+
+    /// Build the game for the `active` players on `field`.
+    pub fn make(self, seed: u64, active: [bool; 4], field: Arc<Field>) -> Box<dyn MiniGame> {
+        match self {
+            Mini::CoinScramble => Box::new(coin_scramble::CoinScramble::new(seed, active, field)),
+            Mini::SummitCrown => Box::new(summit_crown::SummitCrown::new(seed, active, field)),
+            Mini::BombRain => Box::new(bomb_rain::BombRain::new(seed, active, field)),
+            Mini::StarTag => Box::new(star_tag::StarTag::new(seed, active, field)),
+            Mini::GoombaStomp => Box::new(goomba_stomp::GoombaStomp::new(seed, active, field)),
         }
     }
 }
 
-/// Fixed simulation step of every mini-game.
+/// Level discs of each game's size: the arenas without game data (the board core's own headless games, unit tests).
+pub fn stand_in_fields() -> Vec<Arc<Field>> {
+    ALL_MINIS.iter().map(|m| Arc::new(Field::flat([0.0; 3], m.radius()))).collect()
+}
+
+/// Fixed simulation step of every mini-game: one SM64 frame.
 pub const DT: f32 = 1.0 / 30.0;
 
-/// A running mini-game with its players: humans bring their own [`PadIn`], the rest are driven by bots.
+/// Where one player's Mario is this step (from the physics body, or from [`Kin`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Body {
+    pub pos: [f64; 3],
+    /// Facing, SM64 angle units.
+    pub yaw: f64,
+    pub grounded: bool,
+    /// Rising fast or falling fast (stomps need a falling body).
+    pub vy: f64,
+    /// Punching, kicking or diving: the moves that hit.
+    pub attack: bool,
+}
+
+/// What a player (person or bot) asks of their Mario this step.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Drive {
+    /// World direction (x, z) to run toward; None lets go of the stick.
+    pub dir: Option<[f64; 2]>,
+    /// Stick magnitude 0..1.
+    pub mag: f64,
+    /// A pressed this step.
+    pub jump: bool,
+    /// A held (a higher jump).
+    pub hold: bool,
+    /// B pressed this step: punch on the ground, dive in the air.
+    pub punch: bool,
+}
+
+/// What a game asks of the bodies.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MiniEv {
+    /// Knock player `p` away from `from` (a real knockback on the physics body).
+    Knock { p: usize, from: [f64; 3], power: f64 },
+    /// Put player `p` here (a fall off the arena, a start position).
+    Place { p: usize, pos: [f64; 3] },
+    /// Bounce player `p` up off something they stomped.
+    Bounce { p: usize },
+    /// A sound at a place (`SfxCue::Effect` kind).
+    Cue { kind: &'static str, pos: [f64; 3] },
+}
+
+/// The mini-game contract: a deterministic core stepped once per SM64 frame.
+pub trait MiniGame: Send + Sync {
+    /// Where player `p` starts.
+    fn start(&self, p: usize) -> [f64; 3];
+    fn step(&mut self, dt: f32, bodies: &[Body; 4], drives: &[Drive; 4]);
+    /// The CPU policy for player `p`, called once per step before [`MiniGame::step`].
+    fn bot(&mut self, p: usize, lvl: Level, bodies: &[Body; 4]) -> Drive;
+    /// Requests since the last call.
+    fn events(&mut self) -> Vec<MiniEv>;
+    fn done(&self) -> bool;
+    fn time_left(&self) -> f32;
+    /// Higher is better; inactive players report `f32::NEG_INFINITY`.
+    fn scores(&self) -> [f32; 4];
+    fn scene(&self, out: &mut Stage);
+    /// Speed factor for a player (the star holder runs a little slower).
+    fn speed(&self, _p: usize) -> f64 {
+        1.0
+    }
+    /// Players who are out of the game (their Mario is hidden).
+    fn out(&self, _p: usize) -> bool {
+        false
+    }
+}
+
+// -- shared helpers ---------------------------------------------------------------------------
+
+pub fn hdist(a: [f64; 3], b: [f64; 3]) -> f64 {
+    (a[0] - b[0]).hypot(a[2] - b[2])
+}
+
+/// Unit direction (x, z) from `a` to `b`, None when they are on top of each other.
+pub fn toward(a: [f64; 3], b: [f64; 3]) -> Option<[f64; 2]> {
+    let (dx, dz) = (b[0] - a[0], b[2] - a[2]);
+    let d = dx.hypot(dz);
+    (d > 1.0).then(|| [dx / d, dz / d])
+}
+
+/// SM64 yaw (0 = +z, 0x4000 = +x) as a unit (x, z) vector.
+pub fn yaw_dir(yaw: f64) -> [f64; 2] {
+    let r = yaw / 32768.0 * std::f64::consts::PI;
+    [r.sin(), r.cos()]
+}
+
+/// Whether `a` (facing `yaw`) has `b` roughly in front of it.
+pub fn facing(a: &Body, b: [f64; 3], cos_limit: f64) -> bool {
+    let Some(d) = toward(a.pos, b) else { return true };
+    let f = yaw_dir(a.yaw);
+    d[0] * f[0] + d[1] * f[1] >= cos_limit
+}
+
+/// The standard hit test: `a` attacks and `v` is close, at about the same height and in front of `a`.
+pub fn hits(a: &Body, v: &Body, reach: f64) -> bool {
+    a.attack && hdist(a.pos, v.pos) < reach && (a.pos[1] - v.pos[1]).abs() < 170.0 && facing(a, v.pos, 0.2)
+}
+
+/// The seats in the order they get first claim this step: rotating every step, so when two Marios reach a coin (or
+/// each other) on the same frame no seat always wins the tie.
+pub fn seat_order(t: f32) -> [usize; 4] {
+    let s = (t * 30.0).round() as usize % 4;
+    [s, (s + 1) % 4, (s + 2) % 4, (s + 3) % 4]
+}
+
+/// Rotate a direction by `turn` radians.
+pub fn rotate(d: [f64; 2], turn: f64) -> [f64; 2] {
+    let (s, c) = turn.sin_cos();
+    [d[0] * c - d[1] * s, d[0] * s + d[1] * c]
+}
+
+/// A drive running toward `to` (stopping inside `stop`).
+pub fn run_to(from: [f64; 3], to: [f64; 3], stop: f64) -> Drive {
+    let d = hdist(from, to);
+    match toward(from, to) {
+        Some(dir) if d > stop => Drive { dir: Some(dir), mag: if d > 220.0 { 1.0 } else { (d / 220.0).max(0.45) }, ..Default::default() },
+        _ => Drive::default(),
+    }
+}
+
+// -- the session --------------------------------------------------------------------------------
+
+/// Seconds a bot must fail to make headway before it jumps to get unstuck.
+const STUCK_SECS: f32 = 0.7;
+
+/// A running mini-game with its players: people bring their own [`Drive`], bots fill in the rest. The headless path
+/// ([`Session::step_kin`]) moves [`Kin`] bodies; the app reads physics bodies and calls [`Session::plan`] and
+/// [`Session::advance`] itself.
 pub struct Session {
     pub kind: Mini,
     pub game: Box<dyn MiniGame>,
@@ -138,24 +232,72 @@ pub struct Session {
     pub human: [bool; 4],
     pub levels: [Level; 4],
     pub steps: u32,
+    pub field: Arc<Field>,
+    pub kin: Kin,
+    stuck: [(f32, [f64; 3]); 4],
+    rng: Rng,
 }
 
 impl Session {
-    pub fn new(kind: Mini, seed: u64, active: [bool; 4], human: [bool; 4], levels: [Level; 4]) -> Self {
-        Session { kind, game: kind.make(seed, active), active, human, levels, steps: 0 }
+    pub fn new(kind: Mini, seed: u64, active: [bool; 4], human: [bool; 4], levels: [Level; 4], field: Arc<Field>) -> Self {
+        let game = kind.make(seed, active, field.clone());
+        let kin = Kin::new(field.clone(), std::array::from_fn(|p| game.start(p)));
+        let stuck = std::array::from_fn(|p| (0.0, game.start(p)));
+        Session { kind, game, active, human, levels, steps: 0, field, kin, stuck, rng: Rng::new(seed ^ 0x5eed) }
     }
 
-    /// One fixed step; `human_in` is only read for human players.
-    pub fn step(&mut self, human_in: &Inputs) {
-        let mut inp = [PadIn::default(); 4];
+    /// Every seat's drive: people's from `human_in`, bots' from the game's policy (with a jump when they are stuck),
+    /// scaled by the game's speed factor; nothing for inactive or knocked-out seats.
+    pub fn plan(&mut self, bodies: &[Body; 4], human_in: &[Drive; 4]) -> [Drive; 4] {
+        let mut out = [Drive::default(); 4];
         for p in 0..4 {
-            if !self.active[p] {
+            if !self.active[p] || self.game.out(p) {
                 continue;
             }
-            inp[p] = if self.human[p] { human_in[p] } else { self.game.bot(p, self.levels[p]) };
+            let mut d = if self.human[p] { human_in[p] } else { self.game.bot(p, self.levels[p], bodies) };
+            if !self.human[p] {
+                let (t, at) = &mut self.stuck[p];
+                if d.dir.is_some() && d.mag > 0.5 {
+                    if hdist(*at, bodies[p].pos) > 60.0 {
+                        *t = 0.0;
+                        *at = bodies[p].pos;
+                    } else {
+                        *t += DT;
+                        if *t > STUCK_SECS {
+                            *t = 0.0;
+                            d.jump = true;
+                            d.hold = true;
+                            let turn = if self.rng.chance(0.5) { 0.7 } else { -0.7 };
+                            d.dir = d.dir.map(|v| rotate(v, turn));
+                        }
+                    }
+                } else {
+                    *t = 0.0;
+                    *at = bodies[p].pos;
+                }
+            }
+            d.mag *= self.game.speed(p);
+            out[p] = d;
         }
-        self.game.step(DT, &inp);
+        out
+    }
+
+    /// One rules step with these bodies and drives; returns the game's requests.
+    pub fn advance(&mut self, bodies: &[Body; 4], drives: &[Drive; 4]) -> Vec<MiniEv> {
+        self.game.step(DT, bodies, drives);
         self.steps += 1;
+        self.game.events()
+    }
+
+    /// One whole headless step on the kinematic bodies (tests, the board's autoplay).
+    pub fn step_kin(&mut self, human_in: &[Drive; 4]) {
+        let bodies = self.kin.bodies();
+        let drives = self.plan(&bodies, human_in);
+        self.kin.step(&drives);
+        let bodies = self.kin.bodies();
+        for ev in self.advance(&bodies, &drives) {
+            self.kin.apply(&ev);
+        }
     }
 
     pub fn done(&self) -> bool {
@@ -167,180 +309,18 @@ impl Session {
     }
 }
 
-/// Play a game to the end with bots in every active seat (tests, balance runs, the board's headless mode).
-pub fn run_bots(kind: Mini, seed: u64, active: [bool; 4], levels: [Level; 4]) -> ([f32; 4], f32) {
-    let mut s = Session::new(kind, seed, active, [false; 4], levels);
-    let none = [PadIn::default(); 4];
-    // Every game lasts well under two minutes; the cap guards against a stuck core.
-    while !s.done() && s.steps < 30 * 120 {
-        s.step(&none);
+/// Play a game to the end with bots in every active seat on the kinematic bodies (tests, balance runs, the board's
+/// headless mode).
+pub fn run_bots(kind: Mini, seed: u64, active: [bool; 4], levels: [Level; 4], field: &Arc<Field>) -> ([f32; 4], f32) {
+    let mut s = Session::new(kind, seed, active, [false; 4], levels, field.clone());
+    let none = [Drive::default(); 4];
+    // Every game lasts well under a minute; the cap guards against a stuck core.
+    while !s.done() && s.steps < 30 * 90 {
+        s.step_kin(&none);
     }
     assert!(s.done(), "{:?} did not terminate", kind);
     (s.game.scores(), s.steps as f32 * DT)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const ALL4: [bool; 4] = [true; 4];
-
-    #[test]
-    fn catalogue_has_at_least_fourteen_games_with_unique_keys() {
-        assert!(ALL_MINIS.len() >= 14);
-        let mut keys: Vec<_> = ALL_MINIS.iter().map(|m| m.info().key).collect();
-        keys.sort();
-        keys.dedup();
-        assert_eq!(keys.len(), ALL_MINIS.len());
-        for m in ALL_MINIS {
-            assert!(!m.info().blurb.is_empty());
-            assert_eq!(Mini::from_key(m.info().key), Some(m));
-        }
-    }
-
-    #[test]
-    fn every_game_terminates_under_bot_vs_bot_soak_in_every_format() {
-        let formats: [[bool; 4]; 3] = [ALL4, [true, true, false, false], [false, true, false, true]];
-        for m in ALL_MINIS {
-            for seed in 0..12u64 {
-                for lv in Level::ALL {
-                    for a in formats {
-                        let (s, secs) = run_bots(m, seed * 7 + 1, a, [lv; 4]);
-                        assert!(secs <= 80.0, "{m:?} ran {secs}s");
-                        for p in 0..4 {
-                            if a[p] {
-                                assert!(s[p].is_finite(), "{m:?} score for active {p}");
-                            } else {
-                                assert!(s[p] == f32::NEG_INFINITY, "{m:?} inactive {p} must not score");
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn games_are_deterministic_by_seed() {
-        for m in ALL_MINIS {
-            let a = run_bots(m, 99, ALL4, [Level::Normal; 4]);
-            let b = run_bots(m, 99, ALL4, [Level::Normal; 4]);
-            assert_eq!(a, b, "{m:?}");
-        }
-    }
-
-    #[test]
-    fn scenes_render_without_panicking_and_cover_all_active_players() {
-        for m in ALL_MINIS {
-            let mut s = Session::new(m, 5, ALL4, [false; 4], [Level::Normal; 4]);
-            let none = [PadIn::default(); 4];
-            for i in 0..200 {
-                s.step(&none);
-                if i % 20 == 0 {
-                    let mut sc = Stage::default();
-                    s.game.scene(&mut sc);
-                    for p in 0..4 {
-                        assert!(sc.avatars.iter().any(|a| a.p == p), "{m:?} lacks an avatar for {p}");
-                    }
-                    for a in &sc.avatars {
-                        assert!(a.x.abs() < 12.0 && a.z.abs() < 8.0 && a.x.is_finite() && a.y.is_finite(), "{m:?} avatar off stage {a:?}");
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn idle_humans_lose_to_bots_in_skill_games() {
-        // A player who never touches the controls must not beat three Normal bots on average.
-        for m in ALL_MINIS {
-            let mut idle_wins = 0;
-            let n = 20;
-            for seed in 0..n {
-                let mut s = Session::new(m, seed + 3, ALL4, [true, false, false, false], [Level::Normal; 4]);
-                let none = [PadIn::default(); 4];
-                while !s.done() && s.steps < 30 * 100 {
-                    s.step(&none);
-                }
-                let r = s.ranks();
-                if r[0] == 1 {
-                    idle_wins += 1;
-                }
-            }
-            assert!(idle_wins <= n / 2, "{m:?}: an idle player wins {idle_wins}/{n}");
-        }
-    }
-
-    #[test]
-    fn harder_bots_beat_easier_bots() {
-        // Seat 0 plays Hard against three Easy bots; they should win clearly more than a quarter of the time overall.
-        let mut wins = 0.0;
-        let mut games = 0.0;
-        for m in ALL_MINIS {
-            for seed in 0..30u64 {
-                let lv = [Level::Hard, Level::Easy, Level::Easy, Level::Easy];
-                let (s, _) = run_bots(m, seed + 11, ALL4, lv);
-                let r = ranks(&s, &ALL4);
-                if r[0] == 1 {
-                    wins += 1.0 / (0..4).filter(|&q| r[q] == 1).count() as f32;
-                }
-                games += 1.0;
-            }
-        }
-        let rate = wins / games;
-        assert!(rate > 0.35, "Hard seat wins only {rate:.2} against Easy bots");
-    }
-
-    /// `cargo test --release seat_bias -- --ignored --nocapture`: with 600 seeds every seat should win about a quarter of the time.
-    #[test]
-    #[ignore]
-    fn seat_bias() {
-        for m in [Mini::QuickDraw, Mini::CoinScramble, Mini::BumperBrawl, Mini::PlankBalance] {
-            let mut wins = [0.0f32; 4];
-            for seed in 0..600u64 {
-                let (s, _) = run_bots(m, seed * 5 + 3, ALL4, [Level::Normal; 4]);
-                let r = ranks(&s, &ALL4);
-                let k = (0..4).filter(|&q| r[q] == 1).count() as f32;
-                for p in 0..4 {
-                    if r[p] == 1 {
-                        wins[p] += 1.0 / k;
-                    }
-                }
-            }
-            println!("{:?}: {:?}", m, wins.map(|w| (w / 6.0).round()));
-        }
-    }
-
-    /// `cargo test --release balance_report -- --ignored --nocapture`
-    #[test]
-    #[ignore]
-    fn balance_report() {
-        println!("mini-game balance: win share of the seat by level (4 seats, 120 seeds); bot-vs-bot, same level");
-        println!("{:<14} {:>6} {:>6} {:>6} {:>6} | {:>6}s  | Hard seat0 vs Easy", "game", "seat0", "seat1", "seat2", "seat3", "len");
-        for m in ALL_MINIS {
-            let mut wins = [0.0f32; 4];
-            let mut len = 0.0;
-            let n = 120;
-            for seed in 0..n as u64 {
-                let (s, secs) = run_bots(m, seed * 13 + 5, ALL4, [Level::Normal; 4]);
-                let r = ranks(&s, &ALL4);
-                let k = (0..4).filter(|&q| r[q] == 1).count() as f32;
-                for p in 0..4 {
-                    if r[p] == 1 {
-                        wins[p] += 1.0 / k;
-                    }
-                }
-                len += secs;
-            }
-            let mut hard = 0.0;
-            for seed in 0..n as u64 {
-                let (s, _) = run_bots(m, seed * 17 + 2, ALL4, [Level::Hard, Level::Easy, Level::Easy, Level::Easy]);
-                let r = ranks(&s, &ALL4);
-                if r[0] == 1 {
-                    hard += 1.0 / (0..4).filter(|&q| r[q] == 1).count() as f32;
-                }
-            }
-            println!("{:<14} {:>5.0}% {:>5.0}% {:>5.0}% {:>5.0}% | {:>6.1}s | {:>4.0}%", m.info().name, wins[0] / n as f32 * 100.0, wins[1] / n as f32 * 100.0, wins[2] / n as f32 * 100.0, wins[3] / n as f32 * 100.0, len / n as f32, hard / n as f32 * 100.0);
-        }
-    }
-}
+mod tests;

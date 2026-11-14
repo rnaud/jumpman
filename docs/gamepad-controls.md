@@ -78,7 +78,7 @@ speed, track / class / racer, Daily / Random, lens, zoom ...). With a pad:
 | Star Deck | D-pad left / right + A pick a card (A again plays; with several foes d-pad picks the target), Y end turn, B cancel; X deck, Select help, LT draw pile, RT discard pile, RB exhaust pile, LB first potion; map / reward / shop / rest / event screens and modals: d-pad walks the buttons, A presses, B closes |
 | The Painted Halls | Stick + A / B as Mario; RB or Y cycle the cap, Select map (B closes it); start prompt A continue, X new game, B leave; win card A keep playing, B leave |
 | Gem Clash (Brawl) | Stick + A jump, X attack, B grab, LT / RT ground pound, Y / RB / LB specials, Select HOW TO PLAY; setup: d-pad up / down choose a row, left / right change it, A start, B back to the hub; summary A next / rematch, B menu; extra pads join as players 2-4 |
-| Party | Stick + A; tile games: d-pad moves the cursor, A picks; menus: d-pad + A, B back |
+| Sunstone Shindig (`party`) | Board: d-pad + A on the buttons, B back; mini-games: left stick runs, A jumps, B (West or East) punches (a punch in the air dives); seats 2-4 use the other pads |
 
 ## Not verified
 

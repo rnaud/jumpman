@@ -142,6 +142,12 @@ player: the notes below say what was measured and what is judgement.
   red frame weapon, blue tome, green technique, gold evolution (the base weapon's picture, brighter, with a sparkle).
   Shown on the level-up and chest cards (with the category name and level pips) and before every build-list row.
 
+## Follow-up
+
+Approved: Tiny Planet and Diorama are hidden from every menu (hub doors, mode cards, the dock list and its number keys); their
+code, tests and `JUMPMAN_EXPERIMENT=planet|diorama` hooks stay. EXPERIMENTS now lists Mario vs. God, Across Dimensions,
+A Hundred Marios and Shrink Ray, in that order.
+
 ## Unverified / limits
 
 - Medal pars (God, Dimensions, Hundred) are design guesses, not measured on players.

@@ -1,17 +1,21 @@
-//! Sunstone Shindig in 3D: the board props, the mini-game stage (a pooled set of coloured primitives), the four Mario pieces
-//! (real SM64 rigs with their animation clips, driven by `CrowdMario`) and the cameras.
+//! Sunstone Shindig in 3D, on the real Bob-omb Battlefield: the board props laid on the course floor, the mini-game props
+//! (pooled primitives plus the real Goomba, Bob-omb and Power Star models), the four Mario pieces (real SM64 rigs driven by
+//! `CrowdMario` on the course collision; in a mini-game the full physics steps the rules) and the cameras.
 use super::app::*;
 use super::board::*;
 use super::common::*;
 use super::game::*;
 use super::minis::*;
-use crate::experiments::crowd::{spawn_body, CrowdLook, CrowdMario};
-use crate::experiments::{CamPose, CameraOverride, Host, XpEntity};
-use crate::render::{scene as scene_handle, to_bevy};
+use super::sites::{Frame, BOARD_SCALE};
+use crate::experiments::crowd::{spawn_body, CrowdLook, CrowdMario, DriveInput};
+use crate::experiments::{CamPose, CameraOverride, XpEntity};
+use crate::render::to_bevy;
 use bevy::math::DVec3;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
+use jumpman_sim::mario_runtime::MarioRuntime;
 use jumpman_sim::math::atan2s;
+use jumpman_sim::state::*;
 use std::collections::HashMap;
 
 pub const LOOKS: [CrowdLook; 4] = [
@@ -23,7 +27,8 @@ pub const LOOKS: [CrowdLook; 4] = [
 
 const STAR: &str = "actors/star/star_geo.glb";
 const TOAD: &str = "actors/toad/toad_geo.glb";
-const TREES: [&str; 3] = ["actors/tree/bubbly_tree_geo.glb", "actors/tree/palm_tree_geo.glb", "actors/tree/snow_tree_geo.glb"];
+const GOOMBA: &str = "actors/goomba/goomba_geo.glb";
+const BOBOMB: &str = "actors/bobomb/black_bobomb_geo.glb";
 
 pub fn hex(c: u32) -> Color {
     Color::srgb(((c >> 16) & 255) as f32 / 255.0, ((c >> 8) & 255) as f32 / 255.0, (c & 255) as f32 / 255.0)
@@ -44,7 +49,10 @@ pub struct Highlight(pub usize);
 #[derive(Component)]
 pub struct StageShape(pub usize);
 #[derive(Component)]
-pub struct LavaPlane;
+pub struct PodiumDisc;
+/// A pooled model of a mini-game: kind (0 Goomba, 1 Bob-omb, 2 star, 3 crown) and slot.
+#[derive(Component)]
+pub struct MiniModel(pub u8, pub usize);
 
 /// Unit meshes and a colour -> material cache.
 #[derive(Resource)]
@@ -71,7 +79,7 @@ impl FromWorld for ViewCache {
 
 impl ViewCache {
     pub fn mat(&mut self, mats: &mut Assets<StandardMaterial>, color: u32) -> Handle<StandardMaterial> {
-        self.mats.entry(color).or_insert_with(|| mats.add(StandardMaterial { base_color: hex(color), perceptual_roughness: 0.85, ..default() })).clone()
+        self.mats.entry(color).or_insert_with(|| mats.add(StandardMaterial { base_color: hex(color), unlit: true, ..default() })).clone()
     }
     pub fn emissive(&mut self, mats: &mut Assets<StandardMaterial>, color: u32) -> Handle<StandardMaterial> {
         self.mats
@@ -84,47 +92,33 @@ impl ViewCache {
     }
 }
 
-/// The parts that never change: the mini-game stage floor and the ceremony podium.
-pub fn build_static(host: &mut Host) {
-    let mini = host.lit(hex(0x39456a));
-    host.spawn_box([MINI_O[0], MINI_O[1] - 20.0, MINI_O[2]], [2000.0, 40.0, 1100.0], 0.0, mini);
-    let rim = host.lit(hex(0x1d2442));
-    host.spawn_box([MINI_O[0], MINI_O[1] - 60.0, MINI_O[2]], [2100.0, 40.0, 1200.0], 0.0, rim);
-    let floor = host.lit(hex(0x3a3f70));
-    host.spawn_box([PODIUM_O[0], PODIUM_O[1] - 20.0, PODIUM_O[2]], [1700.0, 40.0, 800.0], 0.0, floor);
-    let cols = [0xffcc33, 0xcfd6e6, 0xcd7f32, 0x7a86b8];
-    for i in 0..4 {
-        let (p, h) = podium_slot(i);
-        let m = host.lit(hex(cols[i]));
-        host.spawn_box([p[0], p[1] + h / 2.0 - 2.0, p[2]], [150.0, h, 150.0], 0.0, m);
-    }
-    // A key light for the whole thing (the course's own light is hidden with the course).
-    host.spawn((DirectionalLight { illuminance: 11000.0, shadow_maps_enabled: false, ..default() }, Transform::from_xyz(0.0, 10.0, 0.0).looking_to(Vec3::new(-0.35, -1.0, -0.45), Vec3::Y)));
+/// A board-local direction turned into the course frame (the board may lie rotated); lengths are kept.
+pub fn turn_vec(frame: &Frame, v: Vec3) -> Vec3 {
+    let w = frame.to_world([v.x, v.z]);
+    let o = frame.to_world([0.0, 0.0]);
+    Vec3::new(((w[0] - o[0]) / BOARD_SCALE) as f32, v.y, ((w[1] - o[1]) / BOARD_SCALE) as f32)
 }
+
+/// Bevy units per board unit (board sizes and offsets are authored in board units).
+pub const K: f32 = (BOARD_SCALE / 100.0) as f32;
 
 // ---------------------------------------------------------------------------------------------
 // Board props
 // ---------------------------------------------------------------------------------------------
 
-fn seg(a: [f32; 2], b: [f32; 2]) -> (Vec3, f32, f32) {
-    let (dx, dz) = (b[0] - a[0], b[1] - a[1]);
-    let len = dx.hypot(dz);
-    (Vec3::new((a[0] + b[0]) / 2.0, 0.0, (a[1] + b[1]) / 2.0), len, dx.atan2(dz))
+/// A flat strip from `a` to `b` (course positions): centre, length, yaw and pitch.
+fn strip(a: [f64; 3], b: [f64; 3]) -> (Vec3, f32, Quat) {
+    let (pa, pb) = (to_bevy(a), to_bevy(b));
+    let d = pb - pa;
+    let flat = Vec2::new(d.x, d.z).length();
+    let yaw = d.x.atan2(d.z);
+    let pitch = -(d.y).atan2(flat);
+    ((pa + pb) / 2.0, d.length(), Quat::from_rotation_y(yaw) * Quat::from_rotation_x(pitch))
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn board_props(
-    mut commands: Commands,
-    mut app: ResMut<PartyApp>,
-    mut cache: ResMut<ViewCache>,
-    mut mats: ResMut<Assets<StandardMaterial>>,
-    old: Query<Entity, With<BoardProp>>,
-    assets: Res<AssetServer>,
-    root: Res<crate::render::AssetRoot>,
-    mut palette: ResMut<crate::fx::sky::SkyPalette>,
-    mut clear: ResMut<ClearColor>,
-) {
-    if !matches!(app.screen, Screen::Title | Screen::Minis | Screen::Board | Screen::Results) {
+pub fn board_props(mut commands: Commands, mut app: ResMut<PartyApp>, mut cache: ResMut<ViewCache>, mut mats: ResMut<Assets<StandardMaterial>>, old: Query<Entity, With<BoardProp>>, assets: Res<AssetServer>, root: Res<crate::render::AssetRoot>) {
+    if !matches!(app.screen, Screen::Title | Screen::Minis | Screen::Board | Screen::Results | Screen::Mini) {
         return;
     }
     let id = app.game.as_ref().map_or(app.cfg.board, |g| g.cfg.board);
@@ -136,56 +130,40 @@ pub fn board_props(
         commands.entity(e).despawn();
     }
     let board = board(id);
-    let origin = to_bevy(BOARD_O);
-    let want = crate::fx::sky::SkyPalette::from_hex(board.sky[0], board.sky[1], board.sky[2]).with_clouds(0.4);
-    *palette = want;
-    clear.0 = hex(board.sky[0]);
-    // Ground slab and a darker rim.
-    let ground = cache.mat(&mut mats, board.ground);
-    let rim = cache.mat(&mut mats, board.ground.wrapping_sub(0x1a1a1a) & 0xffffff);
-    commands.spawn((XpEntity, BoardProp, Mesh3d(cache.cube.clone()), MeshMaterial3d(ground), Transform::from_translation(origin + Vec3::new(0.0, -0.2, 0.0)).with_scale(Vec3::new(34.0, 0.4, 19.0))));
-    commands.spawn((XpEntity, BoardProp, Mesh3d(cache.cube.clone()), MeshMaterial3d(rim), Transform::from_translation(origin + Vec3::new(0.0, -0.45, 0.0)).with_scale(Vec3::new(35.0, 0.2, 20.0))));
-    if board.gimmick == Gimmick::Tide {
-        let lava = cache.emissive(&mut mats, 0xff5a1a);
-        commands.spawn((XpEntity, BoardProp, LavaPlane, Mesh3d(cache.cube.clone()), MeshMaterial3d(lava), Transform::from_translation(origin + Vec3::new(0.0, 0.03, 0.0)).with_scale(Vec3::new(33.0, 0.04, 18.0))));
-        // Rings of rock under each tier.
-        for (rx, rz, c) in [(13.6f32, 7.4f32, 0x5a3a30u32), (8.9, 4.7, 0x6e463a), (4.4, 2.5, 0x82554a)] {
-            let m = cache.mat(&mut mats, c);
-            commands.spawn((XpEntity, BoardProp, Mesh3d(cache.cyl.clone()), MeshMaterial3d(m), Transform::from_translation(origin + Vec3::new(0.0, 0.0, 0.0)).with_scale(Vec3::new(rx, 0.12, rz))));
-        }
-    }
-    if board.gimmick == Gimmick::Wind {
-        for i in 0..7 {
-            let (x, z) = (-13.0 + i as f32 * 4.4, if i % 2 == 0 { -8.2 } else { 8.0 });
-            let m = cache.mat(&mut mats, 0xffffff);
-            commands.spawn((XpEntity, BoardProp, Mesh3d(cache.ball.clone()), MeshMaterial3d(m), Transform::from_translation(origin + Vec3::new(x, -0.7, z)).with_scale(Vec3::new(2.6, 0.9, 1.6))));
-        }
-    }
-    // Paths.
+    let lift = 6.0;
+    // Paths: strips that follow the course floor (one per path, split where the ground bends).
     for (a, edges) in board.edges.iter().enumerate() {
         for e in edges {
-            let (c, len, yaw) = seg(board.spaces[a].pos, board.spaces[e.to].pos);
             let color = match e.rule {
-                Rule::Always => 0xd9d2c2,
+                Rule::Always => 0xe8dcc0,
                 Rule::Flip(_) => 0xb07a3c,
                 Rule::Wind => 0x9fe3ff,
             };
             let m = cache.mat(&mut mats, color);
-            let w = if e.rule == Rule::Always { 0.34 } else { 0.5 };
-            commands.spawn((XpEntity, BoardProp, EdgeSeg { rule: e.rule }, Mesh3d(cache.cube.clone()), MeshMaterial3d(m), Transform::from_translation(origin + c + Vec3::Y * 0.04).with_rotation(Quat::from_rotation_y(yaw)).with_scale(Vec3::new(w, 0.08, len))));
+            let w = K * if e.rule == Rule::Always { 0.3 } else { 0.46 };
+            let (pa, pb) = (board.spaces[a].pos, board.spaces[e.to].pos);
+            let n = ((pb[0] - pa[0]).hypot(pb[1] - pa[1]) / 0.6).ceil().max(1.0) as usize;
+            for k in 0..n {
+                let t0 = k as f32 / n as f32;
+                let t1 = (k + 1) as f32 / n as f32;
+                let lerp = |t: f32| [pa[0] + (pb[0] - pa[0]) * t, pa[1] + (pb[1] - pa[1]) * t];
+                let (c, len, rot) = strip(app.board_world(lerp(t0), lift), app.board_world(lerp(t1), lift));
+                commands.spawn((XpEntity, BoardProp, EdgeSeg { rule: e.rule }, Mesh3d(cache.cube.clone()), MeshMaterial3d(m.clone()), Transform::from_translation(c).with_rotation(rot).with_scale(Vec3::new(w, 0.06, len + 0.02))));
+            }
         }
     }
-    // Spaces.
+    // Spaces: discs on the floor with a white trim.
     for (i, s) in board.spaces.iter().enumerate() {
         let m = cache.mat(&mut mats, s.kind.color());
-        let r = if s.span { 0.5 } else { 0.62 };
-        commands.spawn((XpEntity, BoardProp, SpaceDisc(i), Mesh3d(cache.cyl.clone()), MeshMaterial3d(m), Transform::from_translation(origin + Vec3::new(s.pos[0], 0.1, s.pos[1])).with_scale(Vec3::new(r, 0.16, r))));
+        let r = K * if s.span { 0.5 } else { 0.62 };
+        let at = to_bevy(app.board_world(s.pos, lift + 4.0));
+        commands.spawn((XpEntity, BoardProp, SpaceDisc(i), Mesh3d(cache.cyl.clone()), MeshMaterial3d(m), Transform::from_translation(at).with_scale(Vec3::new(r, 0.16, r))));
         let trim = cache.mat(&mut mats, 0xffffff);
-        commands.spawn((XpEntity, BoardProp, Mesh3d(cache.cyl.clone()), MeshMaterial3d(trim), Transform::from_translation(origin + Vec3::new(s.pos[0], 0.06, s.pos[1])).with_scale(Vec3::new(r + 0.08, 0.1, r + 0.08))));
+        commands.spawn((XpEntity, BoardProp, Mesh3d(cache.cyl.clone()), MeshMaterial3d(trim), Transform::from_translation(at - Vec3::Y * 0.04).with_scale(Vec3::new(r + 0.08, 0.1, r + 0.08))));
     }
-    // Keeper: the Sunstone floats over a toad on its site.
+    // Keeper: the Sunstone floats over a Toad on its site.
     let kpos = board.spaces[board.sites[0]].pos;
-    let keeper = commands.spawn((XpEntity, BoardProp, KeeperProp, Transform::from_translation(origin + Vec3::new(kpos[0], 0.2, kpos[1])), Visibility::Inherited)).id();
+    let keeper = commands.spawn((XpEntity, BoardProp, KeeperProp, Transform::from_translation(to_bevy(app.board_world(kpos, 20.0))), Visibility::Inherited)).id();
     if root.exists(STAR) {
         let mut star = crate::render::object_view::spawn_model(&mut commands, &assets, &root, STAR, true);
         star.insert((XpEntity, BoardProp, Transform::from_xyz(0.0, 2.3, 0.0).with_scale(Vec3::splat(1.3))));
@@ -199,47 +177,37 @@ pub fn board_props(
         commands.entity(keeper).add_child(tid);
     }
     let beam = cache.emissive(&mut mats, 0xfff2a0);
-    let b = commands.spawn((XpEntity, BoardProp, Mesh3d(cache.cyl.clone()), MeshMaterial3d(beam), Transform::from_xyz(0.0, 1.8, 0.0).with_scale(Vec3::new(0.03, 3.4, 0.03)))).id();
+    let b = commands.spawn((XpEntity, BoardProp, Mesh3d(cache.cyl.clone()), MeshMaterial3d(beam), Transform::from_xyz(0.0, 4.0, 0.0).with_scale(Vec3::new(0.04, 8.0, 0.04)))).id();
     commands.entity(keeper).add_child(b);
     // Highlight rings for fork choices.
     for k in 0..4 {
         let m = cache.emissive(&mut mats, 0xffffff);
-        commands.spawn((XpEntity, BoardProp, Highlight(k), Mesh3d(cache.cyl.clone()), MeshMaterial3d(m), Transform::from_translation(origin).with_scale(Vec3::new(0.9, 0.03, 0.9)), Visibility::Hidden));
+        commands.spawn((XpEntity, BoardProp, Highlight(k), Mesh3d(cache.cyl.clone()), MeshMaterial3d(m), Transform::default().with_scale(Vec3::new(0.9, 0.03, 0.9)), Visibility::Hidden));
     }
-    // Scenery around the rim.
-    let tree = TREES[id % 3];
-    if root.exists(tree) {
-        for k in 0..12 {
-            let a = k as f32 / 12.0 * std::f32::consts::TAU;
-            let (x, z) = (a.cos() * 16.6, a.sin() * 9.2);
-            if z > 4.0 {
-                continue;
-            }
-            let mut t = crate::render::object_view::spawn_model(&mut commands, &assets, &root, tree, false);
-            t.insert((XpEntity, BoardProp, Transform::from_translation(origin + Vec3::new(x, -0.3, z)).with_scale(Vec3::splat(0.5 + (k % 3) as f32 * 0.12))));
-        }
+    // The ceremony's pedestals (gold, silver, bronze, plain), shown on the results screen.
+    for (i, c) in [0xffcc33u32, 0xcfd6e6, 0xcd7f32, 0x7a86b8].iter().enumerate() {
+        let m = cache.mat(&mut mats, *c);
+        let at = to_bevy(app.board_world(podium_spot(i), lift + 8.0));
+        commands.spawn((XpEntity, BoardProp, PodiumDisc, Mesh3d(cache.cyl.clone()), MeshMaterial3d(m), Transform::from_translation(at).with_scale(Vec3::new(0.62 * K, 0.2, 0.62 * K)), Visibility::Hidden));
     }
-    let _ = scene_handle;
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn board_props_update(
     app: Res<PartyApp>,
     time: Res<Time>,
     mut cache: ResMut<ViewCache>,
     mut mats: ResMut<Assets<StandardMaterial>>,
-    mut discs: Query<(&SpaceDisc, &mut MeshMaterial3d<StandardMaterial>, &mut Transform), (Without<EdgeSeg>, Without<KeeperProp>, Without<Highlight>, Without<LavaPlane>)>,
-    mut edges: Query<(&EdgeSeg, &mut Visibility), Without<Highlight>>,
-    mut keeper: Query<&mut Transform, (With<KeeperProp>, Without<SpaceDisc>, Without<Highlight>, Without<LavaPlane>)>,
-    mut hl: Query<(&Highlight, &mut Visibility, &mut Transform), (Without<SpaceDisc>, Without<KeeperProp>, Without<EdgeSeg>, Without<LavaPlane>)>,
-    mut lava: Query<&mut Transform, (With<LavaPlane>, Without<SpaceDisc>, Without<KeeperProp>, Without<Highlight>)>,
-    mut palette: ResMut<crate::fx::sky::SkyPalette>,
+    mut discs: Query<(&SpaceDisc, &mut MeshMaterial3d<StandardMaterial>, &mut Transform), (Without<EdgeSeg>, Without<KeeperProp>, Without<Highlight>, Without<PodiumDisc>)>,
+    mut edges: Query<(&EdgeSeg, &mut Visibility), (Without<Highlight>, Without<PodiumDisc>)>,
+    mut keeper: Query<&mut Transform, (With<KeeperProp>, Without<SpaceDisc>, Without<Highlight>, Without<PodiumDisc>)>,
+    mut hl: Query<(&Highlight, &mut Visibility, &mut Transform), (Without<SpaceDisc>, Without<KeeperProp>, Without<EdgeSeg>, Without<PodiumDisc>)>,
+    mut podium: Query<&mut Visibility, (With<PodiumDisc>, Without<SpaceDisc>, Without<KeeperProp>, Without<EdgeSeg>, Without<Highlight>)>,
 ) {
     let Some(id) = app.board_built else { return };
     let board = board(id);
     let cond = app.game.as_ref().map_or(Conditions::default(), |g| g.cond);
     let t = time.elapsed_secs();
-    let origin = to_bevy(BOARD_O);
     let keeper_space = app.game.as_ref().map_or(board.sites[0], |g| g.keeper);
     let options: Vec<usize> = match app.game.as_ref().map(|g| &g.phase) {
         Some(Phase::Branch(o)) => o.clone(),
@@ -254,7 +222,7 @@ pub fn board_props_update(
             mat.0 = h;
         }
         let pulse = app.pulse.filter(|p| p.0 == d.0).map_or(0.0, |p| (1.0 - ((app.t - p.1) / 0.5) as f32).max(0.0));
-        let r = if board.spaces[d.0].span { 0.5 } else { 0.62 };
+        let r = K * if board.spaces[d.0].span { 0.5 } else { 0.62 };
         tf.scale = Vec3::new(r * (1.0 + 0.25 * pulse), 0.16 + 0.1 * pulse, r * (1.0 + 0.25 * pulse));
     }
     for (e, mut vis) in &mut edges {
@@ -268,38 +236,32 @@ pub fn board_props_update(
             *vis = v;
         }
     }
-    let kp = board.spaces[keeper_space].pos;
+    let want = to_bevy(app.board_world(board.spaces[keeper_space].pos, 20.0));
     for mut tf in &mut keeper {
-        let want = origin + Vec3::new(kp[0], 0.2, kp[1]);
         tf.translation = tf.translation.lerp(want, (time.delta_secs() * 4.0).min(1.0));
     }
     for (h, mut vis, mut tf) in &mut hl {
         match options.get(h.0) {
             Some(&s) => {
-                let p = board.spaces[s].pos;
-                tf.translation = origin + Vec3::new(p[0], 0.12, p[1]);
+                tf.translation = to_bevy(app.board_world(board.spaces[s].pos, 14.0));
                 let k = 1.0 + 0.12 * (t * 7.0).sin();
-                tf.scale = Vec3::new(0.95 * k, 0.03, 0.95 * k);
+                tf.scale = Vec3::new(0.95 * K * k, 0.03, 0.95 * K * k);
                 *vis = Visibility::Inherited;
             }
             None => *vis = Visibility::Hidden,
         }
     }
-    for mut tf in &mut lava {
-        tf.translation.y = origin.y + 0.03 + 0.012 * (t * 1.3).sin();
-    }
-    // Sky mood follows the tide.
-    if board.gimmick == Gimmick::Tide {
-        let k = cond.tide as f32 * 0.5;
-        let want = crate::fx::sky::SkyPalette::from_hex(board.sky[0], if k > 0.4 { 0xb03a20 } else { board.sky[1] }, board.sky[2]).with_clouds(0.35);
-        if *palette != want {
-            *palette = want;
+    let show = app.screen == Screen::Results;
+    for mut vis in &mut podium {
+        let v = if show { Visibility::Inherited } else { Visibility::Hidden };
+        if *vis != v {
+            *vis = v;
         }
     }
 }
 
 // ---------------------------------------------------------------------------------------------
-// Mini-game stage shapes
+// Mini-game props
 // ---------------------------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
@@ -319,7 +281,6 @@ pub fn stage_shapes(
         commands.spawn((XpEntity, StageShape(*spawned), Mesh3d(cache.cube.clone()), MeshMaterial3d(cache.mat(&mut mats, 0xffffff)), Transform::default(), Visibility::Hidden));
         *spawned += 1;
     }
-    let o = to_bevy(MINI_O);
     for (_, s, mut tf, mut vis, mut mesh, mut mat) in &mut pool {
         let Some(sh) = shapes.get(s.0) else {
             if *vis != Visibility::Hidden {
@@ -327,23 +288,77 @@ pub fn stage_shapes(
             }
             continue;
         };
-        let (m, scale) = match sh.sh {
-            Sh::Box => (cache.cube.clone(), Vec3::new(sh.s[0], sh.s[1], sh.s[2])),
-            Sh::Disc => (cache.cyl.clone(), Vec3::new(sh.s[0], sh.s[1].max(0.01), if sh.s[2] > 0.0 { sh.s[2] } else { sh.s[0] })),
-            Sh::Ball => (cache.ball.clone(), Vec3::splat(sh.s[0])),
-            Sh::Cone => (cache.cone.clone(), Vec3::new(sh.s[0], sh.s[1], sh.s[0])),
+        let (m, scale, rot) = match sh.sh {
+            Sh::Box => (cache.cube.clone(), Vec3::new(sh.s[0], sh.s[1], sh.s[2]), Quat::from_rotation_y(sh.yaw)),
+            Sh::Disc => (cache.cyl.clone(), Vec3::new(sh.s[0], sh.s[1].max(0.01), if sh.s[2] > 0.0 { sh.s[2] } else { sh.s[0] }), Quat::from_rotation_y(sh.yaw)),
+            Sh::Ball => (cache.ball.clone(), Vec3::splat(sh.s[0]), Quat::IDENTITY),
+            Sh::Cone => (cache.cone.clone(), Vec3::new(sh.s[0], sh.s[1], sh.s[0]), Quat::from_rotation_y(sh.yaw)),
+            Sh::Coin => (cache.cyl.clone(), Vec3::new(sh.s[0], sh.s[1], sh.s[0]), Quat::from_rotation_y(sh.yaw) * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
         };
         if mesh.0 != m {
             mesh.0 = m;
         }
-        let h = cache.mat(&mut mats, sh.col);
+        let h = if sh.sh == Sh::Coin { cache.emissive(&mut mats, sh.col) } else { cache.mat(&mut mats, sh.col) };
         if mat.0 != h {
             mat.0 = h;
         }
-        tf.translation = o + Vec3::new(sh.p[0], sh.p[1] + 0.03, sh.p[2]);
-        tf.rotation = Quat::from_rotation_y(sh.yaw);
+        tf.translation = to_bevy(sh.p);
+        tf.rotation = rot;
         tf.scale = scale;
         *vis = Visibility::Inherited;
+    }
+}
+
+/// The real models of the mini-games (Goombas, falling Bob-ombs, the Power Star, the crown star), pooled.
+#[allow(clippy::too_many_arguments)]
+pub fn mini_models(mut commands: Commands, app: Res<PartyApp>, assets: Res<AssetServer>, root: Res<crate::render::AssetRoot>, time: Res<Time>, mut pool: Query<(&MiniModel, &mut Transform, &mut Visibility)>, mut counts: Local<[usize; 4]>) {
+    let scene = match (&app.screen, &app.mini) {
+        (Screen::Mini, Some(m)) => Some(&m.scene),
+        _ => None,
+    };
+    let piece_head = |p: usize| app.pieces.get(p).map(|pc| to_bevy(pc.mario.pos()) + Vec3::Y * 2.3);
+    let mut want: [Vec<(Vec3, f32, f32)>; 4] = Default::default();
+    if let Some(s) = scene {
+        want[0] = s.goombas.iter().map(|(p, yaw, k)| (to_bevy(*p), *yaw, *k)).collect();
+        want[1] = s.bombs.iter().map(|p| (to_bevy(*p), 0.0, 1.0)).collect();
+        let spin = time.elapsed_secs() * 3.0;
+        if let Some(p) = s.star_at {
+            want[2].push((to_bevy(p), spin, 1.0));
+        }
+        if let Some(h) = s.star_on.and_then(piece_head) {
+            want[2].push((h, spin, 0.8));
+        }
+        if let Some(h) = s.crown.and_then(piece_head) {
+            want[3].push((h, spin, 0.6));
+        }
+    }
+    let paths = [GOOMBA, BOBOMB, STAR, STAR];
+    for kind in 0..4 {
+        while counts[kind] < want[kind].len() && root.exists(paths[kind]) {
+            let mut e = crate::render::object_view::spawn_model(&mut commands, &assets, &root, paths[kind], true);
+            e.insert((XpEntity, MiniModel(kind as u8, counts[kind]), Visibility::Hidden));
+            counts[kind] += 1;
+        }
+    }
+    for (m, mut tf, mut vis) in &mut pool {
+        match want[m.0 as usize].get(m.1) {
+            Some((p, yaw, k)) => {
+                tf.translation = *p;
+                tf.rotation = Quat::from_rotation_y(*yaw);
+                tf.scale = match m.0 {
+                    0 => Vec3::new(1.0, *k, 1.0),
+                    _ => Vec3::splat(*k),
+                };
+                if *vis != Visibility::Inherited {
+                    *vis = Visibility::Inherited;
+                }
+            }
+            None => {
+                if *vis != Visibility::Hidden {
+                    *vis = Visibility::Hidden;
+                }
+            }
+        }
     }
 }
 
@@ -358,7 +373,7 @@ pub fn ensure_pieces(mut commands: Commands, mut app: ResMut<PartyApp>, assets: 
     let meta = app.meta.clone().unwrap();
     let world = app.world.clone();
     for p in app.pieces.len()..4 {
-        let pos = mini_pos(-4.0 + p as f32 * 2.5, 6.5);
+        let pos = app.board_world([-1.5 + p as f32, 0.0], 0.0);
         let spawn = jumpman_sim::mario_runtime::SpawnPoint { action: None, pos, face_yaw: 0.0 };
         let mut m = CrowdMario::new(world.clone(), spawn, Some(meta.as_slice()));
         m.runtime.reset_to_spawn();
@@ -381,10 +396,9 @@ pub fn piece_targets(mut app: ResMut<PartyApp>) {
     match screen {
         Screen::Title | Screen::Minis => {
             for p in 0..4 {
-                let (x, z) = ([-4.5, -1.5, 1.5, 4.5][p], 6.8);
-                let target = board_pos([x, z]);
+                let target = app.board_world([-1.5 + p as f32, 0.6], 0.0);
                 let pc = &mut app.pieces[p];
-                pc.mario.size = 0.8;
+                pc.mario.size = 1.0;
                 pc.hidden = false;
                 if place || pc.at.is_some() {
                     pc.snap = true;
@@ -397,58 +411,49 @@ pub fn piece_targets(mut app: ResMut<PartyApp>) {
         Screen::Board => {
             let snaps: Vec<(usize, usize)> = app.game.as_ref().map(|g| (0..4).map(|p| (p, g.players[p].space)).collect()).unwrap_or_default();
             for (p, s) in snaps {
-                let pc = &mut app.pieces[p];
-                pc.mario.size = 0.8;
-                pc.hidden = false;
-                if place || pc.at.is_none() {
-                    pc.at = Some(s);
-                    pc.snap = true;
+                if place || app.pieces[p].at.is_none() {
+                    app.pieces[p].at = Some(s);
+                    app.pieces[p].snap = true;
                 }
-                let sp = board.spaces[pc.at.unwrap()].pos;
+                let sp = board.spaces[app.pieces[p].at.unwrap()].pos;
                 let off = slot_offset(p);
-                pc.target = Some(board_pos([sp[0] + off[0], sp[1] + off[1]]));
+                let target = app.board_world([sp[0] + off[0], sp[1] + off[1]], 0.0);
+                let pc = &mut app.pieces[p];
+                pc.mario.size = 1.0;
+                pc.hidden = false;
+                pc.target = Some(target);
             }
             app.place = false;
         }
         Screen::Mini => {
             let Some(run) = app.mini.as_ref() else { return };
-            let av: Vec<Avatar> = run.scene.avatars.clone();
-            let first = place;
+            let playing = run.stage == MStage::Play;
+            let starts: Vec<[f64; 3]> = (0..4).map(|p| run.session.game.start(p)).collect();
+            let shown: Vec<bool> = (0..4).map(|p| run.session.active[p] && !run.session.game.out(p)).collect();
             for p in 0..4 {
-                let a = av.iter().find(|a| a.p == p);
                 let pc = &mut app.pieces[p];
                 pc.at = None;
                 pc.mario.size = 1.0;
-                match a {
-                    Some(a) => {
-                        pc.hidden = a.out;
-                        pc.target = Some(mini_pos(a.x, a.z));
-                        if first {
-                            pc.snap = true;
-                        }
-                        let air = a.y > 0.25;
-                        if air && !pc.air_prev {
-                            pc.jump_next = true;
-                        }
-                        pc.hold_a = air;
-                        pc.air_prev = air;
-                    }
-                    None => pc.hidden = true,
+                pc.hidden = !shown[p];
+                if place {
+                    pc.snap = true;
+                    pc.target = Some(starts[p]);
+                } else if playing {
+                    // The physics (and the rules) move them now.
+                    pc.target = None;
                 }
             }
-            if !av.is_empty() {
-                app.place = false;
-            }
+            app.place = false;
         }
         Screen::Results => {
             let order = app.game.as_ref().map(|g| g.standings()).unwrap_or_else(|| vec![0, 1, 2, 3]);
             let winners = app.game.as_ref().map(|g| g.winners()).unwrap_or_default();
             for (rank, &p) in order.iter().enumerate() {
-                let (pos, h) = podium_slot(rank);
+                let target = app.board_world(podium_spot(rank), 30.0);
                 let pc = &mut app.pieces[p];
                 pc.mario.size = 1.0;
                 pc.hidden = false;
-                pc.target = Some([pos[0], pos[1] + h, pos[2] + 10.0]);
+                pc.target = Some(target);
                 if place {
                     pc.snap = true;
                 }
@@ -462,10 +467,79 @@ pub fn piece_targets(mut app: ResMut<PartyApp>) {
     }
 }
 
+/// What a physics body is doing, for the rules.
+pub fn body_of(m: &MarioRuntime) -> Body {
+    Body { pos: m.pos, yaw: m.face_angle[1], grounded: m.action & ACT_FLAG_AIR == 0, vy: m.vel[1], attack: m.action & ACT_FLAG_ATTACKING != 0 }
+}
+
+/// A rules drive as synthetic controller input.
+pub fn drive_input(d: &Drive) -> DriveInput {
+    DriveInput { yaw: d.dir.map(|v| atan2s(v[1], v[0]) as f64), mag: Some(d.mag.clamp(0.0, 1.0) * 64.0), jump: d.jump, hold_a: d.hold || d.jump, punch: d.punch, ..Default::default() }
+}
+
+/// A rules knockback on a physics body: the real knockback action, then a harder shove (as Last Star Standing does).
+pub fn knock(m: &mut MarioRuntime, from: [f64; 3], power: f64) {
+    m.invinc_timer = 0.0;
+    if m.take_damage(2.0, Some(from)) {
+        m.forward_vel = m.forward_vel.signum() * m.forward_vel.abs().max(power * 1.15);
+        m.vel[1] = m.vel[1].max(24.0);
+        if m.action & ACT_FLAG_AIR == 0 {
+            m.set_action(if m.forward_vel < 0.0 { ACT_BACKWARD_AIR_KB } else { ACT_FORWARD_AIR_KB }, 0.0);
+        }
+    }
+    m.health = 0x880 as f64;
+    m.hurt_counter = 0.0;
+}
+
+/// One 30 Hz step of a running mini-game on the full physics: read the bodies, plan every seat's drive (people's sticks,
+/// bots' policies), step the four Marios, then let the rules see where they ended up and apply what they ask for.
+pub fn mini_physics_step(app: &mut PartyApp) -> bool {
+    let playing = app.screen == Screen::Mini && app.mini.as_ref().is_some_and(|m| m.stage == MStage::Play && !m.session.done());
+    if !playing || app.pieces.len() < 4 {
+        return false;
+    }
+    let PartyApp { mini, pieces, cues, .. } = app;
+    let run = mini.as_mut().unwrap();
+    let human: [Drive; 4] = std::array::from_fn(|p| run.human_drive(p));
+    for i in &mut run.inp {
+        i.act = false;
+        i.b = false;
+    }
+    step_session(&mut run.session, pieces, &human, cues);
+    true
+}
+
+/// [`mini_physics_step`] without the app: one step of `session` on the four pieces' physics bodies.
+pub fn step_session(session: &mut Session, pieces: &mut [Piece], human: &[Drive; 4], cues: &mut Vec<(&'static str, [f64; 3])>) {
+    let bodies: [Body; 4] = std::array::from_fn(|p| body_of(&pieces[p].mario.runtime));
+    let drives = session.plan(&bodies, human);
+    for p in 0..4 {
+        let shown = session.active[p] && !session.game.out(p);
+        pieces[p].hidden = !shown;
+        let input = if shown { drive_input(&drives[p]) } else { DriveInput::default() };
+        pieces[p].mario.drive(&input);
+    }
+    let after: [Body; 4] = std::array::from_fn(|p| body_of(&pieces[p].mario.runtime));
+    for ev in session.advance(&after, &drives) {
+        match ev {
+            MiniEv::Knock { p, from, power } => knock(&mut pieces[p].mario.runtime, from, power),
+            MiniEv::Place { p, pos } => pieces[p].mario.teleport(pos, None),
+            MiniEv::Bounce { p } => {
+                let m = &mut pieces[p].mario.runtime;
+                m.vel[1] = m.vel[1].max(42.0);
+            }
+            MiniEv::Cue { kind, pos } => cues.push((kind, pos)),
+        }
+    }
+}
+
 pub fn drive_pieces(mut app: ResMut<PartyApp>) {
+    if mini_physics_step(&mut app) {
+        return;
+    }
     for pc in &mut app.pieces {
         let pos = pc.mario.runtime.pos;
-        let mut input = crate::experiments::crowd::DriveInput::default();
+        let mut input = DriveInput::default();
         if let Some(t) = pc.target {
             if pc.snap {
                 pc.mario.teleport(t, None);
@@ -475,7 +549,8 @@ pub fn drive_pieces(mut app: ResMut<PartyApp>) {
             }
             let (dx, dz) = (t[0] - pos[0], t[2] - pos[2]);
             let d = dx.hypot(dz);
-            if d > 1400.0 {
+            // Far off (a warp, or stuck on the course): put it there.
+            if d > 1400.0 || (pos[1] - t[1]).abs() > 400.0 {
                 pc.mario.teleport(t, None);
                 continue;
             }
@@ -515,6 +590,26 @@ pub fn render_pieces(mut commands: Commands, mut app: ResMut<PartyApp>, time: Re
 pub struct CamState {
     eye: Option<Vec3>,
     look: Option<Vec3>,
+    screen: Option<Screen>,
+}
+
+/// Where the mini-game camera looks from: behind the players along the site's `look`, far enough to frame them all.
+pub fn mini_cam(run: &MiniRun, field: &Field, bodies: &[[f64; 3]], aspect: f32) -> (Vec3, Vec3) {
+    let alive: Vec<[f64; 3]> = bodies.iter().copied().filter(|b| !field.fallen(*b)).collect();
+    let (c, spread) = if run.stage == MStage::Play && !alive.is_empty() {
+        let n = alive.len() as f64;
+        let c = [alive.iter().map(|b| b[0]).sum::<f64>() / n, alive.iter().map(|b| b[1]).sum::<f64>() / n, alive.iter().map(|b| b[2]).sum::<f64>() / n];
+        // Pull toward the arena centre so the action keeps its context.
+        let c = [c[0] * 0.7 + field.center[0] * 0.3, c[1] * 0.7 + field.center[1] * 0.3, c[2] * 0.7 + field.center[2] * 0.3];
+        (c, alive.iter().map(|b| hdist(*b, c)).fold(0.0, f64::max))
+    } else {
+        (field.center, field.radius * 0.6)
+    };
+    let f = run.site.look;
+    let d = ((spread * 1.6 + 1100.0) / (aspect as f64 / 1.78).min(1.0)).clamp(1500.0, 3200.0) / 100.0;
+    let cv = to_bevy(c);
+    let back = Vec3::new(-f[0] as f32, 0.0, -f[1] as f32);
+    (cv + back * d as f32 * 0.55 + Vec3::Y * d as f32 * 0.82, cv + Vec3::Y * 0.6 - back * 1.5)
 }
 
 pub fn camera(mut app: ResMut<PartyApp>, mut cam: ResMut<CameraOverride>, time: Res<Time>, windows: Query<&Window, With<PrimaryWindow>>, mut st: Local<CamState>) {
@@ -522,36 +617,49 @@ pub fn camera(mut app: ResMut<PartyApp>, mut cam: ResMut<CameraOverride>, time: 
     let aspect = (win.x / win.y.max(1.0)).max(0.5);
     let fov = 36.0f32;
     let tan_h = (fov.to_radians() / 2.0).tan();
-    let o = to_bevy(BOARD_O);
+    let frame = app.ground().frame;
+    let o = to_bevy(app.board_world([0.0, 0.0], 0.0));
+    // Views of the board from its south side (board-local +z), turned with the board.
+    let view = |d_up: f32, d_back: f32| turn_vec(&frame, Vec3::new(0.0, d_up, d_back));
     let (eye_t, look_t) = match app.screen {
         Screen::Title | Screen::Minis => {
             let sway = (app.t as f32 * 0.25).sin();
-            let d = (15.0 / (tan_h * aspect)).max(26.0);
-            (o + Vec3::new(sway * 3.0, d * 0.78, d * 0.55), o + Vec3::new(0.0, 0.0, 0.5))
+            let d = (14.0 / (tan_h * aspect)).max(24.0) * K;
+            (o + view(d * 0.62, d * 0.72) + turn_vec(&frame, Vec3::new(sway * 3.0, 0.0, 0.0)), o + view(0.0, 0.5))
         }
         Screen::Board => {
             let focus_p = app.game.as_ref().map_or(0, |g| g.cur);
             if app.overview {
-                let d = (14.5 / (tan_h * aspect)).max(26.0);
-                (o + Vec3::new(0.0, d * 0.8, d * 0.58), o + Vec3::new(0.0, 0.0, 0.6))
+                let d = (14.5 / (tan_h * aspect)).max(26.0) * K;
+                (o + view(d * 0.8, d * 0.58), o + view(0.0, 0.6))
             } else {
-                let p = app.pieces.get(focus_p).map_or(o, |pc| to_bevy(pc.mario.pos()));
-                // Keep the aspect in mind: a narrow window needs to be further out.
+                // The piece, unless it is still far from where it is going (just back from a mini-game, or warped).
+                let p = app.pieces.get(focus_p).map_or(o, |pc| {
+                    let pos = pc.mario.pos();
+                    match pc.target {
+                        Some(t) if pc.snap || hdist(pos, t) > 600.0 || (pos[1] - t[1]).abs() > 400.0 => to_bevy(t),
+                        _ => to_bevy(pos),
+                    }
+                });
                 let d = (11.5 / (tan_h * aspect)).max(17.0);
-                (p + Vec3::new(0.0, d * 0.82, d * 0.57), p + Vec3::new(0.0, 0.3, -0.9))
+                (p + view(d * 0.82, d * 0.57), p + view(0.3, -0.9))
             }
         }
-        Screen::Mini => {
-            let d = (12.0 / (tan_h * aspect)).max(17.5);
-            let m = to_bevy(MINI_O);
-            (m + Vec3::new(0.0, d * 0.82, d * 0.57), m + Vec3::new(0.0, 0.0, 0.1))
-        }
+        Screen::Mini => match app.mini.as_ref() {
+            Some(run) => {
+                let bodies: Vec<[f64; 3]> = (0..4).filter(|&p| run.session.active[p] && !run.session.game.out(p)).filter_map(|p| app.pieces.get(p).map(|pc| pc.mario.pos())).collect();
+                mini_cam(run, &run.session.field, &bodies, aspect)
+            }
+            None => (o + view(20.0, 20.0), o),
+        },
         Screen::Results => {
-            let p = to_bevy(PODIUM_O);
-            (p + Vec3::new(0.1, 3.2, 8.4), p + Vec3::new(0.1, 1.0, 0.0))
+            let p = to_bevy(app.board_world([0.6, 0.3], 0.0));
+            (p + view(3.4, 9.0), p + view(1.0, 0.0))
         }
     };
-    let snap = st.eye.is_none() || matches!(app.screen, Screen::Mini | Screen::Results) && (st.eye.unwrap() - eye_t).length() > 14.0;
+    let switched = st.screen != Some(app.screen);
+    st.screen = Some(app.screen);
+    let snap = st.eye.is_none() || switched && matches!(app.screen, Screen::Mini | Screen::Results | Screen::Board) && (st.eye.unwrap() - eye_t).length() > 14.0;
     let k = if snap { 1.0 } else { (time.delta_secs() * if app.screen == Screen::Board { 3.2 } else { 2.2 }).min(1.0) };
     let eye = st.eye.map_or(eye_t, |e| e.lerp(eye_t, k));
     let look = st.look.map_or(look_t, |l| l.lerp(look_t, k));
@@ -562,4 +670,62 @@ pub fn camera(mut app: ResMut<PartyApp>, mut cam: ResMut<CameraOverride>, time: 
     app.confetti = app.confetti.max(0.0);
     let s = 100.0;
     cam.pose = Some(CamPose { eye: DVec3::new((eye.x + jitter.x) as f64 * s, (eye.y + jitter.y) as f64 * s, eye.z as f64 * s), look: DVec3::new(look.x as f64 * s, look.y as f64 * s, look.z as f64 * s), up: DVec3::Y, fov: fov as f64, near: 20.0, far: 60000.0 });
+}
+
+#[cfg(test)]
+mod physics_tests {
+    use super::*;
+    use crate::game::world::{CourseRequest, LoadedCourse};
+    use std::sync::Arc;
+
+    /// Play one mini-game to the end on the real battlefield: four full-physics Marios (the app's own step), Normal bots.
+    fn play(course: &LoadedCourse, kind: Mini, seed: u64, levels: [Level; 4]) -> ([f32; 4], usize) {
+        let field = Arc::new(super::super::sites::sample_field(&course.world, kind));
+        let mut session = Session::new(kind, seed, [true; 4], [false; 4], levels, field);
+        let mut pieces: Vec<Piece> = (0..4)
+            .map(|p| {
+                let pos = session.game.start(p);
+                let spawn = jumpman_sim::mario_runtime::SpawnPoint { action: None, pos, face_yaw: 0.0 };
+                let mut m = CrowdMario::new(course.world.clone(), spawn, None);
+                m.runtime.reset_to_spawn();
+                Piece { mario: m, at: None, snap: false, jump_next: false, air_prev: false, target: None, hold_a: false, hidden: false, fx_t: 0.0 }
+            })
+            .collect();
+        let mut cues = vec![];
+        while !session.done() && session.steps < 30 * 60 {
+            step_session(&mut session, &mut pieces, &[Drive::default(); 4], &mut cues);
+        }
+        assert!(session.done(), "{kind:?} ended");
+        (session.game.scores(), cues.len())
+    }
+
+    /// Every mini-game plays out on the real course with real Mario physics: the bots score, the rules see real
+    /// collisions (coins taken, punches landed, blasts dodged and taken, stomps), and the same seed plays the same game.
+    #[test]
+    fn every_mini_game_plays_on_the_real_battlefield_with_mario_physics() {
+        let assets = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets");
+        if !assets.join("courses/bob.json").exists() {
+            return;
+        }
+        let course = LoadedCourse::load(&assets, CourseRequest::new("bob")).expect("course loads");
+        for kind in ALL_MINIS {
+            let (s, cues) = play(&course, kind, 7, [Level::Normal; 4]);
+            eprintln!("{kind:?}: scores {s:?}, {cues} cues");
+            let total: f32 = s.iter().sum();
+            let least = s.iter().cloned().fold(f32::MAX, f32::min);
+            let most = s.iter().cloned().fold(f32::MIN, f32::max);
+            assert!(cues > 3, "{kind:?}: nothing happened");
+            match kind {
+                Mini::CoinScramble => assert!(total >= 20.0, "coins taken: {total}"),
+                Mini::SummitCrown => assert!(total >= 5.0, "seconds held alone: {total}"),
+                // Someone took a blast: not everyone ends with the full clock and three hearts.
+                Mini::BombRain => assert!(least < bomb_rain::SECS + 6.0 - 0.5, "nobody was hit: {s:?}"),
+                Mini::StarTag => assert!(total >= 15.0, "seconds the star was held: {total}"),
+                Mini::GoombaStomp => assert!(total >= 8.0, "stomps: {total}"),
+            }
+            assert!(most > least, "{kind:?} is a dead heat: {s:?}");
+        }
+        // Deterministic by seed, physics included.
+        assert_eq!(play(&course, Mini::StarTag, 3, [Level::Normal; 4]), play(&course, Mini::StarTag, 3, [Level::Normal; 4]));
+    }
 }

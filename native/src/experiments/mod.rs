@@ -159,29 +159,45 @@ pub enum ExperimentId {
     Party,
 }
 
-/// Every mode in menu order: the polished games first (most compelling at the top), then the
-/// experiments (tech demos and sandboxes). See [`ExperimentId::category`].
+/// Every mode: the menu modes in menu order (the GAMES by the fun audits' ranking, then the EXPERIMENTS), then the
+/// modes the audits (`MINIGAMES_FUN*.md`) cut from the menus. Hidden modes still parse, run from their
+/// `JUMPMAN_EXPERIMENT=<key>` hook and keep their tests; only [`MENU_IDS`] reaches a player. See [`ExperimentId::listed`].
 pub const EXPERIMENT_IDS: [ExperimentId; 17] = [
     // Games
     ExperimentId::Brawl,
-    ExperimentId::Relic,
-    ExperimentId::LastStar,
-    ExperimentId::Kart,
     ExperimentId::Swarm,
-    ExperimentId::Deck,
-    ExperimentId::Halls,
     ExperimentId::Gate,
-    ExperimentId::Party,
+    ExperimentId::Deck,
+    ExperimentId::LastStar,
     ExperimentId::Race,
+    ExperimentId::Party,
+    ExperimentId::Relic,
     ExperimentId::Runner,
+    ExperimentId::Kart,
     // Experiments
     ExperimentId::God,
-    ExperimentId::Diorama,
     ExperimentId::Dimensions,
-    ExperimentId::Shrink,
-    ExperimentId::Planet,
     ExperimentId::Hundred,
+    ExperimentId::Shrink,
+    // Hidden from the menus (cut by the fun audits; code, hooks and tests kept)
+    ExperimentId::Halls,
+    ExperimentId::Diorama,
+    ExperimentId::Planet,
 ];
+
+/// How many of [`EXPERIMENT_IDS`] (the leading ones) the menus list.
+pub const MENU_LEN: usize = 14;
+
+/// The modes a player can pick, in menu order: [`EXPERIMENT_IDS`] without the hidden ones.
+pub const MENU_IDS: [ExperimentId; MENU_LEN] = {
+    let mut out = [ExperimentId::Brawl; MENU_LEN];
+    let mut i = 0;
+    while i < MENU_LEN {
+        out[i] = EXPERIMENT_IDS[i];
+        i += 1;
+    }
+    out
+};
 
 /// Where a mode is listed: the GAMES menu (complete, replayable modes with goals) or the
 /// EXPERIMENTS menu (tech demos and toys).
@@ -254,7 +270,12 @@ impl ExperimentId {
     }
     /// The modes of one category, in menu order.
     pub fn in_category(category: Category) -> impl Iterator<Item = ExperimentId> {
-        EXPERIMENT_IDS.into_iter().filter(move |id| id.category() == category)
+        MENU_IDS.into_iter().filter(move |id| id.category() == category)
+    }
+    /// Whether a menu offers the mode. Tiny Planet, Diorama and The Painted Halls were cut by the fun audits: they
+    /// still run from `JUMPMAN_EXPERIMENT` and their tests, but no menu lists them.
+    pub fn listed(self) -> bool {
+        MENU_IDS.contains(&self)
     }
     /// Whether the experiment is ported yet.
     pub fn available(self) -> bool {
@@ -846,8 +867,8 @@ fn menu_keys(keys: Res<ButtonInput<KeyCode>>, mut open: ResMut<MenuOpen>, mut sl
     } else if open.0 {
         let digits = [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6, KeyCode::Digit7, KeyCode::Digit8, KeyCode::Digit9, KeyCode::Digit0];
         for (i, key) in digits.iter().enumerate() {
-            if keys.just_pressed(*key) && EXPERIMENT_IDS[i].available() {
-                slot.request = Some(EXPERIMENT_IDS[i]);
+            if keys.just_pressed(*key) && MENU_IDS[i].available() {
+                slot.request = Some(MENU_IDS[i]);
                 open.0 = false;
             }
         }
@@ -1316,14 +1337,25 @@ mod fresh_start_tests {
 
     #[test]
     fn games_come_first_with_the_headline_modes_on_top() {
+        use ExperimentId as X;
         let games: Vec<_> = ExperimentId::in_category(Category::Game).collect();
-        assert_eq!(&games[..3], &[ExperimentId::Brawl, ExperimentId::Relic, ExperimentId::LastStar]);
+        // The fun audits' ranking (MINIGAMES_FUN.md, MINIGAMES_FUN_2.md).
+        assert_eq!(&games[..6], &[X::Brawl, X::Swarm, X::Gate, X::Deck, X::LastStar, X::Race]);
+        assert_eq!(&games[games.len() - 3..], &[X::Relic, X::Runner, X::Kart]);
         let lab: Vec<_> = ExperimentId::in_category(Category::Experiment).collect();
-        assert!(lab.contains(&ExperimentId::Diorama) && lab.contains(&ExperimentId::God));
-        assert_eq!(games.len() + lab.len(), EXPERIMENT_IDS.len());
+        assert_eq!(&lab[lab.len() - 4..], &[X::God, X::Dimensions, X::Hundred, X::Shrink]);
+        assert_eq!(games.len() + lab.len(), MENU_IDS.len());
         // The list is grouped: no experiment sits between two games.
-        let first_lab = EXPERIMENT_IDS.iter().position(|id| id.category() == Category::Experiment).unwrap();
-        assert!(EXPERIMENT_IDS[first_lab..].iter().all(|id| id.category() == Category::Experiment));
+        let first_lab = MENU_IDS.iter().position(|id| id.category() == Category::Experiment).unwrap();
+        assert!(MENU_IDS[first_lab..].iter().all(|id| id.category() == Category::Experiment));
+        // The cut modes are in no menu, but still parse and build (their hooks and tests keep working).
+        for cut in [X::Planet, X::Diorama, X::Halls] {
+            assert!(!cut.listed() && !games.contains(&cut) && !lab.contains(&cut), "{cut:?}");
+            assert_eq!(X::parse(cut.key()), Some(cut));
+            assert!(cut.available());
+        }
+        assert!(MENU_IDS.iter().all(|id| id.listed()));
+        assert_eq!(&EXPERIMENT_IDS[..MENU_LEN], &MENU_IDS);
         // Each mode is listed exactly once.
         let unique: std::collections::HashSet<_> = EXPERIMENT_IDS.iter().collect();
         assert_eq!(unique.len(), EXPERIMENT_IDS.len());

@@ -240,6 +240,38 @@ experiments tests pass except four that need exports this worktree did not have 
 tests, Banjo-Kazooie enemy models for `foes_view`); outside the experiments, audio, character and content tests
 failed for the same reason (missing exported data). None of those files were touched.
 
+## Follow-up (approved cuts and the Shindig rebuild)
+
+**Menus.** The Painted Halls is hidden from every menu (hub doors, the classic mode cards, the in-game dock list and its
+number keys); its code, tests and `JUMPMAN_EXPERIMENT=halls` hook stay (`ExperimentId::listed`, `MENU_IDS`). GAMES now run
+in the ranking of both audits: Gem Clash, Star Swarm, Hold the Gate, Star Deck, Last Star Standing, Summit Race, Sunstone
+Shindig, Relic Descent, Endless Run, Kart.
+
+**Sunstone Shindig, rebuilt on the real Bob-omb Battlefield.** The board core (spaces, items, the Keeper, duels, formats,
+awards) is kept; everything around it moved onto the real course, following Hold the Gate's board-on-a-real-course pattern:
+
+- The three boards lie on the battlefield floor (`party/sites.rs`): Meadow Gates on the meadow where Mario starts, Windy Hills
+  on the eastern hills, Bob-omb Flats on the flats by the start. Every space is on level, open ground with no tree, crate or
+  post on it, every path is walkable and the ceremony spots are clear (a scan picked the sites, a test re-checks them).
+- The fifteen UI mini-games (taps, tiles, meters on a blue slab) are gone. Five physics mini-games replace them, each played
+  by four real Marios (`CrowdMario`, full SM64 physics) on a real spot, and each built on that spot: **Coin Scramble** on the
+  eastern hills' slopes and ledges, **Summit Crown** (king of the hill with punches, the summit's real edges throw you off)
+  on King Bob-omb's summit, **Bob-omb Rain** in the field of wooden posts, **Star Tag** on the floating island (fall off and
+  the star goes back), **Goomba Stomp** on the high north-west meadow with chained stomps.
+- Rules are engine-free and deterministic (`minis/`): a game reads the four bodies and asks for knockbacks, pick-ups and
+  bounces; the app plays them on the physics, the tests on a kinematic stand-in, and one test plays all five on the real
+  course with full physics.
+- Rounds: 6 by default (5 / 6 / 8). With bots and fast board animations a whole game ran 270 s; with normal animations and a
+  person's decisions the estimate is 8-12 minutes.
+
+**Honest fun assessment.** Clearly better than before and now a real party game: every mini-game is Mario moving on a place
+you recognise, the five ask for different things (collect, shove, dodge, keep away, time a jump), the bots play them
+credibly (they fight for the crown, steal the star, chain stomps, flee blasts) and the session is short. It goes to GAMES
+after Summit Race. Its limits: solo, the board half is still mostly watching three CPUs roll; five mini-games repeat within a
+session (never twice in a row); Summit Crown is often contested (nobody scores while two Marios share the circle); the crowd
+Marios run through course objects such as trees; nothing was played by a person with a pad. It is at its best with people on
+gamepads, which is untested here.
+
 ## Unverified
 
 - No hands-on play with a controller, keyboard or touch; nothing was run on the iOS simulator or a phone in this pass.

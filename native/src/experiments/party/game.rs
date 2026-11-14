@@ -270,6 +270,8 @@ pub struct Party {
     pub rolled: bool,
     pub(super) rng: Rng,
     pub(super) brng: Rng,
+    /// Each mini-game's arena (index [`Mini::idx`]): flat stand-ins until the app hands in the real spots.
+    pub fields: Vec<std::sync::Arc<Field>>,
 }
 
 impl Party {
@@ -300,6 +302,7 @@ impl Party {
             brng: Rng::new(cfg.seed ^ 0xb07),
             rng,
             cfg,
+            fields: stand_in_fields(),
         };
         p.cond = Conditions { flip: false, wind: p.board.gimmick == Gimmick::Wind && p.rng.chance(0.5), tide: 0 };
         p

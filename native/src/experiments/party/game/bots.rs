@@ -158,7 +158,7 @@ impl Party {
             Phase::Over => false,
             Phase::Mini(ctx) => {
                 let levels: [Level; 4] = std::array::from_fn(|p| self.players[p].cpu.unwrap_or(Level::Normal));
-                let (scores, _) = run_bots(ctx.kind, ctx.seed, ctx.active, levels);
+                let (scores, _) = run_bots(ctx.kind, ctx.seed, ctx.active, levels, &self.fields[ctx.kind.idx()]);
                 self.apply(Cmd::MiniDone(scores)).expect("mini done");
                 true
             }

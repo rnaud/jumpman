@@ -21,7 +21,7 @@ fn signature(p: &Party) -> Vec<i64> {
 #[test]
 fn every_board_reaches_the_end_under_autoplay_for_every_length() {
     for board in 0..BOARD_COUNT {
-        for turns in [10, 12, 15] {
+        for turns in [5, 6, 8] {
             for seed in 0..25u64 {
                 let p = play(board, turns, seed * 31 + 7);
                 assert!(p.over(), "board {board} turns {turns} seed {seed}");
@@ -280,7 +280,7 @@ fn the_drawbridge_flips_every_round_and_changes_the_fork() {
     let flips: Vec<bool> = {
         let mut v = vec![p.cond.flip];
         for _ in 0..4 {
-            p.phase = Phase::MiniResult(MiniReport { kind: Mini::PowerMeter, format: Format::Ffa, active: [true; 4], teams: [0, 1, 2, 3], scores: [0.0; 4], ranks: [1; 4], won: [false; 4], coins: [0; 4], round_end: true });
+            p.phase = Phase::MiniResult(MiniReport { kind: Mini::StarTag, format: Format::Ffa, active: [true; 4], teams: [0, 1, 2, 3], scores: [0.0; 4], ranks: [1; 4], won: [false; 4], coins: [0; 4], round_end: true });
             p.apply(Cmd::Ack).unwrap();
             v.push(p.cond.flip);
         }
@@ -303,7 +303,7 @@ fn the_tide_floods_the_lowest_ring_from_round_four() {
     let low = (0..p.board.spaces.len()).find(|&s| p.board.spaces[s].tier == 0 && p.board.spaces[s].kind == Kind::Coin).unwrap();
     assert_eq!(p.space_kind(low), Kind::Coin);
     for _ in 0..3 {
-        p.phase = Phase::MiniResult(MiniReport { kind: Mini::PowerMeter, format: Format::Ffa, active: [true; 4], teams: [0, 1, 2, 3], scores: [0.0; 4], ranks: [1; 4], won: [false; 4], coins: [0; 4], round_end: true });
+        p.phase = Phase::MiniResult(MiniReport { kind: Mini::StarTag, format: Format::Ffa, active: [true; 4], teams: [0, 1, 2, 3], scores: [0.0; 4], ranks: [1; 4], won: [false; 4], coins: [0; 4], round_end: true });
         p.apply(Cmd::Ack).unwrap();
     }
     assert_eq!(p.round, 4);
@@ -327,7 +327,7 @@ fn bonus_awards_give_a_sunstone_to_the_leaders_and_share_ties() {
     p.players[1].lands[Kind::Coin.idx()] = 5;
     p.bonus_pick = 0;
     p.round = p.cfg.turns; // the last round's mini result ends the game
-    p.phase = Phase::MiniResult(MiniReport { kind: Mini::PowerMeter, format: Format::Ffa, active: [true; 4], teams: [0, 1, 2, 3], scores: [0.0; 4], ranks: [1; 4], won: [false; 4], coins: [0; 4], round_end: true });
+    p.phase = Phase::MiniResult(MiniReport { kind: Mini::StarTag, format: Format::Ffa, active: [true; 4], teams: [0, 1, 2, 3], scores: [0.0; 4], ranks: [1; 4], won: [false; 4], coins: [0; 4], round_end: true });
     p.apply(Cmd::Ack).unwrap();
     assert!(p.over());
     assert_eq!(p.awards[0].winners, vec![0]);
@@ -383,7 +383,7 @@ fn party_balance_report() {
         let (mut coins, mut suns, mut bought, mut duels, mut events) = (0.0, 0.0, 0.0, 0.0, 0u64);
         let mut stones = [0usize; 5];
         for seed in 0..n as u64 {
-            let mut p = Party::new(cpu_cfg(board, 12, seed + 1));
+            let mut p = Party::new(cpu_cfg(board, 6, seed + 1));
             let mut buys = 0;
             while p.auto_step() {
                 for e in p.drain_events() {
