@@ -109,12 +109,32 @@ scripted kiting runs in `swarm_core.rs` tests (`hero_survival`).
   scheduled one; it drops a chest), Duplicator (30/60/90 gold for a free level of something carried). Pots (10-30, in small
   clusters, hidden corners first) break when walked into: gold, sometimes a heart or a magnet.
   Hooks: `JUMPMAN_SWARM_TP=shrine:<n>[:<dist>]` / `pot:<n>`, `JUMPMAN_SWARM_CHESTS=1` lists them too.
-- **Star Tyrant**: base health 68000 (clock and tier scale it), four phases. Below 75/50/25% it stops at the gate (no big hit
+- **Star Tyrant**: base health 80000 (clock and tier scale it), four phases. Below 75/50/25% it stops at the gate (no big hit
   skips one), shields itself for 4 s (a tenth of the damage gets through), fires a great ring and calls a guard (an elite
   from the second gate). From the second phase it drops meteors where the player is heading (red circles that land after
-  1.2 s, 60% of the player's health each, a jump clears them); after the dawn it is enraged (volleys twice as often). While it
+  1.2 s, 55% of the player's health each, a jump clears them); after the dawn it is enraged (volleys twice as often). While it
   stands, hearts drop a fifth as often. `tune_tier` (`SWARM_TUNE_FIGHT`, `SWARM_TYRANT_HP`, `SWARM_METEOR`) reports reach, win
   rate among those who reach it, fight length, gates and meteor hits.
+- **Meteors vs. a dodging bot (follow-up).** The meteor hit (then 60% of max health) was tuned on kiting bots that never
+  dodged. The kiting bot (`kite_skill`) now sees each warning circle after a reaction time and, if it notices it at all,
+  runs out of it (it outweighs every other pull, and it turns harder while doing so); when it cannot get out in time it jumps
+  as the meteor lands (Mario's jump: over 160 for about ten ticks). Casual: notices 50% of circles, 12-tick reaction, jumps
+  40% of the time it must; skilled: 80%, 5 ticks, 85%. Retuned: Tyrant base health 68000 -> 80000, meteor hit 60% -> 55%
+  of max health. NORMAL, 32 seeds per hero, share of the runs that reach the Tyrant that also kill it:
+
+  | Player | Setting | Mario | Link | Banjo | All heroes | Meteor hits per fight |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | casual | before (no dodge, 0.60 / 68000; 16 seeds) | 6/9 | 5/9 | 3/9 | 52% | 6-8 |
+  | casual | dodging, old tune (0.60 / 68000) | 9/15 | 8/14 | 4/16 | 47% | 3-7 |
+  | casual | **dodging, new tune (0.55 / 80000)** | 8/15 | 7/14 | 8/16 | **51%** | 4-6 |
+  | skilled | before (no dodge; 16 seeds) | 10/12 | 11/12 | 12/13 | 89% | 8-9 |
+  | skilled | dodging, old tune | 21/26 | 19/22 | 26/27 | 88% | 2-3 |
+  | skilled | **dodging, new tune** | 21/26 | 19/22 | 26/27 | **88%** | 3-4 |
+
+  Casual lands on the 50% target. Skilled stays at 88% (target 80%): no meteor share or Tyrant health tried (0.55-0.9,
+  68000-95000) moved it below 85% without sinking casual players under 35%; the skilled bot's losses are not to meteors, and
+  Banjo wins 26 of 27 whatever the setting (Mario 77-81%, Link 82-86%). A hero balance pass would be the lever. Reach rates
+  are unchanged (casual 45/96, skilled 75/96). The sweeps are noisy (14-27 runs per cell).
 - **Planner crossings**: a diagonal step is checked at its quarter points, and every checked point needs ground at the step's
   height under it and a body width to either side; the walker only counts a waypoint as passed close up (no corner cutting).
   The walker reaches 64/64 sampled chests (8 a level).

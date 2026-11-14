@@ -78,6 +78,12 @@ pub enum Die {
 }
 
 impl Die {
+    /// The line for calling a roll: HIGH is this value or more, LOW below it (an even split on the plain and Dash dice).
+    pub fn call_line(self) -> u8 {
+        let (lo, hi) = self.range();
+        (lo + hi + 1) / 2
+    }
+
     pub fn range(self) -> (u8, u8) {
         match self {
             Die::Normal => (1, 10),
@@ -263,6 +269,8 @@ pub struct Party {
     pub used_item: bool,
     pub events: Vec<Ev>,
     pub last_mini: Option<Mini>,
+    /// How often each mini-game has come up (index [`Mini::idx`]): the least played go first.
+    pub mini_plays: [u32; 5],
     pub awards: Vec<Award>,
     pub bonus_pick: usize,
     pub minis_played: u32,
@@ -295,6 +303,7 @@ impl Party {
             used_item: false,
             events: vec![Ev::RoundStart(1), Ev::TurnStart(0)],
             last_mini: None,
+            mini_plays: [0; 5],
             awards: vec![],
             bonus_pick,
             minis_played: 0,
@@ -351,6 +360,11 @@ impl Party {
             self.players[p].earned += after - before;
         }
         after - before
+    }
+
+    /// Coins for something outside the board rules (a right call on a rival's roll); the event is queued like any other.
+    pub fn tip(&mut self, p: usize, delta: i32) -> i32 {
+        self.coins(p, delta)
     }
 
     pub(super) fn text(&mut self, s: impl Into<String>) {

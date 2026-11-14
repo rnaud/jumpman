@@ -496,11 +496,28 @@ fn build_board(commands: &mut Commands, a: &UiAssets, area: &SafeArea, app: &Par
                     if g.waiting_for_human() {
                         return;
                     }
+                    if let Some(c) = app.call.as_ref().filter(|_| app.call_open()) {
+                        // Call the CPU's roll: a coin for a right call.
+                        let line = c.die.call_line();
+                        let (lo, hi) = c.die.range();
+                        bot.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(8.0), align_items: AlignItems::Center, padding: UiRect::all(Val::Px(6.0)), ..default() }).insert(BackgroundColor(panel_bg())).insert(BorderRadius::all(Val::Px(14.0))).with_children(|row| {
+                            row.spawn(body(a, &format!("{who} rolls. Call it for +{CALL_PRIZE} coin:"), 13.0, Color::WHITE));
+                            act_button(row, a, ButtonKind::Gold, 120.0, 50.0, 16.0, &format!("HIGH {line}-{hi}"), UiCmd::Call(true));
+                            act_button(row, a, ButtonKind::Blue, 120.0, 50.0, 16.0, &format!("LOW {lo}-{}", line - 1), UiCmd::Call(false));
+                            act_button(row, a, ButtonKind::Chip, 70.0, 50.0, 13.0, "Fast >>", UiCmd::CpuFast);
+                        });
+                        return;
+                    }
                     let txt = match &g.phase {
                         Phase::Over => "Game over!".to_string(),
                         _ => format!("{who} is thinking..."),
                     };
-                    pill(bot, a, &txt, 12.0);
+                    bot.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(8.0), align_items: AlignItems::Center, ..default() }).with_children(|row| {
+                        pill(row, a, &txt, 12.0);
+                        if app.cpu_watched() {
+                            act_button(row, a, ButtonKind::Chip, 96.0, 40.0, 12.0, if app.cpu_fast { "Normal speed" } else { "Fast >>" }, UiCmd::CpuFast);
+                        }
+                    });
                 }
             }
         });
@@ -547,6 +564,9 @@ fn build_mini(commands: &mut Commands, a: &UiAssets, area: &SafeArea, app: &Part
                             card.spawn(Node { max_width: Val::Px(520.0), ..default() }).with_children(|t| {
                                 t.spawn(body(a, info.blurb, 15.0, Color::WHITE));
                             });
+                            if let Some(twist) = run.session.game.twist() {
+                                card.spawn(body(a, &format!("TWIST - {twist}"), 13.0, GOLD_HI));
+                            }
                             card.spawn(body(a, &format!("On {}.", info.place), 12.0, CREAM));
                             let ctl = match info.control {
                                 Control::Run => "Controls: stick (WASD / arrows / left stick) to run, A (Space) to jump.",

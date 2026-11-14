@@ -203,6 +203,20 @@ impl Ground {
     }
 }
 
+/// The course objects a Mario cannot walk through, as cylinders: the trees (their own hitbox: radius 80, 500 tall) and the
+/// Chain Chomp field's wooden posts (an object collision mesh the crowd Marios do not step on; about 60 wide, 300 tall).
+pub fn solids(objects: &[jumpman_sim::object::SimObject]) -> Vec<super::minis::Solid> {
+    use jumpman_sim::object::ObjectBehaviorKind as K;
+    objects
+        .iter()
+        .filter_map(|o| match o.behavior {
+            K::Tree => Some(super::minis::Solid { pos: o.pos, r: if o.hitbox.radius > 0.0 { o.hitbox.radius } else { 80.0 }, h: if o.hitbox.height > 0.0 { o.hitbox.height } else { 500.0 } }),
+            K::WoodenPost => Some(super::minis::Solid { pos: o.pos, r: 60.0, h: 300.0 }),
+            _ => None,
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -472,6 +472,19 @@ pub fn body_of(m: &MarioRuntime) -> Body {
     Body { pos: m.pos, yaw: m.face_angle[1], grounded: m.action & ACT_FLAG_AIR == 0, vy: m.vel[1], attack: m.action & ACT_FLAG_ATTACKING != 0 }
 }
 
+/// Keep a piece out of the course's solid objects (trees): the crowd Marios step on the course collision only, which has no
+/// trunks in it, so they are pushed out of each trunk's cylinder after the step (onto floor only), as SM64 pushes Mario.
+pub fn keep_out_of_solids(m: &mut MarioRuntime, solids: &[Solid]) {
+    if let Some(q) = push_out(solids, m.pos) {
+        if m.world.find_floor(q[0], q[1] + 100.0, q[2]).surface.is_some() {
+            m.pos[0] = q[0];
+            m.pos[2] = q[2];
+            // Running into a trunk stops the run into it (no sliding round at full speed).
+            m.forward_vel = m.forward_vel.min(12.0);
+        }
+    }
+}
+
 /// A rules drive as synthetic controller input.
 pub fn drive_input(d: &Drive) -> DriveInput {
     DriveInput { yaw: d.dir.map(|v| atan2s(v[1], v[0]) as f64), mag: Some(d.mag.clamp(0.0, 1.0) * 64.0), jump: d.jump, hold_a: d.hold || d.jump, punch: d.punch, ..Default::default() }
@@ -518,6 +531,7 @@ pub fn step_session(session: &mut Session, pieces: &mut [Piece], human: &[Drive;
         pieces[p].hidden = !shown;
         let input = if shown { drive_input(&drives[p]) } else { DriveInput::default() };
         pieces[p].mario.drive(&input);
+        keep_out_of_solids(&mut pieces[p].mario.runtime, &session.field.solids);
     }
     let after: [Body; 4] = std::array::from_fn(|p| body_of(&pieces[p].mario.runtime));
     for ev in session.advance(&after, &drives) {
@@ -537,7 +551,8 @@ pub fn drive_pieces(mut app: ResMut<PartyApp>) {
     if mini_physics_step(&mut app) {
         return;
     }
-    for pc in &mut app.pieces {
+    let PartyApp { pieces, solids, .. } = &mut *app;
+    for pc in pieces.iter_mut() {
         let pos = pc.mario.runtime.pos;
         let mut input = DriveInput::default();
         if let Some(t) = pc.target {
@@ -565,6 +580,7 @@ pub fn drive_pieces(mut app: ResMut<PartyApp>) {
         }
         input.hold_a = pc.hold_a;
         pc.mario.drive(&input);
+        keep_out_of_solids(&mut pc.mario.runtime, solids);
     }
 }
 
@@ -680,7 +696,8 @@ mod physics_tests {
 
     /// Play one mini-game to the end on the real battlefield: four full-physics Marios (the app's own step), Normal bots.
     fn play(course: &LoadedCourse, kind: Mini, seed: u64, levels: [Level; 4]) -> ([f32; 4], usize) {
-        let field = Arc::new(super::super::sites::sample_field(&course.world, kind));
+        let solids = super::super::sites::solids(&course.objects.objects);
+        let field = Arc::new(super::super::sites::sample_field(&course.world, kind).with_solids(&solids));
         let mut session = Session::new(kind, seed, [true; 4], [false; 4], levels, field);
         let mut pieces: Vec<Piece> = (0..4)
             .map(|p| {
@@ -692,8 +709,21 @@ mod physics_tests {
             })
             .collect();
         let mut cues = vec![];
+        let trees = session.field.solids.clone();
+        let mut near_trees = 0;
         while !session.done() && session.steps < 30 * 60 {
             step_session(&mut session, &mut pieces, &[Drive::default(); 4], &mut cues);
+            for pc in &pieces {
+                let p = pc.mario.pos();
+                for t in trees.iter().filter(|t| p[1] > t.pos[1] - 120.0 && p[1] < t.pos[1] + t.h) {
+                    let d = hdist(p, t.pos);
+                    near_trees += (d < t.r + BODY_R + 80.0) as usize;
+                    assert!(d >= t.r + BODY_R - 1.0, "{kind:?}: a Mario inside the tree at {:?} ({d:.0} from it)", t.pos);
+                }
+            }
+        }
+        if !trees.is_empty() {
+            eprintln!("{kind:?}: {} trees in the arena, {near_trees} body-steps close to one", trees.len());
         }
         assert!(session.done(), "{kind:?} ended");
         (session.game.scores(), cues.len())

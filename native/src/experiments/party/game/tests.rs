@@ -432,3 +432,36 @@ fn party_balance_report() {
     println!("Hard seat vs three Easy: wins {:.1}% (fair share is 25%)", hard_wins / n as f32 * 100.0);
 }
 
+
+/// Variety: the mini-games come out of a shuffle bag, so every one is played before any is played again, and never the
+/// same one twice in a row.
+#[test]
+fn every_mini_game_comes_up_before_any_repeats() {
+    for seed in 0..40u64 {
+        let mut p = Party::new(cpu_cfg((seed % 3) as usize, 8, seed));
+        let mut seen: Vec<(u32, Mini)> = vec![];
+        let mut guard = 0;
+        while !p.over() && guard < 200_000 {
+            if let Phase::Mini(ctx) = &p.phase {
+                if seen.last() != Some(&(p.minis_played, ctx.kind)) {
+                    seen.push((p.minis_played, ctx.kind));
+                }
+            }
+            p.auto_step();
+            guard += 1;
+        }
+        let kinds: Vec<Mini> = seen.iter().map(|s| s.1).collect();
+        assert!(kinds.len() >= 5, "seed {seed}: only {} games", kinds.len());
+        for w in kinds.windows(2) {
+            assert_ne!(w[0], w[1], "seed {seed}: the same game twice in a row");
+        }
+        for (k, chunk) in kinds.chunks(5).enumerate().filter(|(_, c)| c.len() == 5) {
+            let mut c = chunk.to_vec();
+            c.sort();
+            c.dedup();
+            assert_eq!(c.len(), 5, "seed {seed}: bag {k} repeats a game before the others: {chunk:?}");
+        }
+        let (lo, hi) = (p.mini_plays.iter().min().unwrap(), p.mini_plays.iter().max().unwrap());
+        assert!(hi - lo <= 1, "seed {seed}: plays {:?}", p.mini_plays);
+    }
+}

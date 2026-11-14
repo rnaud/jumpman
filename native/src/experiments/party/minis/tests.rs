@@ -163,13 +163,15 @@ fn the_crown_scores_only_alone_and_punches_knock_rivals_out_of_it() {
         g.step(DT, &b, &[Drive::default(); 4]);
     }
     assert!((g.scores()[0] - 1.0).abs() < 0.05, "alone in the circle for a second: {}", g.scores()[0]);
-    // Shared: nobody scores.
+    // Shared: the one who has stood in it longest keeps the crown and scores at half rate; the newcomer nothing.
     b[1] = body([c[0] + 50.0, c[1], c[2]]);
     let before = g.scores();
     for _ in 0..30 {
         g.step(DT, &b, &[Drive::default(); 4]);
     }
-    assert_eq!(g.scores()[..2], before[..2]);
+    assert!(g.contested);
+    assert!((g.scores()[0] - before[0] - summit_crown::CONTESTED_RATE).abs() < 0.05, "half rate while contested: {:?}", g.scores());
+    assert_eq!(g.scores()[1], before[1]);
     // Seat 1 punches seat 0 (facing +x toward... seat 0 is at -x of seat 1: face -x).
     b[1].attack = true;
     b[1].yaw = -16384.0;
@@ -186,6 +188,57 @@ fn the_crown_scores_only_alone_and_punches_knock_rivals_out_of_it() {
         }
     }
     assert!(placed && g.falls[3] == 1);
+}
+
+#[test]
+fn the_roaming_crown_moves_its_circle_round_the_summit() {
+    let f = flat(Mini::SummitCrown);
+    let seed = (0..64u64).map(|k| k << 7 | 1).find(|s| (s >> 7) & 1 == 1).unwrap();
+    let mut g = summit_crown::SummitCrown::new(seed, ALL4, f.clone());
+    assert!(g.roam && g.twist().is_some());
+    let b = [body(f.center); 4];
+    let mut spots = vec![g.zone];
+    for _ in 0..(30.0 * 30.0) as usize {
+        g.step(DT, &b, &[Drive::default(); 4]);
+        if hdist(*spots.last().unwrap(), g.zone) > 1.0 {
+            spots.push(g.zone);
+        }
+    }
+    assert!(spots.len() >= 4, "the circle moved {} times", spots.len() - 1);
+    assert!(spots.iter().all(|z| hdist(*z, f.center) < 300.0 && f.on(*z)));
+    assert!(summit_crown::SummitCrown::new(0, ALL4, f).twist().is_none(), "half the games keep the plain crown");
+}
+
+#[test]
+fn trees_push_bodies_out_and_bots_run_round_them() {
+    let solid = Solid { pos: [0.0, 0.0, 0.0], r: 80.0, h: 500.0 };
+    // Inside the trunk: pushed to its surface; clear of it: left alone; well above it: left alone.
+    let q = push_out(&[solid], [30.0, 0.0, 0.0]).unwrap();
+    assert!((q[0] - (80.0 + BODY_R)).abs() < 1e-6 && q[2].abs() < 1e-6);
+    assert!(push_out(&[solid], [200.0, 0.0, 0.0]).is_none());
+    assert!(push_out(&[solid], [30.0, 900.0, 0.0]).is_none());
+    // Running straight at it from 250 away: the direction bends off to one side; past it or well wide: unchanged.
+    let d = steer_around(&[solid], [-250.0, 0.0, 10.0], [1.0, 0.0]);
+    assert!(d[1].abs() > 0.3, "steered round: {d:?}");
+    assert!(d[1] > 0.0, "round the side it is already on");
+    assert_eq!(steer_around(&[solid], [250.0, 0.0, 0.0], [1.0, 0.0]), [1.0, 0.0]);
+    assert_eq!(steer_around(&[solid], [-250.0, 0.0, 400.0], [1.0, 0.0]), [1.0, 0.0]);
+    // Every game with trees on the field: no body is ever left inside a trunk, and the starts and coins stay clear of them.
+    for kind in ALL_MINIS {
+        let base = Field::flat([0.0; 3], kind.radius());
+        let trees: Vec<Solid> = [[0.0, 0.0], [300.0, 200.0], [-350.0, -150.0], [100.0, -400.0]].iter().map(|p| Solid { pos: [p[0], 0.0, p[1]], r: 80.0, h: 500.0 }).collect();
+        let f = Arc::new(base.with_solids(&trees));
+        assert!(f.points().iter().all(|p| trees.iter().all(|t| hdist(*p, t.pos) > t.r + BODY_R)));
+        let mut s = Session::new(kind, 11, ALL4, [false; 4], [Level::Normal; 4], f.clone());
+        while !s.done() && s.steps < 30 * 90 {
+            s.step_kin(&[Drive::default(); 4]);
+            for b in s.kin.bodies() {
+                if b.pos[1] > -200.0 {
+                    assert!(trees.iter().all(|t| hdist(b.pos, t.pos) >= t.r + BODY_R - 1e-6), "{kind:?}: a body inside a tree at {:?}", b.pos);
+                }
+            }
+        }
+    }
 }
 
 #[test]

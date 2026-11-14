@@ -7,6 +7,69 @@ use std::sync::Arc;
 /// Height difference between neighbouring cells that still counts as one connected floor.
 const STEP_H: f64 = 110.0;
 
+/// A course object no Mario walks through (a tree trunk, a post): a vertical cylinder standing on `pos`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Solid {
+    pub pos: [f64; 3],
+    pub r: f64,
+    pub h: f64,
+}
+
+/// Mario's own body radius against objects (his hitbox).
+pub const BODY_R: f64 = 37.0;
+
+/// Where a body at `pos` must stand to be out of every solid it is inside (SM64 pushes Mario out of an object's cylinder the
+/// same way), None when it touches none.
+pub fn push_out(solids: &[Solid], pos: [f64; 3]) -> Option<[f64; 3]> {
+    let mut q = pos;
+    let mut moved = false;
+    for s in solids {
+        if q[1] < s.pos[1] - 120.0 || q[1] > s.pos[1] + s.h {
+            continue;
+        }
+        let (dx, dz) = (q[0] - s.pos[0], q[2] - s.pos[2]);
+        let d = dx.hypot(dz);
+        let min = s.r + BODY_R;
+        if d < min {
+            let (ux, uz) = if d > 0.01 { (dx / d, dz / d) } else { (1.0, 0.0) };
+            q = [s.pos[0] + ux * min, q[1], s.pos[2] + uz * min];
+            moved = true;
+        }
+    }
+    moved.then_some(q)
+}
+
+/// A run direction bent round the solids just ahead of `pos` (a person steers round a tree instead of into it).
+pub fn steer_around(solids: &[Solid], pos: [f64; 3], dir: [f64; 2]) -> [f64; 2] {
+    let mut out = dir;
+    for s in solids {
+        if pos[1] < s.pos[1] - 120.0 || pos[1] > s.pos[1] + s.h {
+            continue;
+        }
+        let to = [s.pos[0] - pos[0], s.pos[2] - pos[2]];
+        let ahead = to[0] * dir[0] + to[1] * dir[1];
+        if ahead <= 0.0 || ahead > 340.0 {
+            continue;
+        }
+        // Positive: the solid is on the left of the run (counter-clockwise of it).
+        let lat = dir[0] * to[1] - dir[1] * to[0];
+        let clear = s.r + BODY_R + 60.0;
+        if lat.abs() >= clear {
+            continue;
+        }
+        let left = [-dir[1], dir[0]];
+        let away = if lat > 0.0 { -1.0 } else { 1.0 };
+        let k = (clear - lat.abs()) / clear * (1.0 - ahead / 420.0) * 1.8;
+        out = [out[0] + left[0] * away * k, out[1] + left[1] * away * k];
+    }
+    let l = out[0].hypot(out[1]);
+    if l < 1e-6 {
+        dir
+    } else {
+        [out[0] / l, out[1] / l]
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Field {
     /// Centre of the arena: course x, floor height, z.
@@ -19,6 +82,8 @@ pub struct Field {
     /// A body below this has fallen off the arena.
     pub low: f64,
     pts: Vec<[f64; 3]>,
+    /// The course objects standing in the arena (trees): bodies are pushed out of them and the bots run round them.
+    pub solids: Vec<Solid>,
 }
 
 impl Field {
@@ -84,7 +149,16 @@ impl Field {
                 }
             }
         }
-        Field { center: [centre[0], cy, centre[1]], radius, step, n, h, low: if lo == f64::MAX { cy - 400.0 } else { lo - 400.0 }, pts }
+        Field { center: [centre[0], cy, centre[1]], radius, step, n, h, low: if lo == f64::MAX { cy - 400.0 } else { lo - 400.0 }, pts, solids: vec![] }
+    }
+
+    /// The same arena with the solids of `all` that stand in or near it; standable points inside one are dropped (no coin
+    /// or start inside a trunk).
+    pub fn with_solids(mut self, all: &[Solid]) -> Self {
+        self.solids = all.iter().filter(|s| hdist(s.pos, self.center) < self.radius + 300.0 && (s.pos[1] - self.center[1]).abs() < 1500.0).copied().collect();
+        let solids = self.solids.clone();
+        self.pts.retain(|p| solids.iter().all(|s| hdist(*p, s.pos) > s.r + BODY_R + 30.0));
+        self
     }
 
     /// Floor height of the arena at (x, z), None off the arena.
@@ -203,6 +277,9 @@ impl Kin {
             }
             k.pos[0] += k.vel[0];
             k.pos[2] += k.vel[2];
+            if let Some(q) = push_out(&self.field.solids, k.pos) {
+                k.pos = q;
+            }
             let floor = self.field.height(k.pos[0], k.pos[2]);
             if k.grounded {
                 match floor {
