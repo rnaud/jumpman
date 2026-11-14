@@ -14,6 +14,7 @@ use super::swarm_view::RItem;
 use super::XpEntity;
 use crate::camera::MainCamera;
 use crate::render::{AssetRoot, SCALE};
+use crate::render::drape::Drape;
 use crate::safe_area::SafeArea;
 use crate::shell::theme::*;
 use crate::shell::{AppState, ReturnToMenu};
@@ -377,8 +378,8 @@ fn spawn_tower(commands: &mut Commands, assets: &AssetServer, root: &AssetRoot, 
         commands.spawn((Mesh3d(shared.pip.0.clone()), MeshMaterial3d(shared.pip.1.clone()), Transform::from_xyz(a.sin() * 80.0 * SCALE, 40.0 * SCALE, a.cos() * 80.0 * SCALE), Visibility::Hidden)).id()
     });
     let jam = commands.spawn((Mesh3d(shared.jam.0.clone()), MeshMaterial3d(shared.jam.1.clone()), Transform::from_xyz(0.0, 230.0 * SCALE, 0.0), Visibility::Hidden)).id();
-    let rally = commands.spawn((Mesh3d(shared.rally.0.clone()), MeshMaterial3d(shared.rally.1.clone()), Transform::from_xyz(0.0, 6.0 * SCALE, 0.0).with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)).with_scale(Vec3::splat(110.0 * SCALE)), Visibility::Hidden)).id();
-    let select = commands.spawn((Mesh3d(shared.select.0.clone()), MeshMaterial3d(shared.select.1.clone()), Transform::from_xyz(0.0, 8.0 * SCALE, 0.0).with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)).with_scale(Vec3::splat(100.0 * SCALE)), Visibility::Hidden)).id();
+    let rally = commands.spawn((Mesh3d(shared.rally.0.clone()), MeshMaterial3d(shared.rally.1.clone()), Transform::from_xyz(0.0, 6.0 * SCALE, 0.0).with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)).with_scale(Vec3::splat(110.0 * SCALE)), Visibility::Hidden, Drape::new(6.0 * SCALE))).id();
+    let select = commands.spawn((Mesh3d(shared.select.0.clone()), MeshMaterial3d(shared.select.1.clone()), Transform::from_xyz(0.0, 8.0 * SCALE, 0.0).with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)).with_scale(Vec3::splat(100.0 * SCALE)), Visibility::Hidden, Drape::new(8.0 * SCALE))).id();
     let mut children = vec![ped, model, jam, rally, select];
     children.extend(pips);
     commands.entity(rootent).add_children(&children);
@@ -584,7 +585,9 @@ fn sync_render(
         }
         let (e, mat) = pools.fx[i].get_or_insert_with(|| {
             let mat = unlit_blend(&mut materials, Color::srgba(1.0, 1.0, 1.0, 0.8));
-            (hidden(&mut commands, (Mesh3d(shared.ring.clone()), MeshMaterial3d(mat.clone()))), mat)
+            let e = hidden(&mut commands, (Mesh3d(shared.ring.clone()), MeshMaterial3d(mat.clone())));
+            commands.entity(e).insert(Drape::new(0.05));
+            (e, mat)
         });
         if item.kind != 0 {
             if let Some(mut m) = materials.get_mut(&*mat) {
@@ -601,8 +604,10 @@ fn sync_render(
     // Build cursor and range ring.
     let (cell, ring, ring_mat) = pools.cursor.get_or_insert_with(|| {
         let cell = hidden(&mut commands, (Mesh3d(shared.cell.0.clone()), MeshMaterial3d(shared.cell.1.clone())));
+        commands.entity(cell).insert(Drape::new(0.1));
         let mat = unlit_blend(&mut materials, Color::srgba(1.0, 1.0, 1.0, 0.8));
         let ring = hidden(&mut commands, (Mesh3d(shared.ring.clone()), MeshMaterial3d(mat.clone())));
+        commands.entity(ring).insert(Drape::new(0.12));
         (cell, ring, mat)
     });
     let c = bridge.cursor;

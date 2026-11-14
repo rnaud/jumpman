@@ -31,6 +31,7 @@ use super::swarm_view::RItem;
 use super::textures::textured;
 use super::{CamPose, Experiment, ExperimentId, Host, StepOverride};
 use crate::render::{scene, to_bevy, SCALE};
+use crate::render::drape::Drape;
 use bevy::math::DVec3;
 use bevy::prelude::*;
 use bevy::render::mesh::{Indices, PrimitiveTopology};
@@ -343,23 +344,32 @@ impl RelicDescentExperiment {
         let dg = &self.core.dungeon;
         // Stairs: a gold ring with a column of light.
         if let Some(s) = self.core.stairs_pos() {
-            let ring = host.meshes.add(Annulus::new(150.0 * SCALE, 185.0 * SCALE));
-            let disc = host.meshes.add(Circle::new(150.0 * SCALE));
+            // Unit shapes scaled up so they can drape over the floor.
+            let ring = host.meshes.add(Annulus::new(150.0 / 185.0, 1.0));
+            let disc = host.meshes.add(Circle::new(1.0));
             let col = host.meshes.add(Cylinder::new(120.0 * SCALE, 900.0 * SCALE));
             let gold = host.unlit(Color::srgb(1.0, 0.82, 0.25));
             let soft = host.materials.add(StandardMaterial { base_color: Color::srgba(1.0, 0.9, 0.5, 0.22), unlit: true, alpha_mode: AlphaMode::Blend, cull_mode: None, ..default() });
             let flat = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
-            for (mesh, mat, y, rot) in [(ring, gold.clone(), 4.0, flat), (disc, soft.clone(), 3.0, flat), (col, soft, 450.0, Quat::IDENTITY)] {
-                let e = host.spawn((Mesh3d(mesh), MeshMaterial3d(mat), Transform::from_translation(at(dg, s, y)).with_rotation(rot)));
+            for (mesh, mat, y, rot, scale, drape) in [
+                (ring, gold.clone(), 4.0, flat, 185.0 * SCALE, Some(Drape::new(4.0 * SCALE))),
+                (disc, soft.clone(), 3.0, flat, 150.0 * SCALE, Some(Drape::new(3.0 * SCALE))),
+                (col, soft, 450.0, Quat::IDENTITY, 1.0, None),
+            ] {
+                let e = host.spawn((Mesh3d(mesh), MeshMaterial3d(mat), Transform::from_translation(at(dg, s, y)).with_rotation(rot).with_scale(Vec3::splat(scale))));
+                if let Some(d) = drape {
+                    host.commands.entity(e).insert(d);
+                }
                 self.floor_ents.push(e);
             }
         }
         // Boss arena: a ring of dark light on the floor at the centre.
         if dg.boss_floor {
             let c = dg.rooms[dg.exit].center();
-            let ring = host.meshes.add(Annulus::new(520.0 * SCALE, 560.0 * SCALE));
+            let ring = host.meshes.add(Annulus::new(520.0 / 560.0, 1.0));
             let mat = host.unlit(Color::srgb(0.9, 0.2, 0.25));
-            let e = host.spawn((Mesh3d(ring), MeshMaterial3d(mat), Transform::from_translation(at(dg, c, 4.0)).with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2))));
+            let tf = Transform::from_translation(at(dg, c, 4.0)).with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)).with_scale(Vec3::splat(560.0 * SCALE));
+            let e = host.spawn((Mesh3d(ring), MeshMaterial3d(mat), tf, Drape::new(4.0 * SCALE)));
             self.floor_ents.push(e);
         }
         self.built_floor = self.core.floor;
@@ -740,7 +750,10 @@ impl RelicDescentExperiment {
         };
         let w = world_pos(dg, start);
         let spawn = SpawnPoint { action: None, pos: [w[0], w[1] + 100.0, w[2]], face_yaw: yaw };
-        host.set_mario_world(Arc::new(world), spawn, -1e9);
+        let world = Arc::new(world);
+        // Hazard pools, rings and the stairs' circle drape over this floor.
+        host.drape.set_world(world.clone());
+        host.set_mario_world(world, spawn, -1e9);
         host.place_mario(w, Some(yaw));
         self.safe = w;
     }

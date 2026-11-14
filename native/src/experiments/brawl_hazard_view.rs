@@ -90,7 +90,9 @@ impl HazardViews {
             };
             let tele_mat = host.materials.add(StandardMaterial { base_color: Color::srgba(1.0, 0.2, 0.1, 0.0), emissive: LinearRgba::rgb(0.6, 0.05, 0.0), unlit: true, alpha_mode: AlphaMode::Blend, cull_mode: None, depth_bias: 40.0, ..default() });
             let circle = matches!(h.spec().kind, HzKind::Lunger) || matches!(h.look, Look::Redead | Look::Tornado | Look::Boo);
-            let tele = host.spawn((Mesh3d(if circle { ring.clone() } else { lane.clone() }), MeshMaterial3d(tele_mat.clone()), Transform::default(), Visibility::Hidden));
+            // The warning zone (ring or lane) drapes over the floor.
+            let drape = crate::render::drape::Drape::new(0.06);
+            let tele = host.spawn((Mesh3d(if circle { ring.clone() } else { lane.clone() }), MeshMaterial3d(tele_mat.clone()), Transform::default(), Visibility::Hidden, drape));
             let (mut post, mut links) = (None, vec![]);
             if h.look == Look::DekuBaba {
                 let mesh = host.meshes.add(Cylinder::new(1.0, 1.0));

@@ -11,6 +11,7 @@ use super::brawl_core::{Hero, GEMS, MAXF, MAXI, MAXP};
 use super::XpEntity;
 use crate::characters::Character;
 use crate::render::{AssetRoot, SCALE};
+use crate::render::drape::Drape;
 use crate::safe_area::SafeArea;
 use crate::shell::theme::*;
 use crate::shell::{AppState, ReturnToMenu};
@@ -690,8 +691,10 @@ fn sync_render(
         let m = build_meshes(&mut meshes, &mut materials);
         for i in 0..MAXF {
             let s = prim(&mut commands, &m.disc, &m.shadow_mat);
+            commands.entity(s).insert(Drape::new(0.03));
             pools.shadow.push(s);
             let r = prim(&mut commands, &m.annulus, &m.ring_mats[i]);
+            commands.entity(r).insert(Drape::new(0.05));
             pools.ring.push(r);
             let a = prim(&mut commands, &m.cone, &m.ring_mats[i]);
             pools.arrow.push(a);
@@ -708,11 +711,14 @@ fn sync_render(
         }
         for _ in 0..3 {
             let t = prim(&mut commands, &m.annulus, &m.red_glow);
+            commands.entity(t).insert(Drape::new(0.06));
             pools.telegraph.push(t);
         }
         for _ in 0..FX_MAX {
             let (rm, fm, bm) = (glow(&mut materials, Color::srgba(1.0, 1.0, 0.95, 0.9)), glow(&mut materials, Color::srgba(1.0, 0.6, 0.15, 0.85)), glow(&mut materials, Color::srgba(1.0, 1.0, 0.95, 0.9)));
             let r = prim(&mut commands, &m.annulus, &rm);
+            // Blast rings drape when they hug the floor; one well above it (a mid-air burst) stays flat.
+            commands.entity(r).insert(Drape::new(0.07));
             pools.fx_ring.push(r);
             let f = prim(&mut commands, &m.sphere, &fm);
             pools.fx_flash.push(f);

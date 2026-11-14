@@ -13,6 +13,7 @@ use super::XpEntity;
 use crate::fx::n64::{self, pat, Mount, N64Fx, N64Meshes};
 use crate::render::SCALE;
 use bevy::mesh::MeshTag;
+use crate::render::drape::Drape;
 use bevy::prelude::*;
 
 /// A pickup's sprite: (ICON variant, sRGB colour, sprite half size in SM64 units) by its look (gem tiers 0..=2, heart,
@@ -161,10 +162,11 @@ fn build(fx: &mut SwarmFx, commands: &mut Commands, mats: &mut Assets<N64Fx>, me
 }
 
 /// Put `e` on `mat` (and `mesh` when given); legacy materials are dropped once.
-fn adopt(commands: &mut Commands, e: Entity, mesh: Option<&Handle<Mesh>>, mat: &Handle<N64Fx>, look: &Query<(&Mesh3d, Has<MeshMaterial3d<StandardMaterial>>, Option<&MeshMaterial3d<N64Fx>>)>) {
-    let Ok((m, legacy, cur)) = look.get(e) else { return };
+fn adopt(commands: &mut Commands, e: Entity, mesh: Option<&Handle<Mesh>>, mat: &Handle<N64Fx>, look: &Query<(&Mesh3d, Has<MeshMaterial3d<StandardMaterial>>, Option<&MeshMaterial3d<N64Fx>>, Option<&Drape>)>) {
+    let Ok((m, legacy, cur, drape)) = look.get(e) else { return };
     let new_mat = cur.is_none_or(|c| c.0 != *mat);
-    let new_mesh = mesh.filter(|h| m.0 != **h);
+    // A ground effect shows a draped copy of its flat mesh: compare against the mesh it was draped from.
+    let new_mesh = mesh.filter(|h| !Drape::shows(drape, &m.0, h));
     if !legacy && !new_mat && new_mesh.is_none() {
         return;
     }
@@ -200,7 +202,7 @@ pub fn style(
     bridge: Res<SwarmBridge>,
     pools: Res<Pools>,
     time: Res<Time>,
-    look: Query<(&Mesh3d, Has<MeshMaterial3d<StandardMaterial>>, Option<&MeshMaterial3d<N64Fx>>)>,
+    look: Query<(&Mesh3d, Has<MeshMaterial3d<StandardMaterial>>, Option<&MeshMaterial3d<N64Fx>>, Option<&Drape>)>,
     mut tfs: Query<(&mut Transform, &mut Visibility)>,
     mut tags: Query<&mut MeshTag>,
 ) {

@@ -346,6 +346,14 @@ impl GemClashExperiment {
         let kind = self.core.arena.kind;
         self.built = Some(kind);
         set_origin(self.core.arena.origin());
+        // Ground effects (shadows, rings, telegraphs) drape over the region's real floor.
+        match self.core.arena.ground.clone() {
+            Some(g) => {
+                let (o, k) = (origin(), crate::render::SCALE);
+                host.drape.set(move |x, z, top| g.floor(x / k - o.x, z / k - o.z, top / k - o.y).map(|y| (y + o.y) * k));
+            }
+            None => host.drape.clear(),
+        }
         // A real-world region plays on the visible course with its own sky; the box arenas replace it.
         host.shell.course_hidden = kind != ArenaKind::Field;
         if kind == ArenaKind::Field {

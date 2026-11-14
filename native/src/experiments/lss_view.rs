@@ -11,6 +11,7 @@ use super::lss_core::*;
 use super::swarm_core::clock;
 use super::XpEntity;
 use crate::camera::MainCamera;
+use crate::render::drape::Drape;
 use crate::render::SCALE;
 use crate::safe_area::SafeArea;
 use crate::shell::theme::*;
@@ -376,6 +377,8 @@ fn sync_render(
     let shared = pools.shared.as_ref().unwrap();
     let t = bridge.time;
     let hidden = |commands: &mut Commands, mesh: &Handle<Mesh>, mat: &Handle<StandardMaterial>| commands.spawn((XpEntity, Pooled, Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone()), Transform::default(), Visibility::Hidden)).id();
+    // Loot rings and blast rings drape over the floor (heights as before: loot 4 units up, blasts 12).
+    let ring_at = |commands: &mut Commands, mesh: &Handle<Mesh>, mat: &Handle<StandardMaterial>, lift: f32| commands.spawn((XpEntity, Pooled, Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone()), Transform::default(), Visibility::Hidden, Drape::new(lift * SCALE))).id();
 
     // The Blight wall, the next-circle marker and the beam over its centre.
     if bridge.zone.active {
@@ -412,7 +415,7 @@ fn sync_render(
                 }
                 let bob = (t * 2.5 + i as f32).sin() * 8.0;
                 place(&mut q, slot.body.unwrap(), true, item.pos + Vec3::Y * (60.0 + bob) * SCALE, spin, Vec3::splat(item.scale));
-                let ring = *slot.ring.get_or_insert_with(|| hidden(&mut commands, &shared.ring, &shared.ring_mat[0]));
+                let ring = *slot.ring.get_or_insert_with(|| ring_at(&mut commands, &shared.ring, &shared.ring_mat[0], 4.0));
                 commands.entity(ring).insert(MeshMaterial3d(shared.ring_mat[rarity].clone()));
                 place(&mut q, ring, true, item.pos + Vec3::Y * 4.0 * SCALE, ring_rot, Vec3::splat(70.0 * SCALE));
                 if rarity == 2 {
@@ -441,7 +444,7 @@ fn sync_render(
                 let lid_pos = if open { Vec3::new(0.0, 58.0, -44.0) } else { Vec3::new(0.0, 74.0, 0.0) };
                 let lid_rot = if open { Quat::from_rotation_x(-1.9) } else { Quat::IDENTITY };
                 place(&mut q, slot.extra.unwrap(), true, item.pos + yaw * (lid_pos * SCALE), yaw * lid_rot, Vec3::ONE);
-                let ring = *slot.ring.get_or_insert_with(|| hidden(&mut commands, &shared.ring, &shared.ring_mat[2]));
+                let ring = *slot.ring.get_or_insert_with(|| ring_at(&mut commands, &shared.ring, &shared.ring_mat[2], 4.0));
                 place(&mut q, ring, !open, item.pos + Vec3::Y * 4.0 * SCALE, ring_rot, Vec3::splat(110.0 * SCALE));
             }
             _ => {
@@ -460,7 +463,7 @@ fn sync_render(
                 let falling = item.aux > 40.0;
                 place(&mut q, slot.body.unwrap(), true, item.pos + Vec3::Y * 62.0 * SCALE, Quat::from_rotation_y(item.yaw), Vec3::splat(if item.kind == 13 { 0.8 } else { 1.0 }));
                 place(&mut q, slot.extra.unwrap(), falling, item.pos + Vec3::Y * 230.0 * SCALE, Quat::from_rotation_x(std::f32::consts::PI), Vec3::ONE);
-                let ring = *slot.ring.get_or_insert_with(|| hidden(&mut commands, &shared.ring, &shared.ring_mat[2]));
+                let ring = *slot.ring.get_or_insert_with(|| ring_at(&mut commands, &shared.ring, &shared.ring_mat[2], 4.0));
                 place(&mut q, ring, !falling && item.kind == 12, item.pos + Vec3::Y * 4.0 * SCALE, ring_rot, Vec3::splat(120.0 * SCALE));
             }
         }
@@ -496,7 +499,7 @@ fn sync_render(
         }
         let (e, mat) = pools.ring[i].get_or_insert_with(|| {
             let mat = translucent(&mut materials, Color::WHITE);
-            (hidden(&mut commands, &shared.ring, &mat), mat)
+            (ring_at(&mut commands, &shared.ring, &mat, 12.0), mat)
         });
         if item.kind != 0 {
             if let Some(mut m) = materials.get_mut(&*mat) {

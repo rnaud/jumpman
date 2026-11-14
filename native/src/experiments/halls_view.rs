@@ -10,6 +10,7 @@ use super::halls_core::{FOE_SLOTS, HAZARD_SLOTS, DROP_SLOTS, MapRoom};
 use super::halls_world::Ability;
 use super::XpEntity;
 use crate::render::{AssetRoot, SCALE};
+use crate::render::drape::Drape;
 use crate::touch::{ModeButtons, TouchControls};
 use bevy::prelude::*;
 
@@ -284,8 +285,11 @@ fn sync_render(
         for _ in 0..HAZARD_SLOTS {
             let (d, r, s) = (pools.disc.clone(), pools.ring.clone(), pools.sphere.clone());
             let (fm, em, bm) = (pools.fill_mat.clone(), pools.edge_mat.clone(), pools.bomb_mat.clone());
+            // The warning circle drapes over the floor (same heights as the flat pair had: 6 and 8 units up).
             let f = hidden(&mut commands, (Mesh3d(d), MeshMaterial3d(fm)));
+            commands.entity(f).insert(Drape::new(0.06));
             let e = hidden(&mut commands, (Mesh3d(r), MeshMaterial3d(em)));
+            commands.entity(e).insert(Drape::new(0.08));
             let b = hidden(&mut commands, (Mesh3d(s), MeshMaterial3d(bm)));
             pools.fill.push(f);
             pools.edge.push(e);

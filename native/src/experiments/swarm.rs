@@ -1236,6 +1236,8 @@ impl Experiment for StarSwarmExperiment {
         self.tier_i = tier_index();
         self.center = [self.level.center[0], 0.0, self.level.center[1]];
         self.terrain = Some(Terrain::new(host.sim.mario.world.clone(), self.level.center, 0.0));
+        // Rings, zones and the player's marker drape over the course floor.
+        host.drape.set_world(host.sim.mario.world.clone());
         host.rig.distance = super::swarm_cam::START_DISTANCE;
         host.rig.pitch = super::swarm_cam::START_PITCH;
         self.meta = load_meta();

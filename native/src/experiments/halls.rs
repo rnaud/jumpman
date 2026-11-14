@@ -498,6 +498,8 @@ impl PaintedHallsExperiment {
         self.bars_open = self.core.save.cap == Some(Ability::VanishCap);
         let sp = SpawnPoint { action: None, pos: world_pos([spawn[0], spawn[1] + 60.0, spawn[2]]), face_yaw: 0.0 };
         host.set_mario_world(self.current_world(), sp, -1e9);
+        // Hazard circles drape over this room's floor.
+        host.drape.set_world(self.world_solid.clone());
         host.place_mario(world_pos([spawn[0], spawn[1] + 8.0, spawn[2]]), Some(radians_to_angle(spawn[3] as f64) as f64));
         self.build_room(host);
         self.mood(host);

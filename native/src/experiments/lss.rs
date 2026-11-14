@@ -1089,6 +1089,8 @@ impl Experiment for LastStarStandingExperiment {
         let world = host.course_world();
         self.arena = detect_arena(&world);
         eprintln!("[lss] arena {:?}", self.arena);
+        // Loot and blast rings drape over the course floor.
+        host.drape.set_world(world.clone());
         self.terrain = Some(CourseTerrain(world));
         self.records = load_records();
         self.start_match(host);
