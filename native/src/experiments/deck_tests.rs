@@ -315,3 +315,40 @@ fn star_deck_first_fight_pace_report() {
     }
     eprintln!("DECK first fight: {:.1} turns on average (longest {longest}), {:.1} cards a turn", turns as f32 / fights as f32, cards as f32 / turns.max(1) as f32);
 }
+
+/// Star Deck has no free-roaming foes: they stand on fixed marks and the moves are choreographed lunges. Body collision
+/// there means the choreography never puts the hero inside a foe: every attack lunge (at a target or at the group, and
+/// the ground pound that lands closer) ends clear of every live foe's body for every line-up and kind, and a foe's own
+/// lunge stops short of the hero on his mark.
+#[test]
+fn choreographed_lunges_never_put_the_hero_inside_a_foe() {
+    let stage = [0.0, 0.0, 0.0];
+    let kinds = ENEMY_KINDS;
+    let home = hero_home_at(stage, true);
+    let mut worst = f64::INFINITY;
+    for n in 1..=6usize {
+        for k0 in 0..kinds.len() {
+            let line: Vec<([f64; 3], EnemyKind)> = (0..n).map(|i| (foe_slot_at(stage, i, n), kinds[(k0 + i * 5) % kinds.len()])).collect();
+            for target in (0..n).map(Some).chain([None]) {
+                for pound in [false, true] {
+                    let dest = hero_lunge_dest(stage, &line, target.map(|i| line[i]), pound);
+                    for &(p, kind) in &line {
+                        let gap = (dest[0] - p[0]).hypot(dest[2] - p[2]) - foe_body_radius(kind) - HERO_BODY;
+                        worst = worst.min(gap);
+                        assert!(gap >= 0.0, "{n} foes, target {target:?}, pound {pound}: the lunge ends {gap:.0} inside a {kind:?}");
+                    }
+                    if let Some(i) = target {
+                        let d = (dest[0] - line[i].0[0]).hypot(dest[2] - line[i].0[2]);
+                        assert!(d < 450.0, "the lunge still reaches its target ({d:.0})");
+                    }
+                }
+            }
+            for &(p, kind) in &line {
+                let tip = [p[0] - FOE_LUNGE, p[2]];
+                let gap = (tip[0] - home[0]).hypot(tip[1] - home[2]) - foe_body_radius(kind) - HERO_BODY;
+                assert!(gap >= 0.0, "a {kind:?}'s lunge from {p:?} reaches {gap:.0} into the hero");
+            }
+        }
+    }
+    eprintln!("body deck: closest lunge end {worst:.0} units clear of a foe body");
+}
