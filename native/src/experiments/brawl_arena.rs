@@ -268,6 +268,9 @@ pub struct Arena {
     pub gusts: bool,
     /// Extra camera pitch (radians) for a deep, walled region whose near wall would fill the low view.
     pub view_lift: f32,
+    /// Camera heading (radians, 0 = the camera south of the arena looking north): a region walled on one side looks from the
+    /// open side so the walls stand behind the fighters, not in front of them.
+    pub view_yaw: f32,
 }
 
 pub const LAVA_LOW: f32 = -70.0;
@@ -303,6 +306,7 @@ impl Arena {
             hazards: vec![],
             gusts: false,
             view_lift: 0.0,
+            view_yaw: 0.0,
         };
         let corners = |r: f32| [[-r, -r], [r, -r], [-r, r], [r, r]];
         match kind {

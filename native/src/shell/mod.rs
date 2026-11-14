@@ -227,9 +227,9 @@ impl ExperimentId {
         ExperimentId::Deck,
         ExperimentId::LastStar,
         ExperimentId::Race,
+        ExperimentId::Runner,
         ExperimentId::Party,
         ExperimentId::Relic,
-        ExperimentId::Runner,
         ExperimentId::Kart,
         ExperimentId::God,
         ExperimentId::Dimensions,
@@ -790,6 +790,7 @@ fn run_script(
                         "KeyJ" => KeyCode::KeyJ,
                         "KeyK" => KeyCode::KeyK,
                         "KeyF" => KeyCode::KeyF,
+                        "KeyX" => KeyCode::KeyX,
                         _ => continue,
                     };
                     if let Ok(window) = windows.single() {

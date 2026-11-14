@@ -108,6 +108,107 @@ fn knockback_grows_as_health_falls() {
     assert!(c.f[1].vel[0] > healthy * 1.2, "{} vs {}", c.f[1].vel[0], healthy);
 }
 
+/// How a fighter's legs feel, measured on flat ground (ticks are 1/30 s).
+#[derive(Debug)]
+struct Legs {
+    top: f32,
+    ticks_to_top: u32,
+    dist_in_1s: f32,
+    ticks_to_reverse: u32,
+    ticks_to_stop: u32,
+    ticks_to_face_back: u32,
+}
+
+fn legs(hero: Hero) -> Legs {
+    let fresh = || {
+        let mut cfg = duel_cfg(ArenaKind::Bumpers);
+        cfg.hero = hero;
+        let mut b = Brawl::new(cfg);
+        for _ in 0..INTRO_TICKS + 2 {
+            b.tick(&idle());
+        }
+        b.arena.bumpers.clear();
+        b.items = [Item::NONE; MAXI];
+        b.item_timer = 100_000;
+        for g in b.gems.iter_mut() {
+            g.state = GemState::Spent;
+        }
+        place(&mut b, 0, [-600.0, -400.0]);
+        place(&mut b, 1, [0.0, 500.0]);
+        b.f[0].yaw = yaw_of([1.0, 0.0]);
+        b
+    };
+    let stick = |x: f32| {
+        let mut i = idle();
+        i[0].mv = [x, 0.0];
+        i
+    };
+    // From a standstill, full stick east.
+    let mut b = fresh();
+    let (mut top, mut ticks_to_top, mut dist_in_1s) = (0.0f32, 0, 0.0);
+    for t in 1..=30u32 {
+        b.tick(&stick(1.0));
+        top = top.max(b.f[0].speed2());
+        if t == 30 {
+            dist_in_1s = b.f[0].pos[0] + 600.0;
+        }
+    }
+    let mut b2 = fresh();
+    for t in 1..=30u32 {
+        b2.tick(&stick(1.0));
+        if b2.f[0].speed2() >= top * 0.95 {
+            ticks_to_top = t;
+            break;
+        }
+    }
+    // At full speed east, pull the stick west.
+    let mut ticks_to_reverse = 0;
+    for t in 1..=60u32 {
+        b.tick(&stick(-1.0));
+        if b.f[0].vel[0] <= -top * 0.95 {
+            ticks_to_reverse = t;
+            break;
+        }
+    }
+    // At full speed, let go.
+    let mut ticks_to_stop = 0;
+    for t in 1..=60u32 {
+        b.tick(&idle());
+        if b.f[0].speed2() < 10.0 {
+            ticks_to_stop = t;
+            break;
+        }
+    }
+    // Standing facing east, push west: how long until the fighter faces back.
+    let mut c = fresh();
+    let mut ticks_to_face_back = 0;
+    for t in 1..=60u32 {
+        c.tick(&stick(-1.0));
+        if angle_diff(c.f[0].yaw, yaw_of([-1.0, 0.0])).abs() < 0.05 {
+            ticks_to_face_back = t;
+            break;
+        }
+    }
+    Legs { top, ticks_to_top, dist_in_1s, ticks_to_reverse, ticks_to_stop, ticks_to_face_back }
+}
+
+/// Power Stone pace (tuned on purpose; the old walk was 520 units/s, 4 ticks to top speed, 8 to reverse, 4 to stop, 6 to face back).
+#[test]
+fn fighters_run_fast_start_at_once_and_turn_on_a_dime() {
+    for h in HEROES {
+        let l = legs(h);
+        println!("LEGS {h:?}: {l:?}");
+        let top = RUN * h.style().speed;
+        assert!((l.top - top).abs() < 1.0, "{h:?} top speed {}", l.top);
+        assert!(l.top >= 690.0, "{h:?} runs too slowly: {}", l.top);
+        assert!(l.ticks_to_top <= 3, "{h:?} takes {} ticks to get going", l.ticks_to_top);
+        assert!(l.dist_in_1s >= 0.9 * top, "{h:?} covers only {} in a second", l.dist_in_1s);
+        assert!(l.ticks_to_reverse <= 5, "{h:?} needs {} ticks to run the other way", l.ticks_to_reverse);
+        assert!(l.ticks_to_stop <= 4, "{h:?} slides {} ticks", l.ticks_to_stop);
+        assert!(l.ticks_to_face_back <= 3, "{h:?} needs {} ticks to face back", l.ticks_to_face_back);
+    }
+}
+
 #[test]
 fn jump_and_double_jump_then_land() {
     let mut b = ready(ArenaKind::Bumpers);
@@ -969,7 +1070,7 @@ fn mario_hero_keeps_the_original_numbers() {
     assert_eq!((st.hp, st.speed, st.power, st.weight, st.scale), (100.0, 1.0, 1.0, 1.0, 1.0));
     let blows: Vec<_> = st.combo.iter().map(|b| (b.total, b.hit_at, b.dmg, b.kb, b.up, b.reach)).collect();
     assert_eq!(blows, vec![(9, 3, 6.0, 260.0, 0.0, 105.0), (9, 3, 6.0, 300.0, 60.0, 105.0), (14, 5, 10.0, 640.0, 240.0, 130.0)]);
-    assert_eq!((st.dive.speed, st.dive.dmg, st.dive.kb, st.dive.up, st.dive.reach), (820.0, 9.0, 540.0, 220.0, 90.0));
+    assert_eq!((st.dive.speed, st.dive.dmg, st.dive.kb, st.dive.up, st.dive.reach), (1030.0, 9.0, 540.0, 220.0, 90.0));
     assert_eq!((st.pound.radius, st.pound.dmg, st.pound.kb, st.pound.up), (270.0, 13.0, 430.0, 700.0));
     // A default match is a Mario match.
     let b = Brawl::new(duel_cfg(ArenaKind::Bumpers));

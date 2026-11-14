@@ -592,7 +592,8 @@ fn draw_hub(f: &mut Fb, menu: &Menu, ctx: &Ctx, cam: &scene::CamState, hits: &mu
             let name = clean(&sign_name(doors[i].id));
             let lines = sign_lines(&name, 8);
             let tw = lines.iter().map(|l| Fb::text_width(l, 1)).max().unwrap_or(30);
-            let (bw, bh) = (tw + 8, lines.len() as i32 * 9 + 5);
+            // The mode's pixel icon sits at the left end of its sign.
+            let (bw, bh) = (tw + 8 + icons::BADGE + 3, (lines.len() as i32 * 9 + 5).max(icons::BADGE + 4));
             let r = IRect::new(sx.round() as i32 - bw / 2, sy.round() as i32 - bh / 2, bw, bh);
             // Keep signs clear of the top bar.
             if r.x > w || r.x + r.w < 0 || r.y < 24 + sa.t {
@@ -604,8 +605,10 @@ fn draw_hub(f: &mut Fb, menu: &Menu, ctx: &Ctx, cam: &scene::CamState, hits: &mu
             f.rect(r.inflate(2), if selected { mix(GOLD, WHITE, ((t * 6.0).sin() * 0.5 + 0.5) * 0.5) } else { rgb(0x2a2a30) });
             f.vgrad(r, face_a, face_b);
             f.frame(r, rgb(0x0a0a14));
+            f.blit(&icons::badge(doors[i].id), r.x + 2, r.y + (bh - icons::BADGE) / 2, 1);
+            let (tx, ty) = (r.x + icons::BADGE + 3 + (r.w - icons::BADGE - 3) / 2, r.y + (bh - (lines.len() as i32 * 9 - 2)) / 2);
             for (k, l) in lines.iter().enumerate() {
-                f.text_centered(r.x + r.w / 2, r.y + 3 + k as i32 * 9, l, 1, if doors[i].enabled { WHITE } else { rgb(0xb0b0b8) });
+                f.text_centered(tx, ty + k as i32 * 9, l, 1, if doors[i].enabled { WHITE } else { rgb(0xb0b0b8) });
             }
             hits.0.push((r.inflate(2), Hit::Door(i)));
             let (dl, dr) = (left.map_or(r.x, |p| p.0 as i32), right.map_or(r.x + r.w, |p| p.0 as i32));
@@ -643,9 +646,10 @@ fn draw_hub(f: &mut Fb, menu: &Menu, ctx: &Ctx, cam: &scene::CamState, hits: &mu
     let box_r = IRect::new(8 + sa.l, h - 52 - sa.b, w - 16 - sa.l - sa.r, 46);
     draw_dialog(f, box_r);
     if let Some(d) = doors.get(sel) {
-        let ic = icons::icon(d.id);
+        // The mode's pixel icon at 2x on its vignette's colour.
         f.rect(IRect::new(box_r.x + 5, box_r.y + 7, 52, 34), rgb(0x040720));
-        f.blit(&ic, box_r.x + 7, box_r.y + 9, 1);
+        f.vgrad(IRect::new(box_r.x + 6, box_r.y + 8, 50, 32), mix(icons::accent(d.id), rgb(0), 0.35), mix(icons::accent(d.id), rgb(0), 0.75));
+        f.blit(&icons::badge(d.id), box_r.x + 15, box_r.y + 8, 2);
         let title = crate::shell::ExperimentId::title(d.id).to_ascii_uppercase();
         let name = clean(&sign_name(d.id));
         let _ = title;

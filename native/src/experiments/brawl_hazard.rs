@@ -60,6 +60,9 @@ pub enum HzState {
     Rest,
 }
 
+/// How much faster than first tuned the set pieces move (they were tuned against a 520-unit run; it is 760 now).
+pub const HAZARD_PACE: f32 = 1.2;
+
 /// Tuning of one look (ticks at 30 Hz, SM64 units).
 #[derive(Clone, Copy, Debug)]
 pub struct Spec {
@@ -84,7 +87,10 @@ pub struct Spec {
 
 impl Look {
     pub fn spec(self) -> Spec {
-        let s = |kind, reach, radius, height, warn, act, rest, dmg, kb, up, speed, every| Spec { kind, reach, radius, height, warn, act, rest, dmg, kb, up, speed, every };
+        // The table was written for the old 520-unit walk; fighters now run 760, so the set pieces keep pace: they move a fifth
+        // faster and come round a sixth sooner. Telegraphs stay as long as they were (they are the human's warning), and a
+        // fighter now crosses a strike zone in two thirds of the time it used to.
+        let s = |kind, reach, radius, height, warn, act, rest, dmg, kb, up, speed: f32, every: i32| Spec { kind, reach, radius, height, warn, act, rest, dmg, kb, up, speed: speed * HAZARD_PACE, every: every * 5 / 6 };
         use HzKind::*;
         match self {
             Look::ChainChomp => s(Lunger, 560.0, 100.0, 220.0, 26, 7, 26, 15.0, 1000.0, 430.0, 0.0, 70),

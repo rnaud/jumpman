@@ -98,6 +98,7 @@ pub mod relic_view;
 pub mod rail_path;
 pub mod records;
 pub mod swarm_icons;
+pub mod mode_icons;
 pub mod runner_gen;
 pub mod runner;
 pub mod shrink;
@@ -170,9 +171,9 @@ pub const EXPERIMENT_IDS: [ExperimentId; 17] = [
     ExperimentId::Deck,
     ExperimentId::LastStar,
     ExperimentId::Race,
+    ExperimentId::Runner,
     ExperimentId::Party,
     ExperimentId::Relic,
-    ExperimentId::Runner,
     ExperimentId::Kart,
     // Experiments
     ExperimentId::God,
@@ -1340,10 +1341,10 @@ mod fresh_start_tests {
         use ExperimentId as X;
         let games: Vec<_> = ExperimentId::in_category(Category::Game).collect();
         // The fun audits' ranking (MINIGAMES_FUN.md, MINIGAMES_FUN_2.md).
-        assert_eq!(&games[..6], &[X::Brawl, X::Swarm, X::Gate, X::Deck, X::LastStar, X::Race]);
-        assert_eq!(&games[games.len() - 3..], &[X::Relic, X::Runner, X::Kart]);
+        // Gem Clash and Star Swarm head the list; the rest follow the ranking written up in MINIGAMES_FUN_2.md ("Menu order").
+        assert_eq!(games, vec![X::Brawl, X::Swarm, X::Gate, X::Deck, X::LastStar, X::Race, X::Runner, X::Party, X::Relic, X::Kart]);
         let lab: Vec<_> = ExperimentId::in_category(Category::Experiment).collect();
-        assert_eq!(&lab[lab.len() - 4..], &[X::God, X::Dimensions, X::Hundred, X::Shrink]);
+        assert_eq!(lab, vec![X::God, X::Dimensions, X::Hundred, X::Shrink]);
         assert_eq!(games.len() + lab.len(), MENU_IDS.len());
         // The list is grouped: no experiment sits between two games.
         let first_lab = MENU_IDS.iter().position(|id| id.category() == Category::Experiment).unwrap();

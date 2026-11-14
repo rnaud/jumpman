@@ -39,6 +39,8 @@ pub struct UiAssets {
     pub backdrop: Handle<Image>,
     /// Mode card thumbnails (`ui/modes/<key>.jpg`); a mode without a file simply has no entry.
     pub modes: std::collections::HashMap<&'static str, Handle<Image>>,
+    /// Every mode's own 16x16 pixel icon (`experiments::mode_icons`), by mode key: on the mode cards and in the mode lists.
+    pub icons: std::collections::HashMap<&'static str, Handle<Image>>,
     /// Header art of the LEVELS tab (`ui/modes/levels.jpg`).
     pub levels: Option<Handle<Image>>,
     /// The gold chevron that points at the focused row (the title's cursor).
@@ -108,10 +110,11 @@ pub fn load_ui_assets(mut commands: Commands, assets: Res<AssetServer>, root: Re
             modes.insert(id.key(), assets.load(path));
         }
     }
+    let icons: std::collections::HashMap<&'static str, Handle<Image>> = crate::experiments::EXPERIMENT_IDS.iter().map(|id| (id.key(), images.add(crate::experiments::mode_icons::image(*id)))).collect();
     let chevron = super::retro::skin::upload(&mut images, &super::retro::skin::draw_chevron(), 2);
     let levels = root.exists("ui/modes/levels.jpg").then(|| assets.load("ui/modes/levels.jpg"));
-    let classic = UiAssets { display: old_display, body: old_body, star: star.clone(), coin: coin.clone(), quilt: assets.load("ui/quilt-tile.png"), checker: checker.clone(), backdrop: assets.load("ui/menu-backdrop.png"), modes: modes.clone(), levels: levels.clone(), chevron: chevron.clone(), classic: true, classic_set: None };
-    commands.insert_resource(UiAssets { display, body, star, coin, quilt: assets.load("ui/quilt-tile.png"), checker, backdrop: assets.load("ui/menu-backdrop.png"), modes, levels, chevron, classic: false, classic_set: Some(Box::new(classic)) });
+    let classic = UiAssets { display: old_display, body: old_body, star: star.clone(), coin: coin.clone(), quilt: assets.load("ui/quilt-tile.png"), checker: checker.clone(), backdrop: assets.load("ui/menu-backdrop.png"), modes: modes.clone(), icons: icons.clone(), levels: levels.clone(), chevron: chevron.clone(), classic: true, classic_set: None };
+    commands.insert_resource(UiAssets { display, body, star, coin, quilt: assets.load("ui/quilt-tile.png"), checker, backdrop: assets.load("ui/menu-backdrop.png"), modes, icons, levels, chevron, classic: false, classic_set: Some(Box::new(classic)) });
 }
 
 const ICON: u32 = 64;
@@ -915,7 +918,7 @@ mod hud_look_tests {
     use super::*;
 
     fn assets(classic: bool, set: Option<Box<UiAssets>>) -> UiAssets {
-        UiAssets { display: default(), body: default(), star: default(), coin: default(), quilt: default(), checker: default(), backdrop: default(), modes: Default::default(), levels: None, chevron: default(), classic, classic_set: set }
+        UiAssets { display: default(), body: default(), star: default(), coin: default(), quilt: default(), checker: default(), backdrop: default(), modes: Default::default(), icons: Default::default(), levels: None, chevron: default(), classic, classic_set: set }
     }
 
     #[test]

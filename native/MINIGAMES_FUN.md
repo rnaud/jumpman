@@ -244,8 +244,8 @@ failed for the same reason (missing exported data). None of those files were tou
 
 **Menus.** The Painted Halls is hidden from every menu (hub doors, the classic mode cards, the in-game dock list and its
 number keys); its code, tests and `JUMPMAN_EXPERIMENT=halls` hook stay (`ExperimentId::listed`, `MENU_IDS`). GAMES now run
-in the ranking of both audits: Gem Clash, Star Swarm, Hold the Gate, Star Deck, Last Star Standing, Summit Race, Sunstone
-Shindig, Relic Descent, Endless Run, Kart.
+in the ranking of both audits: Gem Clash, Star Swarm, Hold the Gate, Star Deck, Last Star Standing, Summit Race, Endless Run,
+Sunstone Shindig, Relic Descent, Kart (Endless Run moved up later; the reasoning is in `MINIGAMES_FUN_2.md`, "Menu order").
 
 **Sunstone Shindig, rebuilt on the real Bob-omb Battlefield.** The board core (spaces, items, the Keeper, duels, formats,
 awards) is kept; everything around it moved onto the real course, following Hold the Gate's board-on-a-real-course pattern:

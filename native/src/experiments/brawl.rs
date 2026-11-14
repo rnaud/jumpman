@@ -736,8 +736,9 @@ impl GemClashExperiment {
         out
     }
 
+    /// The camera heading: from the south, unless the region looks from its open side (`Region::view_yaw`).
     fn cam_yaw(&self) -> f32 {
-        0.0
+        self.core.arena.view_yaw
     }
 
     // -----------------------------------------------------------------------------------------
@@ -1436,7 +1437,7 @@ impl GemClashExperiment {
         let right = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
         let up = right.cross(fwd);
         // Points to keep in frame: every fighter's feet and head, plus in menu the arena outline.
-        let mut pts: [Vec3; 16] = [Vec3::ZERO; 16];
+        let mut pts: [Vec3; 6 * MAXF] = [Vec3::ZERO; 6 * MAXF];
         let mut n = 0;
         let mut lo = Vec3::splat(f32::MAX);
         let mut hi = Vec3::splat(f32::MIN);
@@ -1448,7 +1449,9 @@ impl GemClashExperiment {
             }
             let p = mix3(self.snap.f[i], f.pos, a);
             let pad = 120.0 * f.size.min(2.0);
-            for (dx, dy, dz) in [(0.0, -30.0, 0.0), (0.0, f.height() + 40.0, 0.0), (pad, 0.0, 0.0), (-pad, 0.0, 0.0), (0.0, 0.0, pad), (0.0, 0.0, -pad)] {
+            // Fighters run fast: also keep where each one is heading (a quarter second ahead) in frame.
+            let (lx, lz) = (f.vel[0] * 0.25, f.vel[2] * 0.25);
+            for (dx, dy, dz) in [(0.0, -30.0, 0.0), (0.0, f.height() + 40.0, 0.0), (pad + lx.max(0.0), 0.0, lz), (-pad + lx.min(0.0), 0.0, lz), (lx, 0.0, pad + lz.max(0.0)), (lx, 0.0, -pad + lz.min(0.0))] {
                 if n < pts.len() {
                     pts[n] = p + Vec3::new(dx, dy, dz);
                     n += 1;
@@ -1499,9 +1502,10 @@ impl GemClashExperiment {
             self.cam_pitch = base_pitch;
             self.cam_ready = true;
         } else {
-            let k_f = 1.0 - (-dt as f32 * 6.0).exp();
+            // Quick enough to keep up with the run speed, still smooth.
+            let k_f = 1.0 - (-dt as f32 * 8.0).exp();
             self.cam_focus += (focus_t - self.cam_focus) * k_f;
-            let k_d = 1.0 - (-dt as f32 * if need > self.cam_dist { 9.0 } else { 2.5 }).exp();
+            let k_d = 1.0 - (-dt as f32 * if need > self.cam_dist { 11.0 } else { 3.0 }).exp();
             self.cam_dist += (need - self.cam_dist) * k_d;
         }
         let d = |v: Vec3| DVec3::new(v.x as f64, v.y as f64, v.z as f64);

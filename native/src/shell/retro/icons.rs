@@ -6,28 +6,21 @@ use crate::shell::ExperimentId;
 pub const ICON_W: i32 = 48;
 pub const ICON_H: i32 = 30;
 
-/// Sign / accent colour of a mode.
+/// Sign / accent colour of a mode: the colour of its pixel icon (`experiments::mode_icons`).
 pub fn accent(id: ExperimentId) -> Rgba {
-    use ExperimentId::*;
-    rgb(match id {
-        Brawl => 0xb3261e,
-        Relic => 0x8a5a2b,
-        LastStar => 0x2f8f3a,
-        Kart => 0x2a5fd0,
-        Swarm => 0x7a3fb8,
-        Deck => 0x1f8f8a,
-        Halls => 0xc4702a,
-        Gate => 0x6b7a8f,
-        Party => 0xc04a8a,
-        Race => 0x3a8fd0,
-        Runner => 0xc9a21e,
-        God => 0x5a4a88,
-        Diorama => 0x8f6a3a,
-        Dimensions => 0x2a7a9a,
-        Shrink => 0x6a9a2a,
-        Planet => 0x2a8a6a,
-        Hundred => 0x9a3a3a,
-    })
+    rgb(id.theirs().map_or(0x6a6a78, crate::experiments::mode_icons::color))
+}
+
+/// Side of a mode's pixel icon.
+pub const BADGE: i32 = crate::experiments::mode_icons::SIZE as i32;
+
+/// The mode's own 16x16 pixel icon (on the hub's door signs and in its dialog box).
+pub fn badge(id: ExperimentId) -> Fb {
+    let mut f = Fb::new(BADGE, BADGE);
+    if let Some(x) = id.theirs() {
+        f.data = crate::experiments::mode_icons::pixels(x);
+    }
+    f
 }
 
 fn shade(c: Rgba, f: f32) -> Rgba {

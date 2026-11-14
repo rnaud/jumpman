@@ -497,7 +497,14 @@ fn mode_card(g: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, e: Experim
             }
         });
         c.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(3.0), flex_grow: 1.0, flex_basis: Val::Px(0.0), min_width: Val::Px(0.0), ..default() }).with_children(|t| {
-            t.spawn((Text::new(clean(e.title().to_uppercase())), font(&a.display, if m.compact { 16.0 } else { 19.0 }), TextColor(Color::WHITE), TextShadow { offset: Vec2::new(0.0, 2.5), color: hex(0x050b2a) }));
+            // The mode's own pixel icon (2x) beside its name.
+            t.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(6.0), ..default() }).with_children(|r| {
+                if let Some(icon) = e.theirs().and_then(|x| a.icons.get(x.key())) {
+                    let s = if m.compact { 24.0 } else { 32.0 };
+                    r.spawn((ImageNode::new(icon.clone()), Node { width: Val::Px(s), height: Val::Px(s), flex_shrink: 0.0, ..default() }));
+                }
+                r.spawn((Text::new(clean(e.title().to_uppercase())), font(&a.display, if m.compact { 16.0 } else { 19.0 }), TextColor(Color::WHITE), TextShadow { offset: Vec2::new(0.0, 2.5), color: hex(0x050b2a) }));
+            });
             let line = if let Some(game) = missing { game.reason().to_string() } else if e.available() { e.tagline().to_string() } else { format!("{} (not ported yet)", e.tagline()) };
             t.spawn((Text::new(clean(line)), font(&a.body, 12.0), TextColor(CREAM.with_alpha(0.9)), TextShadow { offset: Vec2::new(0.0, 1.5), color: NAVY }));
             if active {
@@ -1097,6 +1104,7 @@ mod tests {
                 checker: default(),
                 backdrop: default(),
                 modes: Default::default(),
+                icons: Default::default(),
                 levels: None,
                 chevron: default(),
                 classic: false,

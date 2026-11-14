@@ -148,6 +148,66 @@ Approved: Tiny Planet and Diorama are hidden from every menu (hub doors, mode ca
 code, tests and `JUMPMAN_EXPERIMENT=planet|diorama` hooks stay. EXPERIMENTS now lists Mario vs. God, Across Dimensions,
 A Hundred Marios and Shrink Ray, in that order.
 
+## Menu order
+
+The GAMES list (hub doors, mode cards, the in-game mode list and its number keys) now reads:
+
+1. **Gem Clash** and 2. **Star Swarm**: fixed at the top (the two headline modes, reworked the most).
+3. **Hold the Gate**: first in the first audit (clearest goal, best escalation, Mario matters), on the real lawn.
+4. **Star Deck**: second there (most decisions per minute, best-tested balance).
+5. **Last Star Standing**: real island, real fights, the right arc in four minutes since the pacing fix.
+6. **Summit Race**: a real race with classes and splits; one route.
+7. **Endless Run** (up from 9th): first in this audit. It is the most complete arcade loop in the project (one fall ends
+   it, instant retry, daily seed, ghost, records) and it is all Mario's own physics. It is short, which is a strength in a
+   list of modes people dip into, so it goes above the two long, uneven ones below.
+8. **Sunstone Shindig**: much better since the physics rebuild, but solo the board half is still watching three CPUs
+   roll, and its five mini-games repeat inside a session; at its best with people on pads, which nobody has tested.
+9. **Relic Descent**: the deepest systems, but anonymous procedural boxes and a punishing first fight.
+10. **Mario Kart 64**: one track and Mario only; a port to admire more than a mode to replay.
+
+EXPERIMENTS keep this audit's ranking (Mario vs. God, Across Dimensions, A Hundred Marios, Shrink Ray). Tiny Planet,
+Diorama and The Painted Halls stay hidden. `games_come_first_with_the_headline_modes_on_top` pins the whole order.
+
+## Mode icons
+
+Every mode has its own 16x16 pixel icon, drawn in code (`experiments/mode_icons.rs`, original art in the same style as the
+Swarm upgrade icons): a rounded tile in the mode's own colour (no two closer than 60 in summed RGB) and a bold, outlined glyph
+(gem, star, gatehouse, cards, parachute, summit flag, running shoe, die, skull, kart, storm cloud, cube, "100", magnifier;
+a painting, a dome and a ringed planet for the hidden ones). They are on the hub's door signs and in its dialog box (2x),
+on the classic mode cards beside the name, and on each row of the in-game mode list. The door signs use the icon colour.
+
+## Gem Clash pace
+
+The user found Gem Clash slow. Measured on flat ground (`fighters_run_fast_start_at_once_and_turn_on_a_dime`, ticks at 30 Hz):
+
+| Mario | Before | After |
+| --- | --- | --- |
+| Top speed (units/s) | 520 | 760 |
+| Distance in the first second | 496 | 737 |
+| Ticks to full speed | 4 | 3 |
+| Ticks to run the other way at full speed | 8 | 4 |
+| Ticks to stop | 4 | 3 |
+| Ticks to face the other way | 6 | 3 |
+
+Link 478 -> 699, Young Link 593 -> 866, Banjo 504 -> 737 (their speed factors are unchanged). Dives are 25% faster to stay a
+lunge. Pulling the stick against your motion brakes twice as hard (a snap reversal instead of a skid). No dash button: it
+would need a new on-screen button (the in-game HUD is out of scope); the faster dive is the burst.
+
+Retuned to match: Easy bots run at 0.85 of full speed (0.68) and swing a little more often (the novice test drifted to
+93-96% wins against them at the new pace and is back at 83%); Normal bots run at 0.86. Course set pieces and monsters move 20% faster and set pieces
+come round a sixth sooner, telegraphs unchanged (novice with monsters: Easy 88%, Normal 42%, Hard 17%; was 75/42/8). The camera follows faster (focus 8/s, zoom 11/s out and 3/s in), keeps
+a quarter second of every fighter's run in frame, and frames all four fighters (it only kept the first 16 frame points).
+Arena sizes are unchanged except the Shifting Sand Pit (below): the box arenas are 1600-1960 wide, which at 760 is a
+two-second crossing, Power Stone's scale.
+
+Shifting Sand Pit: the old rectangle (1360 x 880) sat inside the pit with the camera south of it, so the south wall stood
+between the camera and the fighters even with the 0.32 lift. The pit is walled on the west, south and east and opens north
+onto the dune slope; the region now fills the whole floor up to the walls and a little way up the slope (1440 x 1060, 27%
+more room) and is framed from the north (`Region::view_yaw`), so the walls stand behind and beside the fighters.
+
+Bot balance after the change (same tests as before): Hard vs Normal 46-14 (was 47-13), Normal vs Easy 42-18 (42-18), Hard vs
+Easy 55-5 (54-6); novice vs two bots Easy 83% (85%), Normal 42% (48%), Hard 19% (19%); heroes vs Mario 49-58% (47-53%).
+
 ## Unverified / limits
 
 - Medal pars (God, Dimensions, Hundred) are design guesses, not measured on players.

@@ -538,14 +538,20 @@ pub fn rebuild_menu(open: Res<MenuOpen>, ui: Option<Res<UiAssets>>, root: Single
     *built = true;
     commands.entity(entity).despawn_related::<Children>();
     commands.entity(entity).with_children(|r| {
-        theme::panel(r, &ui, Node { padding: UiRect::all(Val::Px(18.0)), row_gap: Val::Px(8.0), min_width: Val::Px(340.0), ..default() }).with_children(|c| {
+        theme::panel(r, &ui, Node { padding: UiRect::all(Val::Px(18.0)), row_gap: Val::Px(8.0), min_width: Val::Px(480.0), ..default() }).with_children(|c| {
             theme::kicker(c, &ui, "GAMES  (X to close)");
             for (i, id) in MENU_IDS.iter().enumerate() {
                 if id.category() == super::Category::Experiment && (i == 0 || MENU_IDS[i - 1].category() == super::Category::Game) {
                     theme::kicker(c, &ui, "EXPERIMENTS");
                 }
                 let kind = if id.available() { ButtonKind::Green } else { ButtonKind::Chip };
-                theme::button(c, &ui, ButtonSpec::new(kind, Val::Percent(100.0), Val::Px(40.0), 18.0), &format!("{}  {}", i + 1, id.title())).insert(MenuButton(*id));
+                let icon = ui.icons.get(id.key()).cloned();
+                theme::button(c, &ui, ButtonSpec::new(kind, Val::Percent(100.0), Val::Px(40.0), 18.0), &format!("{}  {}", i + 1, id.title())).insert(MenuButton(*id)).with_children(|b| {
+                    // The mode's own pixel icon at the left end of its row.
+                    if let Some(icon) = icon {
+                        b.spawn((ImageNode::new(icon), Node { position_type: PositionType::Absolute, left: Val::Px(8.0), width: Val::Px(28.0), height: Val::Px(28.0), ..default() }, bevy::ui::FocusPolicy::Pass));
+                    }
+                });
             }
         });
     });

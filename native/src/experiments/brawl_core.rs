@@ -25,7 +25,17 @@ pub const MAXP: usize = 24;
 pub const GEMS: usize = 3;
 pub const GRAV: f32 = 3300.0;
 pub const JUMP_V: f32 = 1130.0;
-pub const RUN: f32 = 520.0;
+/// Run speed (units a second). Power Stone pace: a fighter crosses a 1600-unit arena in about two seconds.
+pub const RUN: f32 = 760.0;
+/// Ground acceleration and braking (units a second, per second): full speed in three ticks, a dead stop in three.
+pub const ACCEL_GROUND: f32 = 8400.0;
+pub const BRAKE: f32 = 9000.0;
+/// Steering in the air.
+pub const ACCEL_AIR: f32 = 3400.0;
+/// Pulling the stick against your own motion turns you round this much harder (a snap reversal, not a skid).
+pub const TURN_BOOST: f32 = 2.0;
+/// Most the body turns toward the stick in one tick (radians): about three ticks for a half turn.
+pub const YAW_STEP: f32 = 1.1;
 pub const RADIUS: f32 = 38.0;
 pub const HEIGHT: f32 = 150.0;
 pub const POWER_SECS: f32 = 14.0;
@@ -951,7 +961,7 @@ impl Brawl {
         let act = self.f[i].act;
         let free = matches!(act, Act::Idle | Act::Air);
         let mut wish = [0.0f32, 0.0f32];
-        let mut accel_ground = 4200.0;
+        let mut accel_ground = ACCEL_GROUND;
         let mut gravity = true;
         let mut face_to: Option<f32> = None;
 
@@ -1187,18 +1197,19 @@ impl Brawl {
                 let l = len2(wish);
                 if l > 0.05 {
                     let want = [wish[0] * top_speed, wish[1] * top_speed];
-                    let a = if f.grounded { accel_ground } else { 2300.0 } * DT;
+                    let against = f.vel[0] * want[0] + f.vel[2] * want[1] < 0.0;
+                    let a = if f.grounded { accel_ground } else { ACCEL_AIR } * DT * if against { TURN_BOOST } else { 1.0 };
                     f.vel[0] = approach(f.vel[0], want[0], a);
                     f.vel[2] = approach(f.vel[2], want[1], a);
                     face_to = Some(yaw_of(wish));
                 } else if f.grounded {
-                    f.vel[0] = approach(f.vel[0], 0.0, 4600.0 * DT);
-                    f.vel[2] = approach(f.vel[2], 0.0, 4600.0 * DT);
+                    f.vel[0] = approach(f.vel[0], 0.0, BRAKE * DT);
+                    f.vel[2] = approach(f.vel[2], 0.0, BRAKE * DT);
                 }
             }
             if let Some(y) = face_to {
                 let d = angle_diff(f.yaw, y);
-                f.yaw += d.clamp(-0.55, 0.55);
+                f.yaw += d.clamp(-YAW_STEP, YAW_STEP);
             }
         }
         // Jumping (A): the first jump from the ground (with a little coyote time), one more in the air.

@@ -177,12 +177,13 @@ pub struct MStats {
     pub aggro: f32,
 }
 
-/// Stat block in Gem Clash units (a fighter has 100 hp and runs at 520): hit points are the decomp's
-/// (`decomp hp x 10`, min 30), touch damage `hearts x 20` (min 8). Bigbutt's 99 becomes a 150 hp heavy.
+/// Stat block in Gem Clash units (a fighter has 100 hp and runs at 760): hit points are the decomp's
+/// (`decomp hp x 10`, min 30), touch damage `hearts x 20` (min 8). Bigbutt's 99 becomes a 150 hp heavy. The walk speeds below
+/// were set against the old 520 run; they move a fifth faster with the fighters (`HAZARD_PACE`).
 pub fn stats(sp: Species) -> MStats {
     let hp = (sp.decomp_hp() as f32 * 10.0).max(30.0);
     let dmg = (sp.touch_hearts() * 20.0).max(8.0);
-    let s = |hp, radius, height, speed, dmg, kb, up, aggro| MStats { hp, radius, height, speed, dmg, kb, up, aggro };
+    let s = |hp, radius, height, speed: f32, dmg, kb, up, aggro| MStats { hp, radius, height, speed: speed * super::hazard::HAZARD_PACE, dmg, kb, up, aggro };
     match sp {
         Species::DekuBaba => s(hp, 55.0, 110.0, 0.0, dmg, 560.0, 220.0, 330.0),
         Species::Skulltula => s(hp, 50.0, 80.0, 260.0, dmg, 400.0, 160.0, 700.0),
