@@ -478,6 +478,74 @@ pub struct RaceCourse {
     pub lifts: Vec<(V3, V3)>,
 }
 
+/// Mario's body radius (his object hitbox): two racers never stand closer than twice this at about the same height.
+pub const RACER_R: f64 = 37.0;
+
+/// How far to move each racer so no two overlap: pairs closer than two body radii (within 150 in height) are pushed apart
+/// along the line between them, half each, or wholly onto the one that is not `fixed` (the player: the rivals bump into him as
+/// into a wall, his own physics is left alone). A few passes settle a pack.
+pub fn apart_moves(pos: &[V3], fixed: &[bool]) -> Vec<[f64; 2]> {
+    let n = pos.len();
+    let mut q: Vec<V3> = pos.to_vec();
+    let mut moved = vec![[0.0f64; 2]; n];
+    for _ in 0..3 {
+        for a in 0..n {
+            for b in a + 1..n {
+                if (q[a][1] - q[b][1]).abs() > 150.0 || fixed[a] && fixed[b] {
+                    continue;
+                }
+                let (dx, dz) = (q[b][0] - q[a][0], q[b][2] - q[a][2]);
+                let d = dx.hypot(dz);
+                let min = 2.0 * RACER_R;
+                if d >= min {
+                    continue;
+                }
+                let (ux, uz) = if d > 0.01 { (dx / d, dz / d) } else { (1.0, 0.0) };
+                let (ka, kb) = if fixed[a] { (0.0, 1.0) } else if fixed[b] { (1.0, 0.0) } else { (0.5, 0.5) };
+                let push = min - d;
+                for (k, s) in [(a, -ka), (b, kb)] {
+                    q[k][0] += ux * push * s;
+                    q[k][2] += uz * push * s;
+                    moved[k][0] += ux * push * s;
+                    moved[k][1] += uz * push * s;
+                }
+            }
+        }
+    }
+    moved
+}
+
+/// Hanging from a ledge or pulling up over it (SM64's ledge grab and climbs): the body is held to the cliff edge by its
+/// action, so it is neither pushed nor counted by the body checks (a racer climbing past one who hangs there is fine).
+pub fn on_ledge(action: u32) -> bool {
+    action == 0x0800_034B || (0x054C..=0x054F).contains(&action)
+}
+
+/// Apply [`apart_moves`] to the rivals' bodies (onto floor at about the same height only, so nobody is shoved through a
+/// wall or off a ledge by it); `player` is the player's position, which is not moved.
+pub fn keep_racers_apart(crowd: &mut MarioCrowd, player: Option<V3>) {
+    let mut pos: Vec<V3> = crowd.agents.iter().map(|a| a.body.pos()).collect();
+    let mut fixed: Vec<bool> = crowd.agents.iter().map(|a| on_ledge(a.body.runtime.action)).collect();
+    if let Some(p) = player {
+        pos.push(p);
+        fixed.push(true);
+    }
+    let moved = apart_moves(&pos, &fixed);
+    for (a, m) in crowd.agents.iter_mut().zip(moved) {
+        if m == [0.0, 0.0] {
+            continue;
+        }
+        let r = &mut a.body.runtime;
+        let q = [r.pos[0] + m[0], r.pos[1], r.pos[2] + m[1]];
+        let floor = r.world.find_floor(q[0], q[1] + 100.0, q[2]);
+        let air = r.action & jumpman_sim::state::ACT_FLAG_AIR != 0;
+        if floor.surface.is_some() && (air || (floor.height - r.pos[1]).abs() < 60.0) {
+            r.pos[0] = q[0];
+            r.pos[2] = q[2];
+        }
+    }
+}
+
 /// Koopa's checkpoints the race leaves out: his detour over the plateau (see [`race_course`]).
 const SKIPPED_LOOP: std::ops::RangeInclusive<usize> = 1..=7;
 
@@ -1071,6 +1139,7 @@ impl Experiment for SummitRaceExperiment {
             self.drive_rivals(player_pos);
         }
         self.crowd.as_mut().unwrap().update(Some(&mut host.sim.mario));
+        keep_racers_apart(self.crowd.as_mut().unwrap(), Some(host.sim.mario.pos));
         let fx = self.crowd.as_mut().unwrap().take_fx();
         host.play_fx(fx);
         let total = self.rail.as_ref().unwrap().total;
@@ -1350,6 +1419,19 @@ mod tests {
 
     /// No rival is left behind: in every class and on several seeds the whole field reaches the summit within 200 s (a rival
     /// stuck on a ledge is picked up by Lakitu once it stops making progress along the route, whatever it is doing there).
+    /// Racers are solid: in a Pro race with a stand-in player in the pack no two Marios ever stand inside each other (beyond a
+    /// little a wall or a ledge held back), and a rival pressed into the player is pushed off him, not through him.
+    #[test]
+    fn racers_never_pass_through_each_other() {
+        let m = apart_moves(&[[0.0, 0.0, 0.0], [30.0, 0.0, 0.0], [600.0, 0.0, 0.0]], &[true, false, false]);
+        assert_eq!(m[0], [0.0, 0.0], "the player is not moved");
+        assert!((m[1][0] - (2.0 * RACER_R - 30.0)).abs() < 1e-9, "{m:?}");
+        assert_eq!(m[2], [0.0, 0.0]);
+        let Some(r) = bob_race(RaceClass::Pro, 30 * 120, 2, Some(RaceClass::Champion.skill(0))) else { return };
+        eprintln!("worst overlap between two racers: {:.1}", r.worst_overlap);
+        assert!(r.worst_overlap < 15.0, "two racers overlapped by {:.1}", r.worst_overlap);
+    }
+
     /// `RACE_SEEDS=n` widens the sweep.
     #[test]
     fn every_rival_of_every_class_finishes_within_200_s() {
@@ -1567,8 +1649,10 @@ mod tests {
         pub place_changes: u32,
         /// Share of the player's racing ticks with a rival within 1500 units (15 m).
         pub near: f64,
-        /// The player's route progress (s) at each pick-up and lift (diagnostics).
+        /// The stand-in player's Lakitu pick-ups (diagnostics).
         pub player_pickups: u32,
+        /// The deepest two racers ever stood inside each other (2 x body radius minus their distance; <= 0 is apart).
+        pub worst_overlap: f64,
     }
 
     /// As `bob_field_times`, optionally with an eighth racer standing in for the player on the back row, driven by the race brain
@@ -1612,6 +1696,7 @@ mod tests {
         let mut rides: Vec<Option<LakituRide>> = vec![None; racers];
         let mut lifted = vec![0u32; racers];
         let (mut last_place, mut place_changes, mut near, mut racing) = (usize::MAX, 0u32, 0u32, 0u32);
+        let mut worst_overlap = 0.0f64;
         let mut rng = BrainRng::new(seed);
         let trace = std::env::var_os("RACE_TRACE").is_some();
         if std::env::var("RACE_TRACE").as_deref() == Ok("2") {
@@ -1655,6 +1740,24 @@ mod tests {
                 }
             }
             crowd.update(None);
+            // The stand-in player is a crowd body here: it is kept apart like the rivals (the game's player is never moved).
+            keep_racers_apart(&mut crowd, None);
+            for x in 0..racers {
+                for y in x + 1..racers {
+                    // A racer on Lakitu's cloud is carried above the course, not standing on it.
+                    if rides[x].is_some_and(|r| r.carrying()) || rides[y].is_some_and(|r| r.carrying()) || on_ledge(crowd.agents[x].body.runtime.action) || on_ledge(crowd.agents[y].body.runtime.action) {
+                        continue;
+                    }
+                    let (p, q) = (crowd.agents[x].body.pos(), crowd.agents[y].body.pos());
+                    if (p[1] - q[1]).abs() < 150.0 {
+                        let o = 2.0 * RACER_R - (p[0] - q[0]).hypot(p[2] - q[2]);
+                        if o > worst_overlap && std::env::var_os("RACE_OVERLAP").is_some() {
+                            eprintln!("OVERLAP {o:.1} t={:.1} racers {x} {y} at ({:.0},{:.0},{:.0}) ({:.0},{:.0},{:.0}) act {:x} {:x}", tick as f64 / 30.0, p[0], p[1], p[2], q[0], q[1], q[2], crowd.agents[x].body.runtime.action, crowd.agents[y].body.runtime.action);
+                        }
+                        worst_overlap = worst_overlap.max(o);
+                    }
+                }
+            }
             for (i, a) in crowd.agents.iter().enumerate() {
                 let pos = a.body.pos();
                 let hit = rail.nearest(&pos, brains[i].hint, 60);
@@ -1687,6 +1790,6 @@ mod tests {
             }
         }
         eprintln!("route {:.0}, pick-ups {:?}, lakitu lifts {:?}", rail.total, brains.iter().map(|b| b.pickups).collect::<Vec<_>>(), lifted);
-        Some(RaceRun { finish, place_changes, near: near as f64 / racing.max(1) as f64, player_pickups: pi.map_or(0, |p| brains[p].pickups) })
+        Some(RaceRun { finish, place_changes, near: near as f64 / racing.max(1) as f64, player_pickups: pi.map_or(0, |p| brains[p].pickups), worst_overlap })
     }
 }
