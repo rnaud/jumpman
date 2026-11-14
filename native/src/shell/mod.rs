@@ -302,7 +302,7 @@ impl ExperimentId {
             ExperimentId::Gate => "Build towers, fight beside them, and hold the castle gate through 15 waves.",
             ExperimentId::Deck => "A deckbuilder roguelike: chain Mario moves for momentum, pick a route, and topple the Fuse King.",
             ExperimentId::Brawl => "Arena brawler: grab anything, snatch the three gems, go giant and be last one standing. Versus bots or the Gauntlet.",
-            ExperimentId::Party => "A four-player board party: roll, race to the Keeper for Sunstones, and win 15 mini-games.",
+            ExperimentId::Party => "A four-player board party on Bob-omb Battlefield: roll, race to the Keeper for Sunstones, and win physics mini-games on its real spots.",
             ExperimentId::Halls => "A metroidvania in Mario's moves: find wall kicks, ground pound and the power caps, open the gates, free the Heart.",
         }
     }
@@ -326,7 +326,7 @@ impl ExperimentId {
             ExperimentId::Deck => "A deckbuilder roguelike of Mario moves",
             ExperimentId::Halls => "A metroidvania in Mario's moves",
             ExperimentId::Brawl => "Arena brawler: grab gems and go giant",
-            ExperimentId::Party => "Four-player board party, 15 mini-games",
+            ExperimentId::Party => "Board party and mini-games on Bob-omb Battlefield",
         }
     }
 

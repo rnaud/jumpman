@@ -383,7 +383,7 @@ fn party_balance_report() {
         let (mut coins, mut suns, mut bought, mut duels, mut events) = (0.0, 0.0, 0.0, 0.0, 0u64);
         let mut stones = [0usize; 5];
         for seed in 0..n as u64 {
-            let mut p = Party::new(cpu_cfg(board, 12, seed + 1));
+            let mut p = Party::new(cpu_cfg(board, 6, seed + 1));
             let mut buys = 0;
             while p.auto_step() {
                 for e in p.drain_events() {

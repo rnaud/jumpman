@@ -151,6 +151,9 @@ Every one has a defined win/result state, a touch-reachable restart (dock button
 | Shrink Ray (`shrink`) | reach the summit at any size (each size ticked off) | `R` / Start over | `race::tests::a_racer_completes_the_real_bob_route` |
 | Tiny Planet (`planet`) | run all the way around once, then keep lapping | `R` / New planet | `planet::goal_tests::mario_runs_all_the_way_around_the_planet` |
 
+Diorama and Tiny Planet are **hidden from the menus** since the second fun audit (`MINIGAMES_FUN_2.md`: a toy whose goal completes
+itself, and a tech demo on a generated sphere). Their code, tests and `JUMPMAN_EXPERIMENT=diorama|planet` hooks stay.
+
 Touch: God's `Place` button drops the selected tool's piece in front of Mario (no pointer needed); the Diorama has Turn / Tilt / Zoom / Drop coin buttons. Both phone-layout docks were checked with `JUMPMAN_TOUCH=1 JUMPMAN_WINDOW=844x390 JUMPMAN_SAFE_AREA=59,59,21,0`.
 
 ## Star Swarm (experiment)
@@ -374,9 +377,10 @@ Runs using the hooks never touch the saved bests. The campfire is a ring of ston
 
 ## The Painted Halls (experiment)
 An original **metroidvania**, native-only: one connected manor of sixteen rooms in six regions (Foyer, Hanging Garden, Cellars,
-Flooded Vault, Clock Tower, Long Gallery) gated by abilities you find one by one, built on Mario's real controller. Pick
-**The Painted Halls** from the green experiment buttons on the title or pause menu, or run
-`cargo run --release -- bob --experiment halls`. A **New game / Continue** prompt opens first.
+Flooded Vault, Clock Tower, Long Gallery) gated by abilities you find one by one, built on Mario's real controller. **Hidden from
+the menus** since the fun audit (`MINIGAMES_FUN.md`: grey boxes, and the real castle is the better metroidvania); the code, its
+tests and the hook stay: run `cargo run --release -- bob --experiment halls` (or `JUMPMAN_EXPERIMENT=halls`). A **New game /
+Continue** prompt opens first.
 
 * **The moves are the keys.** Six unlocks, each with a visible "can't pass yet" cue: **Long Jump** (wide gaps; Hedge Run, Gear
   Foyer), **Wall Kick** (two tall columns 340 apart; Greenhouse, Clock Shaft), **Ground Pound** (cracked floor plates in the
@@ -496,92 +500,78 @@ bumper|bridge|gale|cannon|<0-5>` (also skips the setup screen), `_BOTS=<1-3>`, `
 countdown), `_T=<secs>` (arena clock; 16 is high tide, 7 a gust), `_HP=<slot>:<hp>[,...]`, `_GOD=1`, `_SPEED=<k>` (core ticks per step).
 Phone-size screenshots: `JUMPMAN_WINDOW=874x402 JUMPMAN_TOUCH=1 JUMPMAN_SAFE_AREA=59,59,21,0`.
 
-## Sunstone Shindig (experiment)
-An original **board-game party mode**, native-only (no browser version): four players (you plus three CPUs, or up to four
-people hot-seat / on gamepads) race around a themed board for 10 to 15 rounds, a **mini-game** is played after every round, and the
-Sunstone, bought from a roaming Keeper, decides the winner. It is a genre-inspired homage to the "dice-roll board plus
-mini-game collection" party games, but the rules, boards, spaces, items, all 15 mini-games, names and art direction are our own;
-nothing is copied from any commercial game. Pick **Sunstone Shindig** from the green experiment buttons on the title or pause
-menu, or run `cargo run --release -- bob --experiment party` (or `JUMPMAN_EXPERIMENT=party`). The pieces are the real SM64 Mario
-rig (four caps / overalls colours) with its animation clips, driven by the same `CrowdMario` runtime as the crowd modes.
+## Sunstone Shindig (game)
+An original **board-game party mode**, native-only (no browser version), played on the **real Bob-omb Battlefield**: four
+players (you plus three CPUs, or up to four people: hot-seat on the board, extra gamepads in the mini-games) race around a board
+laid on the course floor for 6 rounds (5 / 6 / 8 on the title screen), a **physics mini-game** on a real spot of the battlefield is
+played after every round, and the Sunstone, bought from a roaming Keeper, decides the winner. It is a genre-inspired homage to the
+"dice-roll board plus mini-game collection" party games, but the rules, boards, spaces, items, mini-games, names and art direction
+are our own; nothing is copied from any commercial game. It is in the **GAMES** menu (after Summit Race), or run
+`cargo run --release -- bob --experiment party` (or `JUMPMAN_EXPERIMENT=party`). The pieces are the real SM64 Mario rig (four caps /
+overalls colours) driven by the same `CrowdMario` runtime as the crowd modes, on the course's own collision. A session is about
+8-12 minutes (six rounds of about 30-40 s of board turns plus a 30-35 s mini-game, and the closing ceremony).
 
 * **Turn**: optionally use one item, then **ROLL**: a 1-10 number block spins and you tap **STOP** to freeze it (a timing roll;
-  CPUs draw it from the seeded RNG). Walk that many spaces; at a fork the choices glow and are lettered **A / B** on the map (the
-  buttons say what lies ahead and how far the Keeper is). Passing **Home** pays 3 coins; passing the Keeper with 20 coins stops you
-  to offer the Sunstone.
-* **Spaces** (the colour tells the team in the next mini-game: sun-tinted blue / green / gold / cyan, moon-tinted red / purple /
-  pink): **Coins** +3, **Pit** -3, **Event** (10 outcomes: Coin Rain, ghost thief, gift, Gust of Fortune (3 more spaces), Swap Spots,
-  Robin Hood, Tax Toad, Lucky Charm (+2 next roll), Party Favor, Keeper rumor), **Gift** (a random item), **Shop** (item shop),
-  **Warp** (jumps to another pad), **Duel** (pick a rival, play a two-player mini-game now: the winner takes up to 5 coins),
-  **Hex** (Slow Boots: next roll capped at 3, Leaky Pockets -5, Glum: lose an item) and **Keeper** sites.
-* **Items** (two slots, one use per turn, before the roll): **Dash Die** (roll 5-10), **Twin Dice** (2d6, an even total pays a coin),
-  **Keeper Whistle** (warp to the Keeper), **Pickpocket** (steal up to 6 coins from a rival). Item shop prices 6 / 5 / 10 / 7.
-* **The Sunstone** costs 20 coins at the Keeper; after each sale (or a rumor) the Keeper moves to another site and the beam of light
-  follows. **Mini-game after every round**: how it is played depends on the space tints the four of you ended on: all the same =
-  free-for-all (1st +8 coins, 2nd +4), two and two = **2v2** (winners +6 each), one against three = **1v3** (the lone player +10,
-  the trio +5 each); team score is the members' average. A duel space plays a two-player game on the spot.
-* **End**: three bonus awards, each worth a Sunstone: **Coin Hoarder** (most coins), **Mini-game Master** (most wins) and one
-  space-kind award chosen by the seed (Coin Collector, Unlucky Star, Event Fan, Window Shopper or Duelist); ties share. Most
-  Sunstones wins, coins break ties. The **results ceremony** reveals the awards one by one then the podium (real Marios on
-  pedestals, winners hop).
-* **Boards** (fixed layouts, each with its own mechanic):
-  * **Hourglass Keep** (30 spaces): a castle courtyard with two **drawbridges** over the middle; only one is down at a time and
-    they swap every round. Crossing is a ten-space shortcut.
-  * **Cloudtop Isles** (34): floating isles on a cloud ring, with three **updraft shortcuts** that exist only while the wind blows
-    (the wind is re-rolled each round).
-  * **Cinder Crown** (42): a volcano of three rings with stairs up and slides down; the **lava tide** floods the outer ring after
-    round 3 and the middle ring after round 7 (flooded spaces burn 4 coins, standing there when it rises costs 3, a flooded Keeper
-    site is abandoned).
-* **Mini-games** (10-30 s, one big button, tiles or a single stick; every one has an intro card with instructions and a practice
-  mode from the **Mini-games** list on the title screen; the list keeps your best score for each):
-  Barrel Hop (tap to jump rolling barrels in your lane), Mash Mountain (tap-mash up a pole, tiring if you mash too hard), Echo Pads
-  (memory sequence), Coin Scramble (stick, grab coins, gold is 3), Bomb Drizzle (stick, dodge bombs, last one standing), Pound Grid
-  (tap the glowing pad first), Plank Balance (stick against the tilt), Shell Lane (stick up/down to swap rows: dodge rocks, hit pads),
-  Odd One Out (tap the different tile), Bumper Brawl (stick + A dash, shove rivals off a shrinking ring), Crumble Floor (stick,
-  tiles drop away), Quick Draw (tap when the flag goes green, early = out), Block Stack (tap to drop the sliding block),
-  Star Count (count flitting stars, tap the number), Power Meter (stop the marker in the gold zone).
-* **Controls**: everything is a big button or tile (44 px and up, inside the safe area, clear of the pause button at the top right;
-  on the board the touch pad is hidden, in a stick mini-game it shows). Keyboard: arrows / Tab + Enter or Space press the focused
-  button (the first button is always the primary action, e.g. ROLL / STOP), in games WASD / arrows move, Space / Enter is the big
-  button or A, `1`-`9` pick tiles. Gamepad: d-pad + South for menus, left stick + South in games; seats 2-4 of a multi-person game
-  use the other gamepads in mini-games (set **People** on the title screen; on the board the people take turns on one screen).
-* **CPU difficulty** (Easy / Normal / Hard, a title-screen setting): on the board it changes fork choices (look-ahead path value,
-  Keeper-seeking), item use, shop reserve and duel targets; in mini-games it changes reaction time, aim error and speed (each
-  game has its own bot policy).
-* **Save**: `party.json` beside the other saves (`progress::save::data_dir`, the app container on iOS): games, wins, best Sunstones
-  per board and the best score per mini-game as played by a person. Test-hook runs never write it.
-* **Audio** reuses the shared effect cues (`SfxCue::Effect` kinds): die land, step, coin / hurt for coin changes, star + confetti
-  for a Sunstone, one-up for gifts and the win fanfare, select-mission for a mini-game start, move-menu ticks for the countdown,
-  teleport for warps and a Keeper move, explosion for the tide. Nothing new in `audio/`; not verified by ear.
+  CPUs draw it from the seeded RNG). Walk that many spaces; at a fork the choices glow and are lettered **A / B** on the map. Passing
+  **Home** pays 3 coins; passing the Keeper with 20 coins stops you to offer the Sunstone.
+* **Spaces**, **items**, **the Sunstone**, **duels**, **mini-game formats** (free-for-all, 2v2, 1v3 from the space tints) and the
+  **end awards** are as before: Coins +3, Pit -3, Event (10 outcomes), Gift, Shop, Warp, Duel (a two-player mini-game on the spot,
+  the winner takes up to 5 coins), Hex and Keeper sites; Dash Die, Twin Dice, Keeper Whistle, Pickpocket; three bonus Sunstones
+  (Coin Hoarder, Mini-game Master and one space-kind award). Most Sunstones wins, coins break ties. The **results ceremony** puts the
+  four Marios on pedestals in the middle of the board.
+* **Boards** (fixed layouts, each laid on a real part of the battlefield by `sites::BOARD_SITES`, every space on level, open ground
+  with no tree, crate or post on it and every path walkable, checked by a test):
+  * **Meadow Gates** (30 spaces, the meadow where Mario starts): two gate shortcuts across the middle; only one is open at a time and
+    they swap every round.
+  * **Windy Hills** (34, the eastern hills): three **updraft shortcuts** that exist only while the wind blows (re-rolled each round).
+  * **Bob-omb Flats** (42, the flats by the start): three rings; a **Bob-omb barrage** pounds the outer ring from round 4 (it costs
+    coins to stand or land there).
+* **Mini-games**: every one is played by the four real Marios on Mario's own physics (run, jump, punch, dive) on a real spot of the
+  battlefield, 30-35 s, with an intro card saying where and how, and a practice list on the title screen that keeps your best:
+  * **Coin Scramble** (the hills east of the mountain): coins keep appearing on the slopes and ledges; gold ones are worth three.
+  * **Summit Crown** (King Bob-omb's summit; the King sits this one out): hold the crown circle alone to score; punches and dives
+    knock rivals out of it, and the summit's real edges throw them off the mountain (carried back up after a moment).
+  * **Bob-omb Rain** (the field of wooden posts north of the start): Bob-ombs drop where red rings grow; a blast knocks you away and
+    costs a heart, three and you are out. The rain thickens, aims at people more and the fuses shorten as the clock runs down.
+  * **Star Tag** (the floating island): touch the Power Star to take it, it scores while you hold it (the holder runs a little
+    slower); punch the holder to steal it; fall off the island and the star goes back to the middle.
+  * **Goomba Stomp** (the high meadow in the north-west): Goombas wander in and chase you; jump on them to score, bounce from one onto
+    the next for double; walking into one knocks you back and costs a point.
+* **Controls**: board: big buttons (keyboard arrows / Tab + Enter or Space; gamepad d-pad + South). Mini-games: stick (WASD /
+  arrows / left stick) runs relative to the camera, A (Space / South) jumps, B (Shift / J / West or East) punches, a punch in the air
+  dives; on touch the standard pad shows only while a mini-game is played. Seats 2-4 of a multi-person game use the other gamepads
+  in mini-games (without one, that seat is played by a CPU there).
+* **CPU difficulty** (Easy / Normal / Hard): on the board it changes fork choices, item use, shop reserve and duel targets; in
+  mini-games each game's bot policy changes reaction time, aim, timing (Goomba Stomp hops) and how readily it fights.
+* **Save**: `party.json` beside the other saves: games, wins, best Sunstones per board and the best score per mini-game as played by a
+  person. Test-hook runs never write it.
 
-Code (`native/src/experiments/party/`): `common.rs` (seeded RNG, bot `Level`, `PadIn`, the stage draw list, ranking),
-`minis/*.rs` (one engine-free module per mini-game behind the `MiniGame` trait: deterministic core, bot policy, scene; `Mini`
-catalogue and `Session` in `minis/mod.rs`), `board.rs` (the three boards as graphs with `Conditions` for bridge / wind / tide),
-`game.rs` + `game/` (turn flow, spaces, events, items, shop, Keeper, mini-game formats and rewards, awards, bots, headless
-autoplay), `app.rs` (state, experiment shell, save, hooks), `flow.rs` (UI commands, event animation queue, CPU turns, the mini-game
-runner), `view.rs` (board props, a pooled primitive stage for mini-games, the pieces, cameras), `ui.rs` (all screens on `bevy_ui`).
-`PartyApp` is a plain resource inserted on enter (no host field). The core is tested without the engine: every board reaches the end
-under autoplay for 10 / 12 / 15 rounds and 25 seeds, determinism by seed, Sunstones conserved between sales and bonuses, the 20-coin
-price and the Keeper moving, passing the Keeper, items, shop limits, die range and Slow Boots, mini-game formats from tints and
-their rewards, duels, the bridge flipping each round, wind shortcuts, the tide flooding the lowest ring, bonus awards and ties, bot
-fork choices; per mini-game: all 15 terminate under bot-vs-bot soak (12 seeds x 3 levels x 3 formats), are deterministic by seed,
-keep avatars on stage, an idle player never wins half the time, and Hard bots beat Easy ones.
+Code (`native/src/experiments/party/`): `common.rs` (seeded RNG, bot `Level`, `PadIn`, the stage draw list, ranking), `board.rs`,
+`game.rs` + `game/` (the board-game core, unchanged in spirit), `minis/` (`field.rs`: an arena sampled from the course floor and
+`Kin`, a kinematic stand-in for tests; `mod.rs`: the `MiniGame` contract, which reads the four `Body`s, returns `Drive`s for bots
+and asks for knockbacks / pick-ups / bounces, plus `Session`; one module per game), `sites.rs` (where every board and arena lies
+on the battlefield, sampled from its collision, with the scan tools that picked them), `app.rs`, `flow.rs`, `view.rs` (board props
+draped on the course, mini-game props with the real Goomba, Bob-omb and Power Star models, the pieces and the 30 Hz physics step of
+a mini-game: `step_session`), `ui.rs`.
+Tests: the board core as before (every board reaches the end under autoplay for 5 / 6 / 8 rounds and 25 seeds, determinism, the
+Sunstone economy, items, shop, formats, rewards, duels, gimmicks, awards); every mini-game's rules (coins and gold, the crown only
+scores alone, punches knock, falls are carried back, blasts cost hearts, the star is stolen by a punch but not straight back, stomps
+and chained stomps, bumps), every game terminates in every format and level, is deterministic, an idle player rarely wins, Hard bots
+beat Easy ones (kinematic soak); the boards fit the real battlefield and every arena is real floor at the right height; and
+`every_mini_game_plays_on_the_real_battlefield_with_mario_physics` plays all five on the real course with four full-physics Marios.
 Env hooks (runs using `_SEED`, `_SKIP`, `_AUTOPLAY`, `_SCRIPT` or `_START` never touch the saved records):
-`JUMPMAN_PARTY_BOARD=0|1|2` (start that board), `_MINIGAME=barrelhop|mash|echo|coins|bombs|pound|plank|lane|odd|bumper|crumble|draw|stack|stars|meter`
-(open its intro card for practice), `_SEED=<n>`, `_TURNS=10..15`, `_LEVEL=easy|normal|hard`, `_AUTOPLAY=1` (bots play every seat,
-including yours, with short animations), `_SKIP=<rounds>` (fast-forward with bots), `_START=title|minis|overview|results|shop|keeper|duel|branch|mini|miniresult`
-(`results` plays a whole bot game; the others fast-forward until you face that decision), `_REVEAL=<s>` (results reveal time),
-`_SCRIPT=1.0=roll,1.5=stop,4=choose.12,6=keeper.1,...` (UI commands at times: `roll stop choose.<space> keeper.<0|1> buy.<0-3> leave
-duel.<seat> item.<slot> target.<slot>.<seat> ack go again finish next overview tap tile.<n> back start board.<n> minis practice.<key>`),
-`_FAST=1`, `_HUMANS=<n>`, plus the global `JUMPMAN_WINDOW=874x402` for phone-sized screenshots.
-Balance (bots, no human): `cargo test --release --lib party -- --ignored --nocapture` prints both reports. Board games, 400 seeds
-of 12 rounds, four Normal CPUs: seat win rates 21-31% (fair share 25%); about 7.1 / 6.4 / 5.0 Sunstones are bought per game on
-Hourglass Keep / Cloudtop Isles / Cinder Crown, nearly every game sees four or more purchases; a Hard CPU against three Easy ones
-wins 96%. Mini-games, 120 seeds each: seat shares 14-35% (sampling noise is about 4 points; the four most uneven games re-checked at 600 seeds sit at 21-27% for every seat); a Hard
-bot beats three Easy ones 39-100% of the time (Shell Lane is the least skill-sensitive; Bomb Drizzle always ties among Normal CPUs that
-all survive, so only mistakes decide it).
-Not verified: real touch and gamepad input (the controls are driven through the same commands in scripted runs and by the mouse),
-audio by ear, and multi-person mini-games with more than one gamepad.
+`JUMPMAN_PARTY_BOARD=0|1|2`, `_MINIGAME=coins|crown|bombs|star|stomp` (open its intro card for practice), `_SEED=<n>`,
+`_TURNS=4..8`, `_LEVEL=easy|normal|hard`, `_AUTOPLAY=1` (bots play every seat, short board animations), `_SKIP=<rounds>`,
+`_START=title|minis|overview|results|shop|keeper|duel|branch|mini|miniresult`, `_REVEAL=<s>`, `_SCRIPT=...` (UI commands at times:
+`roll stop choose.<space> keeper.<0|1> buy.<0-3> leave duel.<seat> item.<slot> target.<slot>.<seat> ack go again finish next
+overview tap tile.<n> back start board.<n> minis practice.<key>`), `_FAST=1`, `_HUMANS=<n>`. `JUMPMAN_XP_LOG=<s>` prints the party's
+state (screen, round, Sunstones, coins, the running mini-game's clock, scores and the four Marios' positions).
+Balance (bots): `cargo test --release --lib party -- --ignored --nocapture`. Board games, 400 seeds of 6 rounds, four Normal CPUs:
+seat win rates 20-28%; 2.6 / 2.3 / 1.6 Sunstones are bought per game on Meadow Gates / Windy Hills / Bob-omb Flats (plus the three
+awards). Mini-games (kinematic, 80 seeds): seat shares 18-32%; a Hard bot beats three Easy ones 34% (Star Tag) to 100% (Goomba Stomp)
+of the time.
+Not verified: real touch and gamepad input in the mini-games (bots and scripted commands drive them), audio by ear, multi-person
+mini-games with more than one gamepad, and how the bots feel to a person (they were only watched in headless screenshots).
 
 ## Game controllers (iOS and macOS)
 

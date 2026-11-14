@@ -48,30 +48,32 @@ hub.
 
 **Courses.** 54 course ids in the catalogue (28 Mario, 26 Zelda); see [Courses](#courses).
 
-**Game modes.** The title screen and pause menu have a **MODES** tab with one card per mode. Tapping a
-card always starts the mode from a freshly loaded course. 17 modes exist
-(`native/src/experiments/mod.rs`); `native/README.md` has per-mode goals, controls and the tests that
-prove each is completable.
+**Game modes.** The hub has a **GAMES** wing and an **EXPERIMENTS** (lab) wing with one door per mode; tapping one always
+starts the mode from a freshly loaded course. 17 modes exist (`native/src/experiments/mod.rs`, `EXPERIMENT_IDS`); the menus list
+14 of them (`MENU_IDS`, in the order below: GAMES by the fun audits' ranking, `native/MINIGAMES_FUN.md` and `MINIGAMES_FUN_2.md`).
+`native/README.md` has per-mode goals, controls and the tests that prove each is completable.
 
-| Mode | Key | One line |
-| --- | --- | --- |
-| Across Dimensions | `dimensions` | Cycle the course between 3D, 2D side, top-down and 2.5D |
-| Mario vs. God | `god` | Move the world with the mouse while Mario keeps playing |
-| Endless Run | `runner` | Seeded auto-runner with daily seed and ghost |
-| A Hundred Marios | `hundred` | 25/50/100 full-physics Marios with five personalities |
-| Diorama | `diorama` | The course as a plastic toy case; poke the cast |
-| Summit Race | `race` | Race seven rivals up Bob-omb Battlefield |
-| Shrink Ray | `shrink` | Rescale the whole course around Mario |
-| Tiny Planet | `planet` | Spherical mini-world with core-pointing gravity |
-| Star Swarm | `swarm` | Survive-the-swarm with upgrades |
-| Mario Kart 64 | `kart` | Luigi Raceway free roam, items and a three-lap race with CPUs |
-| Last Star Standing | `laststar` | Forty Marios drop in, one survives |
-| Relic Descent | `relic` | Dungeon crawl ending at the Bomb King |
-| Hold the Gate | `gate` | Tower-defence around a castle gate |
-| Star Deck | `deck` | Deckbuilder roguelike built from Mario's moves |
-| The Painted Halls | `halls` | Metroidvania in Mario's moves |
-| Gem Clash | `brawl` | Original arena brawler: throwable props, gems, a timed power form, Versus and a boss Gauntlet |
-| Sunstone Shindig | `party` | Original four-player board party: three boards, 15 mini-games, CPU opponents |
+| Menu | Mode | Key | One line |
+| --- | --- | --- | --- |
+| GAMES | Gem Clash | `brawl` | Original arena brawler: throwable props, gems, a timed power form, Versus and a boss Gauntlet |
+| GAMES | Star Swarm | `swarm` | Survive-the-swarm with upgrades |
+| GAMES | Hold the Gate | `gate` | Tower-defence around the real castle gate |
+| GAMES | Star Deck | `stardeck` | Deckbuilder roguelike built from Mario's moves |
+| GAMES | Last Star Standing | `laststar` | Forty Marios drop in, one survives |
+| GAMES | Summit Race | `race` | Race seven rivals up Bob-omb Battlefield |
+| GAMES | Sunstone Shindig | `party` | Original four-player board party on the real Bob-omb Battlefield, with five physics mini-games on its real spots |
+| GAMES | Relic Descent | `relic` | Dungeon crawl ending at the Bomb King |
+| GAMES | Endless Run | `runner` | Seeded auto-runner with daily seed and ghost |
+| GAMES | Mario Kart 64 | `kart` | Luigi Raceway free roam, items and a three-lap race with CPUs |
+| EXPERIMENTS | Mario vs. God | `god` | Move the world with the mouse while Mario keeps playing |
+| EXPERIMENTS | Across Dimensions | `dimensions` | Cycle the course between 3D, 2D side, top-down and 2.5D |
+| EXPERIMENTS | A Hundred Marios | `hundred` | 25/50/100 full-physics Marios with five personalities |
+| EXPERIMENTS | Shrink Ray | `shrink` | Rescale the whole course around Mario |
+| hidden | The Painted Halls | `halls` | Metroidvania in Mario's moves (cut from the menus by the fun audit) |
+| hidden | Diorama | `diorama` | The course as a plastic toy case; poke the cast (cut) |
+| hidden | Tiny Planet | `planet` | Spherical mini-world with core-pointing gravity (cut) |
+
+Hidden modes keep their code, tests and hooks; only the menus skip them (`ExperimentId::listed`).
 
 Start a mode from the hub, from the in-game dock/`X` menu, or with
 `cargo run --release -- --experiment <key>` (also `JUMPMAN_EXPERIMENT=<key>`).

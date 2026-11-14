@@ -500,21 +500,27 @@ pub fn mini_physics_step(app: &mut PartyApp) -> bool {
     }
     let PartyApp { mini, pieces, cues, .. } = app;
     let run = mini.as_mut().unwrap();
-    let bodies: [Body; 4] = std::array::from_fn(|p| body_of(&pieces[p].mario.runtime));
     let human: [Drive; 4] = std::array::from_fn(|p| run.human_drive(p));
     for i in &mut run.inp {
         i.act = false;
         i.b = false;
     }
-    let drives = run.session.plan(&bodies, &human);
+    step_session(&mut run.session, pieces, &human, cues);
+    true
+}
+
+/// [`mini_physics_step`] without the app: one step of `session` on the four pieces' physics bodies.
+pub fn step_session(session: &mut Session, pieces: &mut [Piece], human: &[Drive; 4], cues: &mut Vec<(&'static str, [f64; 3])>) {
+    let bodies: [Body; 4] = std::array::from_fn(|p| body_of(&pieces[p].mario.runtime));
+    let drives = session.plan(&bodies, human);
     for p in 0..4 {
-        let shown = run.session.active[p] && !run.session.game.out(p);
+        let shown = session.active[p] && !session.game.out(p);
         pieces[p].hidden = !shown;
         let input = if shown { drive_input(&drives[p]) } else { DriveInput::default() };
         pieces[p].mario.drive(&input);
     }
     let after: [Body; 4] = std::array::from_fn(|p| body_of(&pieces[p].mario.runtime));
-    for ev in run.session.advance(&after, &drives) {
+    for ev in session.advance(&after, &drives) {
         match ev {
             MiniEv::Knock { p, from, power } => knock(&mut pieces[p].mario.runtime, from, power),
             MiniEv::Place { p, pos } => pieces[p].mario.teleport(pos, None),
@@ -525,7 +531,6 @@ pub fn mini_physics_step(app: &mut PartyApp) -> bool {
             MiniEv::Cue { kind, pos } => cues.push((kind, pos)),
         }
     }
-    true
 }
 
 pub fn drive_pieces(mut app: ResMut<PartyApp>) {
@@ -628,7 +633,14 @@ pub fn camera(mut app: ResMut<PartyApp>, mut cam: ResMut<CameraOverride>, time: 
                 let d = (14.5 / (tan_h * aspect)).max(26.0) * K;
                 (o + view(d * 0.8, d * 0.58), o + view(0.0, 0.6))
             } else {
-                let p = app.pieces.get(focus_p).map_or(o, |pc| to_bevy(pc.mario.pos()));
+                // The piece, unless it is still far from where it is going (just back from a mini-game, or warped).
+                let p = app.pieces.get(focus_p).map_or(o, |pc| {
+                    let pos = pc.mario.pos();
+                    match pc.target {
+                        Some(t) if pc.snap || hdist(pos, t) > 600.0 || (pos[1] - t[1]).abs() > 400.0 => to_bevy(t),
+                        _ => to_bevy(pos),
+                    }
+                });
                 let d = (11.5 / (tan_h * aspect)).max(17.0);
                 (p + view(d * 0.82, d * 0.57), p + view(0.3, -0.9))
             }
@@ -658,4 +670,62 @@ pub fn camera(mut app: ResMut<PartyApp>, mut cam: ResMut<CameraOverride>, time: 
     app.confetti = app.confetti.max(0.0);
     let s = 100.0;
     cam.pose = Some(CamPose { eye: DVec3::new((eye.x + jitter.x) as f64 * s, (eye.y + jitter.y) as f64 * s, eye.z as f64 * s), look: DVec3::new(look.x as f64 * s, look.y as f64 * s, look.z as f64 * s), up: DVec3::Y, fov: fov as f64, near: 20.0, far: 60000.0 });
+}
+
+#[cfg(test)]
+mod physics_tests {
+    use super::*;
+    use crate::game::world::{CourseRequest, LoadedCourse};
+    use std::sync::Arc;
+
+    /// Play one mini-game to the end on the real battlefield: four full-physics Marios (the app's own step), Normal bots.
+    fn play(course: &LoadedCourse, kind: Mini, seed: u64, levels: [Level; 4]) -> ([f32; 4], usize) {
+        let field = Arc::new(super::super::sites::sample_field(&course.world, kind));
+        let mut session = Session::new(kind, seed, [true; 4], [false; 4], levels, field);
+        let mut pieces: Vec<Piece> = (0..4)
+            .map(|p| {
+                let pos = session.game.start(p);
+                let spawn = jumpman_sim::mario_runtime::SpawnPoint { action: None, pos, face_yaw: 0.0 };
+                let mut m = CrowdMario::new(course.world.clone(), spawn, None);
+                m.runtime.reset_to_spawn();
+                Piece { mario: m, at: None, snap: false, jump_next: false, air_prev: false, target: None, hold_a: false, hidden: false, fx_t: 0.0 }
+            })
+            .collect();
+        let mut cues = vec![];
+        while !session.done() && session.steps < 30 * 60 {
+            step_session(&mut session, &mut pieces, &[Drive::default(); 4], &mut cues);
+        }
+        assert!(session.done(), "{kind:?} ended");
+        (session.game.scores(), cues.len())
+    }
+
+    /// Every mini-game plays out on the real course with real Mario physics: the bots score, the rules see real
+    /// collisions (coins taken, punches landed, blasts dodged and taken, stomps), and the same seed plays the same game.
+    #[test]
+    fn every_mini_game_plays_on_the_real_battlefield_with_mario_physics() {
+        let assets = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets");
+        if !assets.join("courses/bob.json").exists() {
+            return;
+        }
+        let course = LoadedCourse::load(&assets, CourseRequest::new("bob")).expect("course loads");
+        for kind in ALL_MINIS {
+            let (s, cues) = play(&course, kind, 7, [Level::Normal; 4]);
+            eprintln!("{kind:?}: scores {s:?}, {cues} cues");
+            let total: f32 = s.iter().sum();
+            let least = s.iter().cloned().fold(f32::MAX, f32::min);
+            let most = s.iter().cloned().fold(f32::MIN, f32::max);
+            assert!(cues > 3, "{kind:?}: nothing happened");
+            match kind {
+                Mini::CoinScramble => assert!(total >= 20.0, "coins taken: {total}"),
+                Mini::SummitCrown => assert!(total >= 5.0, "seconds held alone: {total}"),
+                // Someone took a blast: not everyone ends with the full clock and three hearts.
+                Mini::BombRain => assert!(least < bomb_rain::SECS + 6.0 - 0.5, "nobody was hit: {s:?}"),
+                Mini::StarTag => assert!(total >= 15.0, "seconds the star was held: {total}"),
+                Mini::GoombaStomp => assert!(total >= 8.0, "stomps: {total}"),
+            }
+            assert!(most > least, "{kind:?} is a dead heat: {s:?}");
+        }
+        // Deterministic by seed, physics included.
+        assert_eq!(play(&course, Mini::StarTag, 3, [Level::Normal; 4]), play(&course, Mini::StarTag, 3, [Level::Normal; 4]));
+    }
 }
