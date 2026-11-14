@@ -24,7 +24,8 @@ pub const BEAM_SLOTS: usize = 12;
 pub const WAVES: u32 = 15;
 pub const START_LIVES: i32 = 20;
 pub const START_COINS: u32 = 400;
-pub const FIRST_WAVE_SECS: u32 = 40;
+/// Build time before wave 1 marches (the first foe within 30 s of the start; it was 40 s, MINIGAMES_AUDIT_3.md).
+pub const FIRST_WAVE_SECS: u32 = 25;
 pub const INTERWAVE_SECS: u32 = 24;
 pub const SELL_PERCENT: u32 = 70;
 /// Hero rally radius and the overdrive a ground-pound near a tower grants.
@@ -2093,7 +2094,7 @@ mod tests {
         let c = g.coins;
         assert!(g.call_wave());
         assert_eq!(g.wave, 1);
-        assert_eq!(g.coins, c + 40 / 3);
+        assert_eq!(g.coins, c + FIRST_WAVE_SECS / 3);
         assert!(!g.call_wave(), "not while spawning");
     }
 
@@ -2383,5 +2384,108 @@ mod tests {
         }
         let per = start.elapsed().as_secs_f64() * 1000.0 / ticks as f64;
         assert!(per < 4.0, "tick cost {per} ms");
+    }
+
+    /// A stand-in for a player fighting beside the towers: runs (30 units a tick, about Mario's run) at the ground foe
+    /// closest to the gate, punches it when in reach and lands a ground pound every second and a half while fighting.
+    fn fighter(g: &Gate, h: &mut HeroFrame, t: u32) {
+        let target = g.enemies.iter().filter(|e| e.alive && !e.air).max_by(|a, b| a.off.total_cmp(&b.off)).map(|e| e.pos);
+        h.punch_started = false;
+        h.pound_land = false;
+        let Some(p) = target else { return };
+        let (dx, dy) = (p[0] - h.pos[0], p[1] - h.pos[1]);
+        let d = dx.hypot(dy);
+        if d > 110.0 {
+            let k = (30.0 / d).min(1.0) * (d - 100.0) / d.max(1.0);
+            h.pos = [h.pos[0] + dx * k.min(1.0), h.pos[1] + dy * k.min(1.0)];
+        }
+        h.face = dx.atan2(dy);
+        if d < 170.0 {
+            h.punch_started = t % 12 == 0;
+            h.pound_land = t % 45 == 0;
+        }
+    }
+
+    /// One builder run: the usual bot builds and calls waves early; `hero` adds the fighter. Returns the game, lives left
+    /// when wave 7 starts, ticks to the first foe, and how many of each tower kind stood at the end.
+    fn paced_run(seed: u64, map: usize, hero: bool) -> (Gate, i32, u32, [u32; 6], [u32; WAVES as usize + 1]) {
+        let mut g = Gate::new(seed, map);
+        let mut h = HeroFrame { pos: g.map.gate, ..Default::default() };
+        let (mut t, mut at7, mut first_foe) = (0u32, START_LIVES, 0u32);
+        let mut last_lives = START_LIVES;
+        let mut lost = [0u32; WAVES as usize + 1];
+        while !g.over() && t < 30 * 60 * 30 {
+            if t % 20 == 0 {
+                g.bot_step();
+            }
+            if t % 30 == 0 && !g.spawning && g.timer > 150 && g.alive_enemies == 0 && g.wave > 0 {
+                g.call_wave();
+            }
+            if hero {
+                fighter(&g, &mut h, t);
+            } else {
+                h = quiet();
+            }
+            g.tick(&h);
+            if first_foe == 0 && g.alive_enemies > 0 {
+                first_foe = t;
+            }
+            if g.wave < 7 {
+                at7 = g.lives;
+            }
+            if g.lives < last_lives {
+                lost[(g.wave as usize).min(WAVES as usize)] += (last_lives - g.lives) as u32;
+                last_lives = g.lives;
+            }
+            t += 1;
+        }
+        let mut kinds = [0u32; 6];
+        for tw in g.towers.iter().filter(|tw| tw.alive) {
+            kinds[ALL_TKINDS.iter().position(|k| *k == tw.kind).unwrap()] += 1;
+        }
+        (g, at7, first_foe, kinds, lost)
+    }
+
+    /// The research checklist for Hold the Gate (`MINIGAMES_RESEARCH.md` section 3), measured with the builder bot with and
+    /// without a fighting hero. `-- --nocapture` prints what `MINIGAMES_AUDIT_3.md` quotes.
+    #[test]
+    fn hold_the_gate_pace_report() {
+        assert!(FIRST_WAVE_SECS <= 30, "the first foe marches within 30 s");
+        for map in 0..MAPS.len() {
+            let mut kept = [0.0f32; 2];
+            for hero in [false, true] {
+                let (mut won, mut lives, mut lost_by7, mut first, mut secs) = (0, 0, 0, 0u32, 0u32);
+                let mut kinds = [0u32; 6];
+                let mut lost = [0u32; WAVES as usize + 1];
+                for seed in 1..=8u64 {
+                    let (g, at7, f, k, l) = paced_run(seed, map, hero);
+                    for w in 0..lost.len() {
+                        lost[w] += l[w];
+                    }
+                    won += (g.phase == Phase::Won) as i32;
+                    lives += g.lives.max(0);
+                    lost_by7 += (at7 < START_LIVES) as i32;
+                    first = first.max(f);
+                    secs += g.tick / TICKS_PER_SEC;
+                    for i in 0..6 {
+                        kinds[i] += k[i];
+                    }
+                }
+                eprintln!(
+                    "GATE map {map} {}: won {won}/8, avg lives left {:.1}, runs that lost a life before wave 7 {lost_by7}/8, first foe at most {:.0}s, avg run {:.1} min, towers standing by kind {:?} ({:?})",
+                    if hero { "builder+fighter" } else { "builder only   " },
+                    lives as f32 / 8.0,
+                    first as f32 / TICKS_PER_SEC as f32,
+                    secs as f32 / 8.0 / 60.0,
+                    kinds,
+                    ALL_TKINDS.map(|k| k.name()),
+                );
+                eprintln!("GATE map {map}   lives lost per wave (8 runs, index = wave): {lost:?}");
+                assert_eq!(won, 8, "map {map}: the builder bot wins with or without the hero");
+                kept[hero as usize] = lives as f32 / 8.0;
+            }
+            // Mario helps measurably (Orcs Must Die: the hero matters but the build wins).
+            assert!(kept[1] >= kept[0] + 3.0, "map {map}: the fighter keeps {} lives vs the builder's {}", kept[1], kept[0]);
+        }
     }
 }
