@@ -337,11 +337,14 @@ pub struct CameraOverride {
     pub fog: Option<(Color, f64, f64)>,
     /// Renderer clipping plane `(normal, constant)` in SM64 units; keeps `n . p + c >= 0`.
     pub clip: Option<(DVec3, f64)>,
+    /// Camera kick on the default follow camera: an offset along the view's right and up axes in SM64 units (a mode's
+    /// [`feel::Shake`] writes it each frame; modes with their own pose shake that pose instead).
+    pub shake: [f32; 2],
 }
 
 impl Default for CameraOverride {
     fn default() -> Self {
-        Self { pose: None, far_scale: 1.0, dof: None, fog: None, clip: None }
+        Self { pose: None, far_scale: 1.0, dof: None, fog: None, clip: None, shake: [0.0; 2] }
     }
 }
 
@@ -966,6 +969,7 @@ fn exit_experiment(slot: &mut ExperimentSlot, p: &mut XpParams) {
     }
     p.host().restore_mario_world();
     p.cam.pose = None;
+    p.cam.shake = [0.0; 2];
     p.cam.far_scale = 1.0;
     p.cam.fog = None;
     p.shell.player_visible = true;
@@ -1172,6 +1176,10 @@ pub fn apply_camera(
             p.fov = base.fov;
             p.near = base.near;
             p.far = base.far * cam.far_scale as f32;
+            if cam.shake != [0.0; 2] {
+                let d = tf.right() * cam.shake[0] * SCALE + tf.up() * cam.shake[1] * SCALE;
+                tf.translation += d;
+            }
         }
     }
     // Test hook: `JUMPMAN_CAMLOG=<file>` writes one CSV row per rendered frame: frame time, the
