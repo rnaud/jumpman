@@ -254,6 +254,36 @@ pub struct RelicDescentExperiment {
     queue_at: f64,
     /// Real floors: the camera's eased (pitch, distance).
     cam: (f64, f64),
+    /// Hitstop: real seconds the world stays frozen after a hit, a kill or a hurt (game feel).
+    hitstop: f64,
+    /// The scripted player (`JUMPMAN_RELIC_BOT`): where it stood and for how many steps it has not moved.
+    bot_last: [f32; 2],
+    bot_stuck: u32,
+}
+
+/// Hitstop for one tick's events, in seconds (the checklist: 2-6 frames at 30 Hz; a hit lands with a beat, a kill or a
+/// crit with two, a hurt with three, the boss with more).
+pub fn hitstop_for(ev: &Events) -> f64 {
+    let tick = 1.0 / TICKS_PER_SEC as f64;
+    if ev.boss_killed {
+        0.3
+    } else if ev.boss_phase.is_some() {
+        0.18
+    } else if ev.hurt {
+        3.0 * tick
+    } else if ev.kills > 0 || ev.crit {
+        2.0 * tick
+    } else if ev.hit > 0 {
+        tick
+    } else {
+        0.0
+    }
+}
+
+/// A toast may show at once only when no queued message (a floor's arrival lines) is still on screen; otherwise it
+/// waits its turn so the arrival is never cut short.
+pub fn toast_slot_free(queued: usize, t: f64, queue_at: f64) -> bool {
+    queued == 0 && t >= queue_at
 }
 
 fn rarity_hex(r: Rarity) -> u32 {
@@ -298,6 +328,9 @@ impl RelicDescentExperiment {
             queued: Default::default(),
             queue_at: 0.0,
             cam: (0.95, 1500.0),
+            hitstop: 0.0,
+            bot_last: [0.0; 2],
+            bot_stuck: 0,
         }
     }
 
@@ -654,6 +687,15 @@ impl RelicDescentExperiment {
         self.queued.push_back((text.to_string(), secs));
     }
 
+    /// An event message: at once when the screen is free, else after the queued ones (at most four wait).
+    fn say(&mut self, host: &mut Host, text: &str, secs: f32) {
+        if toast_slot_free(self.queued.len(), self.t, self.queue_at) {
+            host.toast(text, secs);
+        } else if self.queued.len() < 4 {
+            self.queue(text, secs);
+        }
+    }
+
     /// The next queued message once the one before has had its time.
     fn pump_toasts(&mut self, host: &mut Host) {
         if self.t >= self.queue_at {
@@ -731,9 +773,104 @@ impl RelicDescentExperiment {
         self.pump_toasts(host);
     }
 
+    /// `JUMPMAN_RELIC_BOT=1`: a scripted player on the real physics (headless soak runs and screenshots). It walks the
+    /// floor's tile path with the stick, fights whatever is awake (swinging, diving through telegraphed attacks, a
+    /// potion when low), spends points and equips upgrades, sweeps every room, then walks into the exit room, clears it
+    /// and stands in the golden light until the floor changes.
+    fn bot_step(&mut self, host: &mut Host, mut c: ControllerSnapshot) -> StepOverride {
+        let core = &mut self.core;
+        while core.tree.points > 0 {
+            let Some(n) = NODES.iter().copied().find(|n| core.tree.can_rank(*n)) else { break };
+            core.rank_up(n);
+        }
+        if let Some(id) = core.bag.iter().find(|it| it.power() > core.equipment.slots[core.equipment.target(it.slot)].map_or(0.0, |e| e.power()) + 0.5).map(|it| it.id) {
+            core.equip_from_bag(id);
+        }
+        let me = core.player.pos;
+        let dg = &core.dungeon;
+        // The nearest foe of a woken room, wherever it hangs back (the way down waits for the exit room's guards).
+        let foe = (0..ENEMY_SLOTS).filter(|i| core.enemies[*i].alive && core.rooms.get(core.enemies[*i].room as usize).is_some_and(|x| x.active)).min_by(|a, b| dist(core.enemies[*a].pos, me).total_cmp(&dist(core.enemies[*b].pos, me)));
+        let mut goal = None;
+        let mut stop = 60.0;
+        if let Some(i) = foe {
+            let e = core.enemies[i];
+            goal = Some(e.pos);
+            stop = e.radius + PLAYER_RADIUS + 40.0;
+            self.intent.attack = true;
+            if core.enemies.iter().any(|x| x.alive && x.winding_up() && dist(x.pos, me) < 380.0) && core.player.dodge_cd == 0 {
+                self.intent.dodge = true;
+            }
+            for s in SKILLS {
+                if dist(e.pos, me) < 320.0 && core.skill_ready(s) && (s != Skill::Aegis || core.player.hp < 0.6 * core.stats.max_hp) {
+                    self.intent.skill[s as usize] = true;
+                }
+            }
+        } else if let Some(d) = core.drops.iter().filter(|d| d.alive && !matches!(d.kind, DropKind::Potion) && dist(d.pos, me) < 700.0 && !dg.path(me, d.pos).is_empty()).min_by(|a, b| dist(a.pos, me).total_cmp(&dist(b.pos, me))) {
+            goal = Some(d.pos);
+            stop = 20.0;
+        } else {
+            // The nearest room not yet walked (the exit last), then the exit itself.
+            let next = (0..dg.rooms.len()).filter(|r| *r != dg.exit && !core.rooms[*r].visited).min_by(|a, b| dist(dg.rooms[*a].center(), me).total_cmp(&dist(dg.rooms[*b].center(), me)));
+            goal = Some(dg.rooms[next.unwrap_or(dg.exit)].center());
+            stop = 30.0;
+        }
+        self.intent.potion = core.player.hp < 0.4 * core.stats.max_hp && core.player.potions > 0;
+        let mut camera_yaw = None;
+        if let Some(g) = goal {
+            let path = dg.path(me, g);
+            let wp = path.iter().find(|w| dist(**w, me) > 45.0).copied().unwrap_or(g);
+            let face_to = if foe.is_some() && dist(g, me) < 500.0 { g } else { wp };
+            let heading = radians_to_angle((face_to[0] - me[0]).atan2(face_to[1] - me[1]) as f64) as f64;
+            let walk = dist(g, me) > stop;
+            // Pressed against a lip or a door frame: hop, and veer a little to either side.
+            if walk && dist(me, self.bot_last) < 2.0 {
+                self.bot_stuck += 1;
+            } else {
+                self.bot_stuck = 0;
+            }
+            self.bot_last = me;
+            let veer = match (self.bot_stuck / 20) % 4 {
+                0 => 0.0,
+                1 => 0.6,
+                2 => 0.0,
+                _ => -0.6,
+            };
+            if self.bot_stuck % 20 == 10 {
+                c.button_pressed |= A_BUTTON;
+                c.button_down |= A_BUTTON;
+            }
+            let toward = radians_to_angle((wp[0] - me[0]).atan2(wp[1] - me[1]) as f64 + veer) as f64;
+            camera_yaw = Some(to_s16(toward + 0x8000 as f64) as i32);
+            if walk {
+                c.stick_x = 0.0;
+                c.stick_y = 64.0;
+                c.stick_mag = 64.0;
+            } else {
+                c.stick_x = 0.0;
+                c.stick_y = 0.0;
+                c.stick_mag = 0.0;
+                host.sim.mario.face_angle[1] = heading;
+            }
+        }
+        let mario = &host.sim.mario;
+        let grounded = mario.action & ACT_FLAG_AIR == 0;
+        if self.intent.attack && self.core.player.atk_cd == 0 && grounded && mario.forward_vel < 24.0 {
+            c.button_pressed |= B_BUTTON;
+            c.button_down |= B_BUTTON;
+        }
+        if std::env::var_os("RELIC_BOT_DEBUG").is_some() && self.core.tick % 60 == 0 {
+            eprintln!("relic bot: tick {} me {:?} goal {:?} stick {} cam {:?} action {:x} vel {:.1}", self.core.tick, self.core.player.pos, goal, c.stick_mag, camera_yaw, mario.action, mario.forward_vel);
+        }
+        StepOverride { controller: Some(c), camera_yaw }
+    }
+
     /// One contextual lesson at a time, at least four seconds apart, on the first runs only.
     fn teach(&mut self, host: &mut Host) {
         if self.meta.victories > 0 || self.meta.best_floor >= 2 || self.t - self.lesson_at < 4.0 || self.core.over {
+            return;
+        }
+        // Never over a floor's arrival lines: the lesson waits until they have been read.
+        if !toast_slot_free(self.queued.len(), self.t, self.queue_at) {
             return;
         }
         let ev = self.core.ev;
@@ -790,9 +927,11 @@ impl RelicDescentExperiment {
         if self.core.dungeon.real.is_some() {
             let world = host.sim.mario.world.clone();
             let mut best = (0.95f64, 0.0f64);
-            for p in [0.95f64, 0.8, 0.66, 0.52, 0.4] {
+            // Higher first (looking down past the side walls of a corridor), then lower under a low ceiling.
+            let pitches: &[f64] = if env_flag("JUMPMAN_RELIC_CAM_OLD") { &[0.95, 0.8, 0.66, 0.52, 0.4] } else { &[0.95, 1.12, 1.28, 0.8, 0.66, 0.52, 0.4, 1.45] };
+            for &p in pitches {
                 let dir = DVec3::new(yaw.sin() * p.cos(), p.sin(), yaw.cos() * p.cos());
-                let t = crate::camera::rig::camera_ray(&world, focus, dir, 1500.0).map_or(1500.0, |t| (t - 80.0).max(220.0));
+                let t = crate::camera::rig::camera_ray(&world, focus, dir, 1500.0).map_or(1500.0, |t| (t - 60.0).max(if env_flag("JUMPMAN_RELIC_CAM_OLD") { 220.0 } else { 90.0 }));
                 if t > best.1 + 1.0 {
                     best = (p, t);
                 }
@@ -1177,7 +1316,7 @@ impl Experiment for RelicDescentExperiment {
     }
     /// The world stands still while the pack or skill page is open.
     fn time_scale(&self) -> f64 {
-        if self.core.freeze { 0.0 } else { 1.0 }
+        if self.core.freeze || self.hitstop > 0.0 { 0.0 } else { 1.0 }
     }
 
     fn enter(&mut self, host: &mut Host) {
@@ -1234,6 +1373,10 @@ impl Experiment for RelicDescentExperiment {
         if self.core.over {
             return StepOverride { controller: Some(ControllerSnapshot::default()), camera_yaw: None };
         }
+        // Frozen on a hit: keep the buttons pressed meanwhile for the first step after it.
+        if self.hitstop > 0.0 {
+            return StepOverride::default();
+        }
         let bits = self.pending | std::mem::take(&mut host.relic.edges);
         self.pending = 0;
         // Bag / tree / potion buttons are handled here as well (edges arrive from touch and pad).
@@ -1264,22 +1407,13 @@ impl Experiment for RelicDescentExperiment {
             c.button_down |= B_BUTTON;
         }
         if self.bot && !self.core.freeze {
-            // Walk at the nearest foe and keep swinging (screenshots and soak tests).
-            let me = self.core.player.pos;
-            let target = (0..ENEMY_SLOTS).filter(|i| self.core.enemies[*i].alive).min_by(|a, b| dist(self.core.enemies[*a].pos, me).partial_cmp(&dist(self.core.enemies[*b].pos, me)).unwrap()).map(|i| self.core.enemies[i].pos);
-            if let Some(t) = target {
-                let d = norm([t[0] - me[0], t[1] - me[1]]);
-                let step = if dist(t, me) > 230.0 { 22.0 } else { 0.0 };
-                host.shift_mario([d[0] as f64 * step, 0.0, d[1] as f64 * step]);
-                host.sim.mario.face_angle[1] = radians_to_angle(d[0].atan2(d[1]) as f64) as f64;
-                self.intent.attack = true;
-            }
+            return self.bot_step(host, c);
         }
         StepOverride { controller: Some(c), camera_yaw: None }
     }
 
     fn after_step(&mut self, host: &mut Host) {
-        if self.core.paused_for_ui() || self.core.over {
+        if self.core.paused_for_ui() || self.core.over || self.hitstop > 0.0 {
             return;
         }
         if self.god {
@@ -1341,6 +1475,9 @@ impl Experiment for RelicDescentExperiment {
         let ev = self.core.ev;
         let tick = self.core.tick;
         self.feel(host, mario_pos);
+        if !env_flag("JUMPMAN_RELIC_NO_HITSTOP") {
+            self.hitstop = self.hitstop.max(hitstop_for(&ev));
+        }
         // Physics requests from the core.
         if ev.want_dive {
             let m = &mut host.sim.mario;
@@ -1388,7 +1525,7 @@ impl Experiment for RelicDescentExperiment {
         if let Some(r) = ev.pickup_item {
             host.fx("star_sound", mario_pos);
             if r >= Rarity::Epic {
-                host.toast(&format!("{} FOUND!", r.name()), 1.6);
+                self.say(host, &format!("{} FOUND!", r.name()), 1.6);
             }
         }
         if ev.pickup_potion {
@@ -1399,26 +1536,28 @@ impl Experiment for RelicDescentExperiment {
         }
         if ev.level_up {
             host.fx("star_sound", mario_pos);
-            host.toast(&format!("LEVEL {}  -  SKILL POINT!", self.core.player.level), 1.8);
+            let lv = self.core.player.level;
+            self.say(host, &format!("LEVEL {lv}  -  SKILL POINT!"), 1.8);
         }
         if ev.auto_equipped {
-            host.toast("EQUIPPED A NEW ITEM", 1.4);
+            self.say(host, "EQUIPPED A NEW ITEM", 1.4);
         }
         if ev.chest {
             host.fx("star_sound", mario_pos);
-            host.toast("CHEST OPENED!", 1.6);
+            self.say(host, "CHEST OPENED!", 1.6);
         }
         if ev.room_cleared {
             let exit = self.core.dungeon.exit;
             let opened = self.core.dungeon.real.is_some() && !self.core.dungeon.boss_floor && self.core.rooms[exit].cleared && self.core.rooms[exit].active;
-            host.toast(if opened && self.core.room_at_player() == Some(exit) { "THE WAY DOWN IS OPEN" } else { "ROOM CLEARED" }, 1.4);
+            let text = if opened && self.core.room_at_player() == Some(exit) { "THE WAY DOWN IS OPEN" } else { "ROOM CLEARED" };
+            self.say(host, text, 1.4);
         }
         if ev.stairs_locked {
-            host.toast("BEAT THIS ROOM'S GUARDS TO OPEN THE WAY", 1.8);
+            self.say(host, "BEAT THIS ROOM'S GUARDS TO OPEN THE WAY", 1.8);
         }
         if ev.token {
             host.fx("star_sound", mario_pos);
-            host.toast("GOLD SKULLTULA TOKEN!", 1.6);
+            self.say(host, "GOLD SKULLTULA TOKEN!", 1.6);
         }
         if ev.reflected {
             host.fx("bonk", mario_pos);
@@ -1433,11 +1572,11 @@ impl Experiment for RelicDescentExperiment {
             host.toast("THE BOMB KING FALLS!", 2.4);
         }
         if ev.lastlight {
-            host.toast("SECOND CHANCE!", 2.0);
+            self.say(host, "SECOND CHANCE!", 2.0);
         }
         if ev.bag_full && self.t - self.bag_full_at > 3.0 {
             self.bag_full_at = self.t;
-            host.toast("PACK FULL - SELL SOMETHING", 1.6);
+            self.say(host, "PACK FULL - SELL SOMETHING", 1.6);
         }
         if ev.descended {
             self.enter_floor(host);
@@ -1450,6 +1589,7 @@ impl Experiment for RelicDescentExperiment {
 
     fn frame(&mut self, host: &mut Host, dt: f64) {
         self.t += dt;
+        self.hitstop = (self.hitstop - dt).max(0.0);
         self.pump_toasts(host);
         self.shake.update(dt as f32);
         self.hurt_pop.update(dt as f32, 3.2);
@@ -1513,6 +1653,33 @@ mod tests {
         assert_eq!(next_lesson(taught, late), Some(LESSON_SKILLS));
         assert_eq!(next_lesson(taught | LESSON_SKILLS, late), Some(LESSON_PACK));
         assert_eq!(next_lesson(0xff, crisis), None);
+    }
+
+    /// Hitstop (checklist 4): a hit freezes the world for a tick, a kill or crit for two, a hurt for three, the boss
+    /// for longer; nothing at all on a quiet tick.
+    #[test]
+    fn hits_freeze_the_world_for_a_beat_and_bigger_events_for_longer() {
+        let mut ev = Events::default();
+        assert_eq!(hitstop_for(&ev), 0.0);
+        ev.hit = 1;
+        let h = hitstop_for(&ev);
+        assert!(h > 0.0 && h <= 0.07, "{h}");
+        ev.kills = 1;
+        let k = hitstop_for(&ev);
+        assert!(k > h && k <= 0.2, "{k}");
+        ev.hurt = true;
+        assert!(hitstop_for(&ev) >= k && hitstop_for(&ev) <= 0.2);
+        ev.boss_killed = true;
+        assert!(hitstop_for(&ev) >= 0.25);
+    }
+
+    /// The arrival lines of a floor are never cut short: a lesson or an event message waits while one is queued or
+    /// still on screen (the skill-point lesson used to replace the floor's name).
+    #[test]
+    fn messages_wait_for_the_arrival_lines() {
+        assert!(toast_slot_free(0, 5.0, 4.0));
+        assert!(!toast_slot_free(1, 5.0, 4.0), "an arrival line is still queued");
+        assert!(!toast_slot_free(0, 3.0, 4.0), "the last arrival line is still on screen");
     }
 
     #[test]

@@ -16,6 +16,10 @@ use super::swarm_core::Rng;
 #[path = "relic_foes.rs"]
 mod foes;
 
+#[cfg(test)]
+#[path = "relic_audit_tests.rs"]
+mod audit_tests;
+
 pub const TICKS_PER_SEC: u32 = 30;
 pub const FLOORS: u32 = 3;
 pub const ENEMY_SLOTS: usize = 80;
@@ -534,6 +538,22 @@ pub fn plan_pack(rng: &mut Rng, floor: u32, kind: RoomKind, area_tiles: usize, o
     }
     n
 }
+
+/// Tame a planned pack into the run's first fight: at most [`WARM_UP_PACK`] foes, no elite modifier, the heavy and
+/// explosive kinds swapped for Scamps. Returns the new size.
+pub fn warm_up(pack: &mut [PackSlot; PACK_MAX], n: usize) -> usize {
+    let n = n.min(WARM_UP_PACK);
+    for slot in pack.iter_mut().take(n) {
+        slot.mods = 0;
+        if matches!(slot.kind, EnemyKind::Bruiser | EnemyKind::Sapper | EnemyKind::Bigbutt | EnemyKind::Seer | EnemyKind::Lancer) {
+            slot.kind = EnemyKind::Scamp;
+        }
+    }
+    n
+}
+
+/// Size of the warm-up pack (the first room woken on floor 1).
+pub const WARM_UP_PACK: usize = 5;
 
 // ---------------------------------------------------------------------------------------------
 // Entities other than enemies
@@ -1507,7 +1527,13 @@ impl Relic {
             return;
         }
         let mut pack = [PackSlot { kind: EnemyKind::Scamp, mods: 0 }; PACK_MAX];
-        let n = plan_pack(&mut rng, self.floor, room.kind, room.area, &mut pack);
+        let mut n = plan_pack(&mut rng, self.floor, room.kind, room.area, &mut pack);
+        // The run's first fight is a warm-up: the first room woken on floor 1 holds a small pack, no elite and no
+        // heavy hitter, so a new player who only swings and dodges now and then wins it (research checklist 1).
+        let first = self.floor == 1 && !self.rooms.iter().enumerate().any(|(j, x)| j != r && j != self.dungeon.start && x.active);
+        if first {
+            n = warm_up(&mut pack, n);
+        }
         let me = self.player.pos;
         let c = room.center();
         let (m, h) = (room.mid, room.half());
@@ -1900,7 +1926,13 @@ impl Relic {
                 e.stun -= 1;
                 continue;
             }
+            let before = e.state;
             self.ai(i, me);
+            // Elites telegraph a third longer than their plain kin (the checklist: elites and the boss read slower).
+            let e = &mut self.enemies[i];
+            if e.alive && e.is_elite() && e.state == EState::Windup && before != EState::Windup {
+                e.timer += e.timer / 3;
+            }
         }
         // Soft separation so packs do not stack on one point.
         for i in 0..ENEMY_SLOTS {
@@ -1956,15 +1988,7 @@ impl Relic {
         let dir = [to[0] / d, to[1] / d];
         let reach = e.radius + PLAYER_RADIUS + 25.0;
         match e.kind {
-            EnemyKind::Scamp => {
-                if d > reach * 0.8 {
-                    self.step_enemy(i, dir, e.speed);
-                }
-                if d < reach && e.cd == 0 {
-                    self.melee_hit(i);
-                    self.enemies[i].cd = 34;
-                }
-            }
+            EnemyKind::Scamp => self.bite(i, dir, d, 34),
             EnemyKind::Bruiser => match e.state {
                 EState::Chase => {
                     self.step_enemy(i, dir, e.speed);
@@ -2065,7 +2089,7 @@ impl Relic {
                     } else if e.cd == 0 && d < 1500.0 {
                         let en = &mut self.enemies[i];
                         en.state = EState::Windup;
-                        en.timer = 9;
+                        en.timer = foes::MIN_WINDUP;
                     }
                 } else if e.cd == 0 {
                     let near_minions = self.enemies.iter().filter(|m| m.alive && m.room == e.room && m.kind == EnemyKind::Scamp).count();
@@ -2128,7 +2152,7 @@ impl Relic {
                     en.dir = dir;
                     if e.phase >= 2 && roll < 30 {
                         en.state = EState::Windup;
-                        en.timer = 20;
+                        en.timer = 24;
                         en.phase = e.phase; // keep
                         en.struck = true; // charge flag
                     } else if e.phase >= 1 && roll < 55 {
@@ -2145,10 +2169,10 @@ impl Relic {
                         en.timer = 38;
                         en.struck = false;
                     } else {
-                        self.add_hazard(e.pos, 460.0, 26, e.dmg);
+                        self.add_hazard(e.pos, 460.0, 30, e.dmg);
                         let en = &mut self.enemies[i];
                         en.state = EState::Windup;
-                        en.timer = 26;
+                        en.timer = 30;
                         en.struck = false;
                     }
                 }
@@ -2774,51 +2798,50 @@ mod tests {
 
     /// Tile-grid breadth-first path (waypoints are tile centres) between two floor points.
     fn bot_path(d: &Dungeon, from: [f32; 2], to: [f32; 2]) -> Vec<[f32; 2]> {
-        let (sx, sy) = d.tile_of(from);
-        let (tx, ty) = d.tile_of(to);
-        let w = d.w;
-        let idx = |x: i32, y: i32| y as usize * w + x as usize;
-        let mut prev = vec![usize::MAX; d.w * d.h];
-        let mut queue = std::collections::VecDeque::new();
-        prev[idx(sx, sy)] = idx(sx, sy);
-        queue.push_back((sx, sy));
-        while let Some((x, y)) = queue.pop_front() {
-            if (x, y) == (tx, ty) {
-                break;
-            }
-            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
-                let (nx, ny) = (x + dx, y + dy);
-                if d.is_floor_tile(nx, ny) && prev[idx(nx, ny)] == usize::MAX {
-                    prev[idx(nx, ny)] = idx(x, y);
-                    queue.push_back((nx, ny));
-                }
-            }
-        }
-        let mut out = vec![];
-        let mut cur = idx(tx, ty);
-        if prev[cur] == usize::MAX {
-            return out;
-        }
-        while cur != idx(sx, sy) {
-            out.push(d.tile_center((cur % w) as i32, (cur / w) as i32));
-            cur = prev[cur];
-        }
-        out.reverse();
-        out
+        d.path(from, to)
     }
 
     #[derive(Debug, Default)]
-    struct RunLog {
-        ticks: u32,
-        floors_seen: u32,
-        potions_used: u32,
-        stuck_ticks: u32,
+    pub(super) struct RunLog {
+        pub ticks: u32,
+        pub floors_seen: u32,
+        pub potions_used: u32,
+        pub stuck_ticks: u32,
+        /// Tick an item first dropped (any rarity), first Rare-or-better drop, first level-up (a skill point).
+        pub first_item: Option<u32>,
+        pub first_rare: Option<u32>,
+        pub first_point: Option<u32>,
+        /// Tick each floor was left (stairs) or the run ended.
+        pub floor_ends: Vec<u32>,
+        /// Tick the first room (other than the start) was cleared.
+        pub first_clear: Option<u32>,
+        pub hits_taken: u32,
+        pub dodges: u32,
     }
+
+    /// How the scripted player plays: `dodge_every` = dodge one telegraph in N (1 = every one, 0 = never),
+    /// skills and potions on or off.
+    #[derive(Clone, Copy, Debug)]
+    pub(super) struct BotStyle {
+        pub dodge_every: u32,
+        pub skills: bool,
+        pub potions: bool,
+        /// Stop once the first room is cleared (first-fight checks).
+        pub stop_after_first_clear: bool,
+    }
+
+    pub(super) const EXPERT: BotStyle = BotStyle { dodge_every: 1, skills: true, potions: true, stop_after_first_clear: false };
 
     /// Play a whole run: clear every room, grab loot, spend skill points, equip upgrades, take
     /// the stairs, kill the Bomb King. `speed` is units per tick (Mario runs ~30 on the real physics).
-    fn play_run(r: &mut Relic, max_ticks: u32, speed: f32) -> RunLog {
+    pub(super) fn play_run(r: &mut Relic, max_ticks: u32, speed: f32) -> RunLog {
+        play_run_as(r, max_ticks, speed, EXPERT)
+    }
+
+    pub(super) fn play_run_as(r: &mut Relic, max_ticks: u32, speed: f32, style: BotStyle) -> RunLog {
         let mut log = RunLog { floors_seen: 1, ..Default::default() };
+        let mut seen_windup = vec![false; ENEMY_SLOTS];
+        let mut windups = 0u32;
         let mut floor = r.floor;
         let mut visit: Vec<usize> = vec![];
         let mut last_pos = r.player.pos;
@@ -2829,6 +2852,9 @@ mod tests {
         for _ in 0..max_ticks {
             if r.over {
                 break;
+            }
+            if r.floor != floor {
+                log.floor_ends.push(log.ticks);
             }
             if r.floor != floor || visit.is_empty() && log.ticks == 0 {
                 floor = r.floor;
@@ -2841,6 +2867,12 @@ mod tests {
                 rooms.sort_by(|a, b| dist(r.dungeon.rooms[*a].center(), c).partial_cmp(&dist(r.dungeon.rooms[*b].center(), c)).unwrap());
                 rooms.push(exit);
                 visit = rooms;
+            }
+            if log.first_clear.is_none() && (0..r.rooms.len()).any(|i| i != r.dungeon.start && r.rooms[i].cleared && r.rooms[i].visited) {
+                log.first_clear = Some(log.ticks);
+                if style.stop_after_first_clear {
+                    break;
+                }
             }
             // Spend points, equip upgrades.
             while r.tree.points > 0 {
@@ -2855,18 +2887,31 @@ mod tests {
                 r.sell_up_to(Rarity::Rare);
             }
             let me = r.player.pos;
-            let mut intent = Intent { attack: true, potion: r.player.hp < 0.4 * r.stats.max_hp && r.player.potions > 0, ..Default::default() };
-            let foe = r.nearest_enemy(me, 650.0);
+            let mut intent = Intent { attack: true, potion: style.potions && r.player.hp < 0.4 * r.stats.max_hp && r.player.potions > 0, ..Default::default() };
+            // The nearest foe close by; else any awake one left in a woken room, wherever it hangs back (a ranged foe
+            // keeping its distance, a plant rooted in a far corner of the exit room) - the way down waits for them.
+            let foe = r.nearest_enemy(me, 650.0).or_else(|| (0..ENEMY_SLOTS).filter(|i| r.enemies[*i].alive && r.rooms.get(r.enemies[*i].room as usize).is_some_and(|x| x.active)).min_by(|a, b| dist(r.enemies[*a].pos, me).total_cmp(&dist(r.enemies[*b].pos, me))));
             let mut goal: Option<[f32; 2]> = None;
             let mut stop_at = 40.0;
             if let Some(i) = foe {
                 let e = r.enemies[i];
                 goal = Some(e.pos);
                 stop_at = if e.kind == EnemyKind::King { 150.0 } else { 110.0 };
-                if e.winding_up() && dist(e.pos, me) < 380.0 {
+                // Count each telegraph once; dodge one in `dodge_every`.
+                for (k, en) in r.enemies.iter().enumerate() {
+                    let w = en.alive && en.winding_up() && dist(en.pos, me) < 380.0;
+                    if w && !seen_windup[k] {
+                        windups += 1;
+                        if style.dodge_every > 0 && windups % style.dodge_every == 0 {
+                            intent.dodge = true;
+                        }
+                    }
+                    seen_windup[k] = w;
+                }
+                if style.dodge_every == 1 && e.winding_up() && dist(e.pos, me) < 380.0 {
                     intent.dodge = true;
                 }
-                let near = dist(e.pos, me) < 320.0;
+                let near = style.skills && dist(e.pos, me) < 320.0;
                 for s in SKILLS {
                     if near && r.skill_ready(s) && (s != Skill::Aegis || r.player.hp < 0.6 * r.stats.max_hp) {
                         intent.skill[s as usize] = true;
@@ -2894,15 +2939,22 @@ mod tests {
             let mut pos = me;
             let mut face = r.player.face;
             if let Some(g) = goal {
+                // Walk the tile path centre to centre (a real floor has one-tile corridors and staircase bends the
+                // hero's circle only clears from a tile centre).
                 let path = bot_path(&r.dungeon, me, g);
-                let wp = path.iter().find(|w| dist(**w, me) > 90.0).copied().unwrap_or(g);
+                let wp = path.iter().find(|w| dist(**w, me) > 6.0).copied().unwrap_or(g);
                 let d = norm([wp[0] - me[0], wp[1] - me[1]]);
                 // Face the real target even while the path bends, so swings land.
                 let t = if foe.is_some() && dist(g, me) < 650.0 { g } else { wp };
                 face = (t[0] - me[0]).atan2(t[1] - me[1]);
                 if dist(g, me) > stop_at {
-                    // Slide along walls; if a corner still blocks, try each axis on its own.
-                    for step in [[d[0] * speed, d[1] * speed], [d[0].signum() * speed, 0.0], [0.0, d[1].signum() * speed]] {
+                    let len = speed.min(dist(wp, me).max(1.0));
+                    let (tx, ty) = r.dungeon.tile_of(me);
+                    let home = r.dungeon.tile_center(tx, ty);
+                    let h = norm([home[0] - me[0], home[1] - me[1]]);
+                    let hl = speed.min(dist(home, me));
+                    // Slide along walls; if a corner still blocks, try each axis on its own, then re-centre on the tile.
+                    for step in [[d[0] * len, d[1] * len], [d[0].signum() * len, 0.0], [0.0, d[1].signum() * len], [h[0] * hl, h[1] * hl]] {
                         let q = r.dungeon.slide(me, step, 45.0);
                         if dist(q, me) > 1.0 {
                             pos = q;
@@ -2916,6 +2968,10 @@ mod tests {
             } else {
                 still = 0;
             }
+            if still == 600 && std::env::var_os("RELIC_BOT_DEBUG").is_some() {
+                let foes: Vec<_> = r.enemies.iter().filter(|e| e.alive).map(|e| (e.kind, e.state, e.room, e.pos.map(|v| v as i32), dist(e.pos, me) as i32)).collect();
+                eprintln!("STUCK floor {} at {:?} goal {:?} room {:?} exit {} rooms {:?} foes {:?}", r.floor, me, goal, r.room_at_player(), r.dungeon.exit, r.rooms.iter().map(|x| (x.visited, x.cleared)).collect::<Vec<_>>(), foes);
+            }
             log.stuck_ticks = log.stuck_ticks.max(still);
             last_pos = pos;
             let pots = r.player.potions;
@@ -2923,8 +2979,20 @@ mod tests {
             if r.player.potions < pots {
                 log.potions_used += 1;
             }
+            if let Some(rar) = r.ev.drop_rarity {
+                log.first_item.get_or_insert(log.ticks);
+                if rar >= Rarity::Rare {
+                    log.first_rare.get_or_insert(log.ticks);
+                }
+            }
+            if r.ev.level_up {
+                log.first_point.get_or_insert(log.ticks);
+            }
+            log.hits_taken += r.ev.hurt as u32;
+            log.dodges += r.ev.dodge_start as u32;
             log.ticks += 1;
         }
+        log.floor_ends.push(log.ticks);
         log
     }
 

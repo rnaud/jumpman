@@ -1207,6 +1207,45 @@ mod tests {
         assert!(RUNG_PARS.iter().skip(1).all(|p| p[0] <= p[1] && p[1] <= p[2]));
     }
 
+    /// Checklist "gold par is reachable" (`MINIGAMES_AUDIT_3B.md`): the real spring bounce (triple jump at 96 u/f, as
+    /// `after_step` launches it) is measured on the physics, then the cheapest stack that puts Mario's feet in the
+    /// star's reach is counted for every rung: `n` stone blocks (240 high) with a spring on top, plus one ground
+    /// spring to bounce up onto the stack when it is taller than a jump. Every gold par must afford its stack.
+    #[test]
+    fn gold_pars_afford_a_spring_stack_that_reaches_each_star() {
+        use jumpman_sim::mario_runtime::MarioRuntime;
+        let mut world = CollisionWorld::default();
+        world.add_quad([-6000., 0., -6000.], [-6000., 0., 6000.], [6000., 0., 6000.], [6000., 0., -6000.], &SurfaceOptions::default());
+        world.finalize();
+        let mut m = MarioRuntime::new(Arc::new(world), jumpman_sim::mario_runtime::SpawnPoint { action: None, pos: [0.0; 3], face_yaw: 0.0 }, -1600.0);
+        for _ in 0..10 {
+            m.step(&ControllerSnapshot::default(), 0.0, false, false);
+        }
+        m.set_action(ACT_TRIPLE_JUMP, 0.0);
+        m.vel[1] = 96.0;
+        let mut apex = 0.0f64;
+        for _ in 0..90 {
+            m.step(&ControllerSnapshot::default(), 0.0, false, false);
+            apex = apex.max(m.pos[1]);
+        }
+        // A plain single jump for comparison (can Mario hop onto a block without a spring?).
+        let block = 240.0;
+        let spring = 44.0;
+        let mut cost = vec![];
+        for k in 1..LADDER {
+            // Feet must reach star - 60 - 130 (see `star_reached`).
+            let need = RUNG_HEIGHT[k] - 190.0;
+            let n = (0..6).find(|n| *n as f64 * block + spring + apex >= need).expect("some stack reaches");
+            let pieces = n as u32 + 1 + if n > 0 { 1 } else { 0 };
+            eprintln!("GOD rung {k}: star {} up, spring apex {apex:.0}, cheapest stack {n} blocks + spring{} = {pieces} pieces, gold par {}", RUNG_HEIGHT[k], if n > 0 { " + ground spring" } else { "" }, RUNG_PARS[k][0]);
+            cost.push((k, pieces));
+        }
+        assert!(apex > 900.0, "spring apex {apex}");
+        for (k, pieces) in cost {
+            assert!(pieces <= RUNG_PARS[k][0], "rung {k}: gold par {} but the cheapest stack needs {pieces}", RUNG_PARS[k][0]);
+        }
+    }
+
     #[test]
     fn star_reach_test_is_local() {
         let star = [100.0, 800.0, 100.0];

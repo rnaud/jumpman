@@ -202,6 +202,44 @@ impl Dungeon {
         let m = (-margin).max(0.0);
         m == 0.0 || [[m, 0.0], [-m, 0.0], [0.0, m], [0.0, -m]].iter().all(|o| matches!(self.zone_at([p[0] + o[0], p[1] + o[1]]), z if z == r as u8 || z == NO_ZONE))
     }
+    /// Breadth-first path over floor tiles (4-neighbour, the walk the foes use) from one point to another: the tile
+    /// centres to walk through, the start tile excluded. Empty when the goal is unreachable or the same tile.
+    pub fn path(&self, from: [f32; 2], to: [f32; 2]) -> Vec<[f32; 2]> {
+        let (sx, sy) = self.tile_of(from);
+        let (tx, ty) = self.tile_of(to);
+        if !self.is_floor_tile(sx, sy) || !self.is_floor_tile(tx, ty) {
+            return vec![];
+        }
+        let w = self.w;
+        let idx = |x: i32, y: i32| y as usize * w + x as usize;
+        let mut prev = vec![usize::MAX; self.w * self.h];
+        let mut queue = std::collections::VecDeque::new();
+        prev[idx(sx, sy)] = idx(sx, sy);
+        queue.push_back((sx, sy));
+        while let Some((x, y)) = queue.pop_front() {
+            if (x, y) == (tx, ty) {
+                break;
+            }
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                let (nx, ny) = (x + dx, y + dy);
+                if self.is_floor_tile(nx, ny) && prev[idx(nx, ny)] == usize::MAX {
+                    prev[idx(nx, ny)] = idx(x, y);
+                    queue.push_back((nx, ny));
+                }
+            }
+        }
+        let mut out = vec![];
+        let mut cur = idx(tx, ty);
+        if prev[cur] == usize::MAX {
+            return out;
+        }
+        while cur != idx(sx, sy) {
+            out.push(self.tile_center((cur % w) as i32, (cur / w) as i32));
+            cur = prev[cur];
+        }
+        out.reverse();
+        out
+    }
     /// A circle fits when its four extreme points are on floor.
     pub fn circle_free(&self, p: [f32; 2], r: f32) -> bool {
         self.walkable([p[0] - r, p[1] - r]) && self.walkable([p[0] + r, p[1] - r]) && self.walkable([p[0] - r, p[1] + r]) && self.walkable([p[0] + r, p[1] + r])
