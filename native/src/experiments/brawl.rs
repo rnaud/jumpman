@@ -1528,6 +1528,18 @@ impl GemClashExperiment {
         }
         let fwd = Vec3::new(-yaw.sin() * self.cam_pitch.cos(), -self.cam_pitch.sin(), -yaw.cos() * self.cam_pitch.cos());
         let eye = self.cam_focus - fwd * self.cam_dist;
+        // For hiding the trees and bushes in the line of sight (brawl_view::hide_scenery).
+        host.brawl.cam_eye = (eye + o) * crate::render::SCALE;
+        host.brawl.cam_targets.clear();
+        if !menu {
+            for i in 0..c.n {
+                let f = &c.f[i];
+                if f.alive {
+                    let p = mix3(self.snap.f[i], f.pos, a);
+                    host.brawl.cam_targets.push(bv(p + Vec3::Y * 80.0 * f.size.min(2.0)));
+                }
+            }
+        }
         let mut pose = CamPose { eye: d(eye + o), look: d(self.cam_focus + o), up: DVec3::Y, fov: fov.to_degrees() as f64, near: 30.0, far: 40000.0 };
         if !menu {
             self.shake.apply(&mut pose, self.cam_dist as f64 * 0.014);

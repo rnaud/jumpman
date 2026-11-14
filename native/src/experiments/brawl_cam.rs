@@ -64,9 +64,42 @@ pub fn eye_of(focus: [f64; 3], yaw: f32, pitch: f32, dist: f32) -> [f64; 3] {
     [focus[0] + yaw.sin() * pitch.cos() * dist, focus[1] + pitch.sin() * dist, focus[2] + yaw.cos() * pitch.cos() * dist]
 }
 
+/// Does a piece of scenery with no collision (a tree, a bush: a vertical capsule standing at `base`, `height` tall and `radius`
+/// wide) hide the point `target` from `eye`? All in the same units. The stretch of the line next to the target (its last 6 %) does
+/// not count, so a fighter standing in a bush does not hide the bush.
+pub fn scenery_hides(eye: [f32; 3], target: [f32; 3], base: [f32; 3], height: f32, radius: f32) -> bool {
+    let d = [target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]];
+    let len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+    if len2 < 1e-6 {
+        return false;
+    }
+    // Closest approach of the line to the capsule axis, sampled along the axis.
+    for k in 0..=4 {
+        let p = [base[0], base[1] + height * k as f32 / 4.0, base[2]];
+        let t = ((p[0] - eye[0]) * d[0] + (p[1] - eye[1]) * d[1] + (p[2] - eye[2]) * d[2]) / len2;
+        if !(0.02..=0.94).contains(&t) {
+            continue;
+        }
+        let q = [eye[0] + d[0] * t - p[0], eye[1] + d[1] * t - p[1], eye[2] + d[2] * t - p[2]];
+        if q[0] * q[0] + q[1] * q[1] + q[2] * q[2] < radius * radius {
+            return true;
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tree_between_the_eye_and_a_fighter_hides_them_and_one_beside_does_not() {
+        let (eye, fighter) = ([0.0, 1200.0, 2500.0], [0.0, 90.0, 0.0]);
+        assert!(scenery_hides(eye, fighter, [0.0, 0.0, 900.0], 600.0, 160.0), "right in the line");
+        assert!(!scenery_hides(eye, fighter, [700.0, 0.0, 900.0], 600.0, 160.0), "off to the side");
+        assert!(!scenery_hides(eye, fighter, [0.0, 0.0, -600.0], 600.0, 160.0), "behind the fighter");
+        assert!(!scenery_hides(eye, fighter, [0.0, 0.0, 60.0], 120.0, 160.0), "the bush the fighter stands in");
+    }
     use jumpman_sim::collision::SurfaceOptions;
 
     fn floor(w: &mut CollisionWorld, y: f64) {
