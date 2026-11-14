@@ -21,7 +21,7 @@ that play in made-up arenas instead of the real game levels.
 | Star Deck | Balanced deckbuilder on a plank platform in a void | Fights on a level patch of the real castle lawn | Yes (new) | Keep |
 | Last Star Standing | Battle royale on real BoB, nearly nothing happened for 2 minutes | ~4 min matches, eliminations from minute one (Easy no longer slows bot fights), streak and final-field calls | Yes | Keep |
 | Summit Race | Rivals stuck or warping; a lone rival needed 4 minutes | A real race: Pro field finishes in 60-78 s, classes, splits, unlocks | Yes | Keep |
-| Relic Descent | Deep ARPG in procedural box dungeons, harsh first minutes | Contextual first-run lessons | No (argued below) | Keep, port later |
+| Relic Descent | Deep ARPG in procedural box dungeons, harsh first minutes | Contextual first-run lessons; floors in real OoT dungeons (follow-up) | Yes (follow-up) | Keep |
 | Sunstone Shindig | Wide board-party mode, mostly tap/tile minigames on flat slabs | Unchanged | No | Rebuild or cut |
 | The Painted Halls | 16-room metroidvania in box rooms | Unchanged | No | Cut |
 
@@ -188,7 +188,31 @@ potion button, the first skill point and the first item point at the tree and th
 four seconds apart, with the right prompt for keyboard, touch or pad, and veterans (a win, or floor 2 reached)
 never see them.
 
-**Open.** The real-dungeon port; a gentler first room on floor 1; the demo bot does not explore.
+**Open.** A gentler first room on floor 1; the demo bot does not explore.
+
+**Follow-up: real dungeons (`relic_real.rs`).** The floors now play in Ocarina of Time's own dungeons, from the player's
+ROM import. A run draws one site per floor from the seed: floor 1 in the Deku Tree (the great hollow, the roots below,
+the lower halls), floor 2 in Dodongo's Cavern, Jabu-Jabu's Belly or the Forest Temple (two sites each), floor 3 in a boss
+lair (Gohma, King Dodongo, Barinade, Phantom Ganon) where the Bomb King waits. A site is an entrance plus a cap on the
+scene rooms it takes in; a flood fill over a 110-unit grid on the scene's real collision keeps every standable,
+walkable spot (slopes, steps of 70, wall clearance, head room, no wall across a step), groups the tiles into the
+scene's own rooms (`roomBounds`; slivers merged, giants halved, 2-8 rooms), puts the exit in the room farthest in
+doors and the treasure in a dead end. The rules keep their tile seam (`Dungeon` now carries its size, tile, origin,
+per-tile heights and rooms), so packs, chests, knockback, shots and the minimap work unchanged; foes and drops stand
+at the floor height of their tile. Mario walks the scene's real collision inside an invisible fence along the edge
+of the flood fill (closed doors stay closed), the scene's real model is drawn, and the camera drops lower and closer
+under the ceilings (rays against the collision). On a real floor the golden light opens only once the exit room's
+guards are beaten (a real exit room can sit close to the entrance). Arrival toasts name the place and the goal; the
+first-run lessons are unchanged. Without the import (or with `JUMPMAN_RELIC_PROCEDURAL=1`) the generated floors come
+back with a toast saying why. `JUMPMAN_RELIC_SITES=deku_hollow,forest_cellar,phantom_lair` forces the sites.
+
+Tests: every site builds on the imported data, is connected along the foes' tile walk, has open room centres and at
+least 20 of 400 sampled spawn spots per room on its own floor, puts the exit and the boss in reachable rooms and builds
+the same twice; a run plan is deterministic per seed; toy scenes check ramps, pits, sealed rooms, the room cap, the
+fence and the exit lock with the rules running on a built floor. Not verified: a human playthrough of every site, and
+Mario's own reach (the flood fill approximates it; the fence keeps him on the plan). Floor sizes run from 434 to 2205
+tiles (King Dodongo's lair has two rooms, Gohma's five); some sites are one big scene room halved, since many doors are
+walls in the static collision.
 
 ## Sunstone Shindig (`party/`)
 

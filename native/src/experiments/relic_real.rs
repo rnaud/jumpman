@@ -80,7 +80,7 @@ pub struct Site {
 /// The hand-picked entrances, checked by the tests below (every one builds, is connected and has room for its fights).
 pub const SITES: &[Site] = &[
     // ---- floor 1: the Deku Tree ----
-    Site { key: "deku_hollow", title: "DEKU TREE - THE GREAT HOLLOW", course: "deku_tree", area: 1, start: [5029.0, 60.0, 5324.0], reach: 4400.0, rooms: 2, tier: 1 },
+    Site { key: "deku_hollow", title: "DEKU TREE - THE GREAT HOLLOW", course: "deku_tree", area: 1, start: [4728.0, 60.0, 3364.0], reach: 4400.0, rooms: 2, tier: 1 },
     Site { key: "deku_basement", title: "DEKU TREE - THE ROOTS BELOW", course: "deku_tree", area: 1, start: [-345.0, -3548.0, 2633.0], reach: 5400.0, rooms: 3, tier: 1 },
     Site { key: "deku_halls", title: "DEKU TREE - THE LOWER HALLS", course: "deku_tree", area: 1, start: [2308.0, -3548.0, 1406.0], reach: 5400.0, rooms: 3, tier: 1 },
     // ---- floor 2: Dodongo's Cavern, Jabu-Jabu's Belly, the Forest Temple ----
@@ -767,6 +767,40 @@ mod tests {
         // The ramp is walked: its top terrace is on the plan, at its own height.
         let up = d.plane([8890.0, 0.0, 1000.0]);
         assert!(d.walkable(up) && (d.height_at(up) - 240.0).abs() <= 40.0, "terrace at {}", d.height_at(up));
+    }
+
+    /// The rules run on a built floor: walking into the exit room wakes its pack on its own open floor, the way down
+    /// stays shut until that pack is beaten, then the next planned floor (not a generated one) follows.
+    #[test]
+    fn a_real_floor_plays_in_the_rules_and_its_exit_waits_for_the_guards() {
+        use super::super::relic_core::*;
+        let floors = vec![build(&toy(), &toy_site(8), false).unwrap(), build(&toy(), &toy_site(3), false).unwrap(), build(&toy(), &toy_site(8), true).unwrap()];
+        let mut r = Relic::with_plan(5, Hero::Mario, 1, 0, Some(Arc::new(floors.clone())));
+        assert_eq!(r.dungeon.tiles, floors[0].tiles);
+        r.hold_foes = true;
+        let exit = r.dungeon.exit;
+        let at = r.dungeon.rooms[exit].center();
+        let frame = |p: [f32; 2]| PlayerFrame { pos: p, height: 0.0, face: 0.0, pound_land: false, dive_started: false, punch_started: false, grounded: true };
+        let mut locked = false;
+        for _ in 0..60 {
+            r.tick(&frame(at), &Intent::default());
+            locked |= r.ev.stairs_locked;
+        }
+        assert!(locked && r.floor == 1, "the exit waits for its guards");
+        assert!(r.rooms[exit].active && r.alive_enemies > 0, "the exit room's pack woke");
+        for e in r.enemies.iter().filter(|e| e.alive) {
+            assert!(r.dungeon.walkable(e.pos), "a foe off the floor at {:?}", e.pos);
+        }
+        for e in r.enemies.iter_mut() {
+            e.alive = false;
+        }
+        r.alive_enemies = 0;
+        r.rooms[exit].cleared = true;
+        for _ in 0..40 {
+            r.tick(&frame(at), &Intent::default());
+        }
+        assert_eq!(r.floor, 2);
+        assert_eq!(r.dungeon.tiles, floors[1].tiles, "the second planned floor");
     }
 
     #[test]

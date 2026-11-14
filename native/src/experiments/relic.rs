@@ -1,7 +1,8 @@
 //! Relic Descent: an original action-RPG "looter dungeon crawler" on Mario's real physics.
 //!
-//! You (Mario, Link, Young Link or Banjo) descend three procedurally built floors of linked
-//! rooms, wake packs of SM64 critters, dodge with the dive (its i-frames are the dodge), slam the
+//! You (Mario, Link, Young Link or Banjo) descend three floors of linked rooms (stretches of Ocarina
+//! of Time's real dungeons when the player has imported them, `relic_real.rs`; generated ones
+//! otherwise), wake packs of SM64 critters, dodge with the dive (its i-frames are the dodge), slam the
 //! ground with the ground pound, fight a three-phase Bomb King on the last floor and fill your
 //! pack with randomly rolled gear. The rules live in `relic_core.rs` (deterministic, seeded, unit
 //! tested), loot in `relic_loot.rs`, floors in `relic_dungeon.rs`; this file glues them to the
@@ -17,7 +18,8 @@
 //!
 //! Test hooks (env): `JUMPMAN_RELIC_SEED`, `_FLOOR`, `_LEVEL`, `_GOD=1`, `_GIVE=legendary:weapon,...`,
 //! `_BAG=<n>`, `_SCREEN=bag|tree`, `_TELEPORT=boss|stairs|treasure|combat|<room>`, `_BOT=1`
-//! (walks to and fights the nearest foe), `_END=win|lose`.
+//! (walks to and fights the nearest foe), `_END=win|lose`, `_PROCEDURAL=1` (generated floors),
+//! `_SITES=deku_hollow,forest_cellar,phantom_lair` (real sites per floor).
 use super::geometry::{add_box_collision, add_face};
 use super::relic_core::*;
 use super::relic_dungeon::*;
@@ -1407,7 +1409,12 @@ impl Experiment for RelicDescentExperiment {
             host.toast("CHEST OPENED!", 1.6);
         }
         if ev.room_cleared {
-            host.toast("ROOM CLEARED", 1.2);
+            let exit = self.core.dungeon.exit;
+            let opened = self.core.dungeon.real.is_some() && !self.core.dungeon.boss_floor && self.core.rooms[exit].cleared && self.core.rooms[exit].active;
+            host.toast(if opened && self.core.room_at_player() == Some(exit) { "THE WAY DOWN IS OPEN" } else { "ROOM CLEARED" }, 1.4);
+        }
+        if ev.stairs_locked {
+            host.toast("BEAT THIS ROOM'S GUARDS TO OPEN THE WAY", 1.8);
         }
         if ev.token {
             host.fx("star_sound", mario_pos);

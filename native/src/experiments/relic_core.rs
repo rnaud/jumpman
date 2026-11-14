@@ -668,6 +668,8 @@ pub struct PlayerFrame {
 /// What happened during the last tick (sound, particles, toasts, physics requests).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Events {
+    /// Stepped on a real floor's exit before its room was cleared.
+    pub stairs_locked: bool,
     pub swing: bool,
     pub hit: u32,
     pub crit: bool,
@@ -881,6 +883,11 @@ impl Relic {
 
     pub fn start_pos(&self) -> [f32; 2] {
         self.dungeon.rooms[self.dungeon.start].center()
+    }
+
+    /// The room the player stands in.
+    pub fn room_at_player(&self) -> Option<usize> {
+        self.dungeon.room_at(self.player.pos)
     }
 
     pub fn stairs_pos(&self) -> Option<[f32; 2]> {
@@ -1755,6 +1762,16 @@ impl Relic {
     fn update_stairs(&mut self) {
         let Some(s) = self.stairs_pos() else { return };
         if dist(s, self.player.pos) < 170.0 {
+            // On a real dungeon floor the way down opens once the exit room's guards are beaten (a real room can sit
+            // close to the entrance; this keeps a fight between the player and every exit).
+            let exit = self.dungeon.exit;
+            if self.dungeon.real.is_some() && !self.rooms[exit].cleared {
+                if self.stairs_t == 0 {
+                    self.ev.stairs_locked = true;
+                }
+                self.stairs_t = 1;
+                return;
+            }
             self.stairs_t += 1;
             if self.stairs_t >= 24 {
                 self.descend();
