@@ -45,6 +45,9 @@ use bevy::math::DVec3;
 use bevy::prelude::*;
 use jumpman_sim::state::*;
 
+#[path = "brawl_hazard_view.rs"]
+mod hazard_view;
+
 const CRATER_FOG: (f64, f64) = (7000.0, 26000.0);
 const CANNON_BASE: &str = "actors/cannon_base/cannon_base_geo.glb";
 const CANNON_BARREL: &str = "actors/cannon_barrel/cannon_barrel_geo.glb";
@@ -113,11 +116,12 @@ struct Snap {
     gm: [[f32; 3]; GEMS],
     pr: [[f32; 3]; MAXP],
     mn: [[f32; 3]; MAXM],
+    hz: [[f32; 3]; MAXH],
 }
 
 impl Snap {
     fn of(b: &Brawl) -> Self {
-        Self { f: std::array::from_fn(|i| b.f[i].pos), fy: std::array::from_fn(|i| b.f[i].yaw), it: std::array::from_fn(|i| b.items[i].pos), gm: std::array::from_fn(|i| b.gems[i].pos), pr: std::array::from_fn(|i| b.proj[i].pos), mn: std::array::from_fn(|i| b.mons[i].pos) }
+        Self { f: std::array::from_fn(|i| b.f[i].pos), fy: std::array::from_fn(|i| b.f[i].yaw), it: std::array::from_fn(|i| b.items[i].pos), gm: std::array::from_fn(|i| b.gems[i].pos), pr: std::array::from_fn(|i| b.proj[i].pos), mn: std::array::from_fn(|i| b.mons[i].pos), hz: std::array::from_fn(|i| b.arena.hazards.get(i).map_or([0.0; 3], |h| h.pos)) }
     }
 }
 
@@ -205,6 +209,8 @@ pub struct GemClashExperiment {
     held_in: [Input; MAXF],
     /// Throttle for the lava ember bursts.
     ember_t: u32,
+    /// The region's course hazards (models and ground telegraphs).
+    hz_view: hazard_view::HazardViews,
 }
 
 impl GemClashExperiment {
@@ -262,6 +268,7 @@ impl GemClashExperiment {
             card_hit: [Pop::default(); MAXF],
             held_in: [Input::default(); MAXF],
             ember_t: 0,
+            hz_view: Default::default(),
         }
     }
 
@@ -1067,6 +1074,55 @@ impl GemClashExperiment {
                     self.fx_push(FxView { on: true, kind: FxKind::Flash, pos: bv(Vec3::from(pos)), life: 0.4, radius: 220.0, ..Default::default() });
                 }
                 Ev::MonSpawn(pos) => host.fx("teleport", sm(pos)),
+                Ev::Hazard { look, pos, strike } => self.hazard_event(host, look, pos, strike),
+            }
+        }
+    }
+
+    /// Sound and effects of a course hazard: a tick when it starts its telegraph, an impact when it strikes.
+    fn hazard_event(&mut self, host: &mut Host, look: Look, pos: [f32; 3], strike: bool) {
+        let sm = wv;
+        if !strike {
+            host.fx(if look == Look::Goomba { "stomp" } else { "move_menu" }, sm(pos));
+            return;
+        }
+        match look {
+            Look::Whomp | Look::WhompKing | Look::Thwomp => {
+                host.fx("ground_pound_drop", sm(pos));
+                host.fx("stomp", sm(pos));
+                let r = if look == Look::WhompKing { 520.0 } else { 380.0 };
+                self.fx_push(FxView { on: true, kind: FxKind::Ring, pos: bv(Vec3::from(pos)), color: [0.95, 0.9, 0.8], life: 0.45, radius: r, ..Default::default() });
+                host.particles.burst(sm(pos), BurstOptions { color: 0xc8c0b0, count: 16, speed: 380.0, life: 0.6, gravity: 400.0, size: 40.0, upward: 120.0, spread: 1.0 });
+                host.particles.dust(sm(pos), 6);
+                self.shake.add(if look == Look::WhompKing { 0.6 } else { 0.45 });
+            }
+            Look::ChainChomp | Look::DekuBaba => {
+                host.fx("bonk", sm(pos));
+                host.particles.dust(sm(pos), 3);
+                self.shake.add(if look == Look::ChainChomp { 0.25 } else { 0.1 });
+            }
+            Look::IronBall | Look::Boulder | Look::Snowball => {
+                host.fx("cannon_fire", sm(pos));
+                host.particles.dust(sm(pos), 4);
+            }
+            Look::Horse => {
+                host.fx("footstep", sm(pos));
+                host.particles.dust(sm(pos), 6);
+            }
+            Look::Goomba => host.fx("stomp", sm(pos)),
+            Look::Wave => {
+                host.fx("splash", sm(pos));
+                host.particles.burst(sm(pos), BurstOptions { color: 0xe8f4ff, count: 12, speed: 260.0, life: 0.7, gravity: 300.0, size: 34.0, upward: 260.0, spread: 1.0 });
+            }
+            Look::Tornado => {
+                host.fx("flutter", sm(pos));
+                host.particles.burst(sm(pos), BurstOptions { color: 0xd8c08a, count: 12, speed: 300.0, life: 0.8, gravity: -80.0, size: 36.0, upward: 380.0, spread: 1.0 });
+            }
+            Look::Boo => host.fx("teleport", sm(pos)),
+            Look::Redead => {
+                host.fx("hurt", sm(pos));
+                self.fx_push(FxView { on: true, kind: FxKind::Ring, pos: bv(Vec3::from(pos)), color: [0.7, 0.5, 1.0], life: 0.5, radius: look.spec().reach, ..Default::default() });
+                self.shake.add(0.2);
             }
         }
     }
@@ -1193,7 +1249,8 @@ impl GemClashExperiment {
             b.fx[i] = *f;
         }
         b.wind = Vec3::new(c.arena.wind_dir[0], 0.0, c.arena.wind_dir[1]);
-        b.wind_strength = if c.arena.kind == ArenaKind::Gale { c.arena.wind } else { 0.0 };
+        b.wind_strength = if c.arena.kind == ArenaKind::Gale || c.arena.gusts { c.arena.wind } else { 0.0 };
+        b.wind_origin = bv(Vec3::new(0.0, 0.0, 0.0));
         // Power buttons.
         let p = &c.f[0];
         b.nova_ready = p.powered() && p.cd_s1 == 0 && p.power > NOVA_COST * 0.6;
@@ -1256,7 +1313,17 @@ impl GemClashExperiment {
                         let who = Self::name_of(c, i);
                         sub = format!("{who} needs one more round - ROUND {}", c.round);
                     }
-                    if sub.is_empty() { sub = if c.arena.barrage > 0 { format!("{}  -  shells fall from the sky; the rim closes in at the bell", self.arena_label()) } else { self.arena_label().to_string() }; }
+                    if sub.is_empty() {
+                        let mut what: Vec<&str> = c.arena.hazards.iter().map(|h| h.look.name()).collect();
+                        what.dedup();
+                        if c.arena.gusts {
+                            what.push("gusts");
+                        }
+                        if c.arena.barrage > 0 {
+                            what.push("falling shells");
+                        }
+                        sub = if what.is_empty() { self.arena_label().to_string() } else { format!("{}  -  {}", self.arena_label(), what.join(", ")) };
+                    }
                     alpha = 1.0;
                 } else {
                     big = "FIGHT!".into();
@@ -1297,6 +1364,23 @@ impl GemClashExperiment {
                 LavaPhase::Rising | LavaPhase::High => "LAVA!".into(),
                 _ => String::new(),
             },
+            ArenaKind::Field if c.phase == Phase::Fight => {
+                // The course hazard about to strike (the nearest to the player), or a gust.
+                let me = [c.f[0].pos[0], c.f[0].pos[2]];
+                let soon = c.arena.hazards.iter().filter(|h| h.st == HzState::Warn && h.spec().kind != HzKind::Drifter || h.look == Look::Redead && h.st == HzState::Warn).min_by(|x, y| {
+                    let d = |h: &&Hazard| h.zone().map_or(f32::MAX, |z| dist2(me, z.centre()));
+                    d(x).total_cmp(&d(y))
+                });
+                if let Some(h) = soon {
+                    h.look.warning().into()
+                } else if c.arena.gusts && c.arena.wind_warn > 0.0 {
+                    "GUST INCOMING".into()
+                } else if c.arena.gusts && c.arena.wind > 0.3 {
+                    "GALE!".into()
+                } else {
+                    String::new()
+                }
+            }
             ArenaKind::Gale => {
                 if c.arena.wind_warn > 0.0 {
                     "GUST INCOMING".into()
@@ -1344,7 +1428,7 @@ impl GemClashExperiment {
         let phone = host.touch;
         let aspect = host.brawl.aspect.max(0.5);
         let yaw = self.cam_yaw() + if self.stage == Stage::Menu { (self.t as f32 * 0.15).sin() * 0.5 } else { 0.0 };
-        let base_pitch = brawl_pitch(phone, c.arena.kind == ArenaKind::Gearworks);
+        let base_pitch = brawl_pitch(phone, c.arena.kind == ArenaKind::Gearworks) + c.arena.view_lift;
         let pitch: f32 = if self.cam_ready { self.cam_pitch } else { base_pitch };
         let fov: f32 = 50f32.to_radians();
         let (tv, th) = ((fov / 2.0).tan(), (fov / 2.0).tan() * aspect);
@@ -1444,6 +1528,18 @@ impl GemClashExperiment {
         }
         let fwd = Vec3::new(-yaw.sin() * self.cam_pitch.cos(), -self.cam_pitch.sin(), -yaw.cos() * self.cam_pitch.cos());
         let eye = self.cam_focus - fwd * self.cam_dist;
+        // For hiding the trees and bushes in the line of sight (brawl_view::hide_scenery).
+        host.brawl.cam_eye = (eye + o) * crate::render::SCALE;
+        host.brawl.cam_targets.clear();
+        if !menu {
+            for i in 0..c.n {
+                let f = &c.f[i];
+                if f.alive {
+                    let p = mix3(self.snap.f[i], f.pos, a);
+                    host.brawl.cam_targets.push(bv(p + Vec3::Y * 80.0 * f.size.min(2.0)));
+                }
+            }
+        }
         let mut pose = CamPose { eye: d(eye + o), look: d(self.cam_focus + o), up: DVec3::Y, fov: fov.to_degrees() as f64, near: 30.0, far: 40000.0 };
         if !menu {
             self.shake.apply(&mut pose, self.cam_dist as f64 * 0.014);
@@ -1516,6 +1612,7 @@ impl Experiment for GemClashExperiment {
         host.cam.pose = None;
         *host.labels = Default::default();
         self.arena_ents.clear();
+        self.hz_view.forget();
         set_origin([0.0; 3]);
     }
     fn before_step(&mut self, _host: &mut Host, controller: &ControllerSnapshot) -> StepOverride {
@@ -1606,6 +1703,10 @@ impl Experiment for GemClashExperiment {
         }
         host.set_player_visible(self.core.f[0].alive || self.core.f[0].dead_t < 40);
         self.update_arena(host);
+        {
+            let a = self.pace.alpha(host.alpha as f32);
+            self.hz_view.sync(host, &self.core, &self.snap.hz, a, self.t as f32);
+        }
         self.publish(host, dt as f32);
         self.camera(host, dt);
         host.status("");

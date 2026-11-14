@@ -221,6 +221,11 @@ pub struct BrawlBridge {
     /// Tide glow and wind streaks for the arena set pieces (0 none).
     pub wind: Vec3,
     pub wind_strength: f32,
+    /// Render-space centre of the arena the wind streaks blow across (a real-world region sits away from the origin).
+    pub wind_origin: Vec3,
+    /// The camera eye and the fighters' chests (render units), for hiding trees and bushes in the line of sight.
+    pub cam_eye: Vec3,
+    pub cam_targets: Vec<Vec3>,
 }
 
 impl Default for BrawlBridge {
@@ -252,6 +257,9 @@ impl Default for BrawlBridge {
             insets: [0.0; 4],
             wind: Vec3::ZERO,
             wind_strength: 0.0,
+            wind_origin: Vec3::ZERO,
+            cam_eye: Vec3::ZERO,
+            cam_targets: vec![],
         }
     }
 }
@@ -274,6 +282,7 @@ impl Plugin for BrawlViewPlugin {
         app.add_systems(Update, super::brawl_fx::gallery.after(super::run_frame).before(sync_render).run_if(|b: Res<BrawlBridge>| b.active && super::brawl_fx::gallery_on()));
         app.init_resource::<super::brawl_fx::BrawlFx>().add_systems(Update, super::brawl_fx::reset.after(super::run_frame).run_if(|b: Res<BrawlBridge>| !b.active));
         app.add_systems(Update, cleanup.after(super::run_frame).run_if(|b: Res<BrawlBridge>| !b.active));
+        app.add_systems(Update, hide_scenery.after(crate::CameraSet));
         app.add_systems(Update, push_foes.after(super::run_frame).before(super::foes_view::sync_foes).run_if(|b: Res<BrawlBridge>| b.active));
     }
 }
@@ -281,6 +290,55 @@ impl Plugin for BrawlViewPlugin {
 // ---------------------------------------------------------------------------------------------
 // Input
 // ---------------------------------------------------------------------------------------------
+
+/// Trees, bushes and grass (scenery with no collision; the camera's own lift handles walls and slopes) that stand between the camera
+/// and a fighter are hidden for as long as they do, and shown again after. Runs after the object views set their visibility.
+fn hide_scenery(
+    bridge: Res<BrawlBridge>,
+    sim: Res<crate::game::runner::GameSim>,
+    mut objs: Query<(Entity, &crate::render::object_view::ObjectView, &GlobalTransform, &mut Visibility), Without<crate::render::course_view::StaticProp>>,
+    mut props: Query<(Entity, &crate::render::course_view::StaticProp, &GlobalTransform, &mut Visibility), Without<crate::render::object_view::ObjectView>>,
+    mut hidden: Local<Vec<Entity>>,
+) {
+    let on = bridge.active && !bridge.cam_targets.is_empty();
+    if !on && hidden.is_empty() {
+        return;
+    }
+    let eye = bridge.cam_eye.to_array();
+    let blocks = |base: Vec3, h: f32, r: f32| on && bridge.cam_targets.iter().any(|t| super::brawl_cam::scenery_hides(eye, t.to_array(), base.to_array(), h, r));
+    let mut now: Vec<Entity> = vec![];
+    let objects = &sim.mario.objects.objects;
+    for (e, v, gt, mut vis) in &mut objs {
+        let Some(o) = objects.get(v.0) else { continue };
+        if !(o.billboard || o.behavior == jumpman_sim::object::ObjectBehaviorKind::Tree) || !o.active || !o.visible {
+            continue;
+        }
+        let s = gt.scale().y.max(0.3);
+        if blocks(gt.translation(), 5.0 * s, 1.5 * s) {
+            vis.set_if_neq(Visibility::Hidden);
+            now.push(e);
+        }
+    }
+    for (e, p, gt, mut vis) in &mut props {
+        let Some(prop) = sim.course.props.get(p.0) else { continue };
+        let m = prop.model.as_str();
+        if !(prop.billboard || ["tree", "shrub", "bush", "grass", "flower"].iter().any(|k| m.contains(k))) {
+            continue;
+        }
+        let was = hidden.contains(&e);
+        if *vis == Visibility::Hidden && !was {
+            continue; // hidden by someone else (a cut bush)
+        }
+        let s = (prop.scale as f32).max(0.3);
+        if blocks(gt.translation(), 4.0 * s, 1.4 * s) {
+            vis.set_if_neq(Visibility::Hidden);
+            now.push(e);
+        } else if was {
+            vis.set_if_neq(Visibility::Inherited);
+        }
+    }
+    *hidden = now;
+}
 
 fn push_foes(bridge: Res<BrawlBridge>, mut board: ResMut<super::foes_view::FoeBoard>) {
     board.items.extend(bridge.foes.iter().copied());
@@ -905,7 +963,7 @@ fn sync_render(
         let h = 0.6 + ((i * 5) % 7) as f32 * 0.45;
         let dir = bridge.wind;
         let side = Vec3::new(-dir.z, 0.0, dir.x);
-        let pos = dir * (ph * 20.0 - 10.0) + side * across + Vec3::Y * h;
+        let pos = bridge.wind_origin + dir * (ph * 20.0 - 10.0) + side * across + Vec3::Y * h;
         let rot = Quat::from_rotation_arc(Vec3::Z, dir.normalize_or(Vec3::Z));
         place(&mut q, *e, true, pos, rot, Vec3::new(0.03, 0.03, 1.4 * w));
     }

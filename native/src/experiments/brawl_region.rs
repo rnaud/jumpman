@@ -9,6 +9,7 @@
 //! height of the floor there). `WorldGround` adds `origin` to get course coordinates, so the rules,
 //! the bots and the digest never see the offset; only the presentation (`brawl.rs`) adds it back.
 use super::brawl_arena::*;
+use super::brawl_core::{build_hazards, HazardDef, Look};
 use jumpman_sim::collision::{CollisionWorld, Hit};
 use jumpman_sim::surfaces::*;
 use std::sync::Arc;
@@ -36,6 +37,12 @@ pub struct Region {
     pub pits: &'static [[f32; 4]],
     /// Ticks (30 per second) between shells falling on the fighters once a round is under way; 0 = calm.
     pub barrage: i32,
+    /// The course's own set pieces on this stretch (see `brawl_hazard.rs`).
+    pub hazards: &'static [HazardDef],
+    /// Rainbow Ride: gusts sweep the deck now and then (the box arenas' Gale cycle).
+    pub gusts: bool,
+    /// Extra camera pitch (radians): the Shifting Sand pit's near wall would otherwise fill the view.
+    pub view_lift: f32,
     pub spawns: [V2; 4],
     pub gems: &'static [V2],
     pub items: &'static [V2],
@@ -53,7 +60,10 @@ pub const REGIONS: &[Region] = &[
         half: [1900.0, 1900.0],
         void_y: -500.0,
         pits: &[],
-        barrage: 150,
+        barrage: 230,
+        hazards: &[HazardDef::new(Look::IronBall, [0.0, 0.0])],
+        gusts: false,
+        view_lift: 0.0,
         spawns: [[-1000.0, 0.0], [1000.0, 0.0], [0.0, -1000.0], [0.0, 1000.0]],
         gems: &[[-500.0, 0.0], [500.0, 0.0], [0.0, -500.0], [0.0, 500.0], [-900.0, 700.0], [900.0, -700.0]],
         items: &[[-300.0, -300.0], [300.0, 300.0], [-300.0, 300.0], [300.0, -300.0], [-1100.0, -600.0], [1100.0, 600.0], [-600.0, -1100.0], [600.0, 1100.0]],
@@ -68,7 +78,10 @@ pub const REGIONS: &[Region] = &[
         half: [1100.0, 1650.0],
         void_y: -400.0,
         pits: &[[-650.0, -650.0, 650.0, 650.0]],
-        barrage: 170,
+        barrage: 0,
+        hazards: &[HazardDef::new(Look::Boo, [-800.0, -1200.0]), HazardDef::new(Look::Boo, [800.0, 1200.0])],
+        gusts: false,
+        view_lift: 0.0,
         spawns: [[-950.0, -1500.0], [950.0, 1500.0], [950.0, -1500.0], [-950.0, 1500.0]],
         gems: &[[-700.0, 0.0], [700.0, 0.0], [0.0, -660.0], [0.0, 780.0], [-1000.0, -1100.0], [1000.0, 1100.0]],
         items: &[[-1000.0, 500.0], [1000.0, -500.0], [-700.0, -1500.0], [700.0, 1500.0], [-300.0, 1400.0], [300.0, -1400.0], [0.0, 1200.0], [0.0, -1200.0]],
@@ -83,7 +96,10 @@ pub const REGIONS: &[Region] = &[
         half: [1100.0, 1100.0],
         void_y: -500.0,
         pits: &[],
-        barrage: 190,
+        barrage: 0,
+        hazards: &[HazardDef::new(Look::DekuBaba, [-450.0, 300.0]), HazardDef::new(Look::DekuBaba, [450.0, -300.0])],
+        gusts: false,
+        view_lift: 0.0,
         spawns: [[-750.0, -750.0], [750.0, 750.0], [750.0, -750.0], [-750.0, 750.0]],
         gems: &[[-300.0, 0.0], [300.0, 0.0], [0.0, 300.0], [0.0, -300.0], [-650.0, 250.0], [650.0, -250.0]],
         items: &[[-450.0, -450.0], [450.0, 450.0], [-450.0, 450.0], [450.0, -450.0], [0.0, 700.0], [0.0, -700.0], [-800.0, 0.0], [800.0, 0.0]],
@@ -98,7 +114,10 @@ pub const REGIONS: &[Region] = &[
         half: [1100.0, 900.0],
         void_y: -300.0,
         pits: &[],
-        barrage: 150,
+        barrage: 0,
+        hazards: &[HazardDef::new(Look::WhompKing, [0.0, 0.0])],
+        gusts: false,
+        view_lift: 0.0,
         spawns: [[-748.0, -558.0], [748.0, 558.0], [748.0, -558.0], [-748.0, 558.0]],
         gems: &[[-495.0, 0.0], [495.0, 0.0], [0.0, -405.0], [0.0, 405.0], [-825.0, 315.0], [825.0, -315.0]],
         items: &[[-330.0, -270.0], [330.0, 270.0], [-330.0, 270.0], [330.0, -270.0], [0.0, 720.0], [0.0, -720.0], [-935.0, 0.0], [935.0, 0.0]],
@@ -113,7 +132,10 @@ pub const REGIONS: &[Region] = &[
         half: [680.0, 440.0],
         void_y: -500.0,
         pits: &[],
-        barrage: 160,
+        barrage: 0,
+        hazards: &[HazardDef::new(Look::Tornado, [0.0, 0.0])],
+        gusts: false,
+        view_lift: 0.32,
         spawns: [[-462.0, -273.0], [462.0, 273.0], [462.0, -273.0], [-462.0, 273.0]],
         gems: &[[-306.0, 0.0], [306.0, 0.0], [0.0, -198.0], [0.0, 198.0], [-510.0, 154.0], [510.0, -154.0]],
         items: &[[-204.0, -132.0], [204.0, 132.0], [-204.0, 132.0], [204.0, -132.0], [0.0, 352.0], [0.0, -352.0], [-578.0, 0.0], [578.0, 0.0]],
@@ -128,7 +150,10 @@ pub const REGIONS: &[Region] = &[
         half: [1100.0, 1000.0],
         void_y: -500.0,
         pits: &[],
-        barrage: 170,
+        barrage: 0,
+        hazards: &[HazardDef::new(Look::Goomba, [0.0, 0.0])],
+        gusts: false,
+        view_lift: 0.0,
         spawns: [[-748.0, -620.0], [748.0, 620.0], [748.0, -620.0], [-748.0, 620.0]],
         gems: &[[-495.0, 0.0], [495.0, 0.0], [0.0, -450.0], [0.0, 450.0], [-825.0, 350.0], [825.0, -350.0]],
         items: &[[-330.0, -300.0], [330.0, 300.0], [-330.0, 300.0], [330.0, -300.0], [0.0, 800.0], [0.0, -800.0], [-935.0, 0.0], [935.0, 0.0]],
@@ -143,7 +168,10 @@ pub const REGIONS: &[Region] = &[
         half: [1100.0, 1000.0],
         void_y: -400.0,
         pits: &[],
-        barrage: 140,
+        barrage: 220,
+        hazards: &[],
+        gusts: true,
+        view_lift: 0.0,
         spawns: [[-748.0, -620.0], [818.0, 620.0], [748.0, -620.0], [-748.0, 620.0]],
         gems: &[[-495.0, 0.0], [495.0, 0.0], [0.0, -450.0], [-63.0, 480.0], [-825.0, 350.0], [825.0, -350.0]],
         items: &[[-330.0, -300.0], [330.0, 300.0], [-330.0, 300.0], [330.0, -300.0], [-63.0, 830.0], [0.0, -800.0], [-935.0, 0.0], [935.0, 0.0]],
@@ -158,7 +186,10 @@ pub const REGIONS: &[Region] = &[
         half: [1200.0, 1100.0],
         void_y: -500.0,
         pits: &[],
-        barrage: 200,
+        barrage: 0,
+        hazards: &[HazardDef::lane(Look::Horse, [0.0, 0.0], [1.0, 0.0])],
+        gusts: false,
+        view_lift: 0.0,
         spawns: [[-816.0, -682.0], [816.0, 682.0], [816.0, -682.0], [-816.0, 682.0]],
         gems: &[[-540.0, 0.0], [540.0, 0.0], [0.0, -495.0], [0.0, 495.0], [-900.0, 385.0], [900.0, -385.0]],
         items: &[[-360.0, -330.0], [360.0, 330.0], [-360.0, 330.0], [360.0, -330.0], [0.0, 880.0], [0.0, -880.0], [-1020.0, 0.0], [1020.0, 0.0]],
@@ -173,7 +204,10 @@ pub const REGIONS: &[Region] = &[
         half: [800.0, 700.0],
         void_y: -500.0,
         pits: &[],
-        barrage: 170,
+        barrage: 0,
+        hazards: &[HazardDef::new(Look::Redead, [-450.0, 0.0]), HazardDef::new(Look::Redead, [450.0, 0.0])],
+        gusts: false,
+        view_lift: 0.0,
         spawns: [[-544.0, -434.0], [544.0, 434.0], [544.0, -434.0], [-544.0, 434.0]],
         gems: &[[-360.0, 0.0], [360.0, 0.0], [0.0, -315.0], [0.0, 315.0], [-600.0, 245.0], [600.0, -245.0]],
         items: &[[-240.0, -210.0], [240.0, 210.0], [-240.0, 210.0], [240.0, -210.0], [0.0, 560.0], [0.0, -560.0], [-680.0, 0.0], [680.0, 0.0]],
@@ -188,7 +222,10 @@ pub const REGIONS: &[Region] = &[
         half: [800.0, 700.0],
         void_y: -400.0,
         pits: &[],
-        barrage: 150,
+        barrage: 0,
+        hazards: &[HazardDef::new(Look::Thwomp, [0.0, 0.0]), HazardDef::new(Look::Whomp, [-450.0, 300.0])],
+        gusts: false,
+        view_lift: 0.0,
         spawns: [[-544.0, -434.0], [544.0, 434.0], [544.0, -434.0], [-544.0, 434.0]],
         gems: &[[-360.0, 0.0], [360.0, 0.0], [0.0, -315.0], [0.0, 315.0], [-600.0, 245.0], [600.0, -245.0]],
         items: &[[-240.0, -210.0], [240.0, 210.0], [-240.0, 210.0], [240.0, -210.0], [0.0, 560.0], [0.0, -560.0], [-680.0, 0.0], [680.0, 0.0]],
@@ -203,7 +240,10 @@ pub const REGIONS: &[Region] = &[
         half: [800.0, 700.0],
         void_y: -500.0,
         pits: &[],
-        barrage: 150,
+        barrage: 0,
+        hazards: &[HazardDef::new(Look::IronBall, [0.0, 0.0])],
+        gusts: false,
+        view_lift: 0.0,
         spawns: [[-544.0, -434.0], [544.0, 434.0], [544.0, -434.0], [-544.0, 434.0]],
         gems: &[[-360.0, 0.0], [360.0, 0.0], [0.0, -315.0], [0.0, 315.0], [-600.0, 245.0], [600.0, -245.0]],
         items: &[[-240.0, -210.0], [240.0, 210.0], [-240.0, 210.0], [240.0, -210.0], [0.0, 560.0], [0.0, -560.0], [-680.0, 0.0], [680.0, 0.0]],
@@ -218,7 +258,10 @@ pub const REGIONS: &[Region] = &[
         half: [800.0, 700.0],
         void_y: -500.0,
         pits: &[],
-        barrage: 160,
+        barrage: 0,
+        hazards: &[HazardDef::new(Look::ChainChomp, [0.0, 0.0])],
+        gusts: false,
+        view_lift: 0.0,
         spawns: [[-544.0, -434.0], [544.0, 434.0], [544.0, -434.0], [-544.0, 434.0]],
         gems: &[[-360.0, 0.0], [360.0, 0.0], [0.0, -315.0], [0.0, 315.0], [-600.0, 245.0], [600.0, -245.0]],
         items: &[[-240.0, -210.0], [240.0, 210.0], [-240.0, 210.0], [240.0, -210.0], [0.0, 560.0], [0.0, -560.0], [-680.0, 0.0], [680.0, 0.0]],
@@ -233,7 +276,10 @@ pub const REGIONS: &[Region] = &[
         half: [800.0, 700.0],
         void_y: -500.0,
         pits: &[],
-        barrage: 190,
+        barrage: 0,
+        hazards: &[HazardDef::new(Look::DekuBaba, [-350.0, 200.0]), HazardDef::new(Look::DekuBaba, [350.0, -200.0])],
+        gusts: false,
+        view_lift: 0.0,
         spawns: [[-544.0, -434.0], [544.0, 434.0], [544.0, -434.0], [-544.0, 434.0]],
         gems: &[[-360.0, 0.0], [360.0, 0.0], [0.0, -315.0], [0.0, 315.0], [-600.0, 245.0], [600.0, -245.0]],
         items: &[[-240.0, -210.0], [240.0, 210.0], [-240.0, 210.0], [240.0, -210.0], [0.0, 560.0], [0.0, -560.0], [-680.0, 0.0], [680.0, 0.0]],
@@ -248,7 +294,10 @@ pub const REGIONS: &[Region] = &[
         half: [800.0, 700.0],
         void_y: -400.0,
         pits: &[],
-        barrage: 130,
+        barrage: 0,
+        hazards: &[],
+        gusts: true,
+        view_lift: 0.0,
         spawns: [[-474.0, -434.0], [544.0, 434.0], [544.0, -434.0], [-544.0, 434.0]],
         gems: &[[-360.0, 0.0], [360.0, 0.0], [0.0, -315.0], [0.0, 315.0], [-600.0, 245.0], [600.0, -245.0]],
         items: &[[-240.0, -210.0], [240.0, 210.0], [-240.0, 210.0], [240.0, -210.0], [0.0, 560.0], [0.0, -560.0], [-680.0, 0.0], [680.0, 0.0]],
@@ -263,7 +312,10 @@ pub const REGIONS: &[Region] = &[
         half: [800.0, 700.0],
         void_y: -500.0,
         pits: &[],
-        barrage: 150,
+        barrage: 0,
+        hazards: &[HazardDef::new(Look::Tornado, [0.0, 0.0])],
+        gusts: false,
+        view_lift: 0.0,
         spawns: [[-544.0, -434.0], [544.0, 434.0], [544.0, -434.0], [-544.0, 434.0]],
         gems: &[[-360.0, 0.0], [360.0, 0.0], [0.0, -315.0], [0.0, 315.0], [-600.0, 245.0], [600.0, -245.0]],
         items: &[[-240.0, -210.0], [240.0, 210.0], [-240.0, 210.0], [240.0, -210.0], [0.0, 560.0], [0.0, -560.0], [-680.0, 0.0], [680.0, 0.0]],
@@ -278,7 +330,10 @@ pub const REGIONS: &[Region] = &[
         half: [900.0, 800.0],
         void_y: -600.0,
         pits: &[],
-        barrage: 170,
+        barrage: 0,
+        hazards: &[HazardDef::lane(Look::Wave, [0.0, 0.0], [0.0, 1.0])],
+        gusts: false,
+        view_lift: 0.0,
         spawns: [[-612.0, -496.0], [612.0, 496.0], [612.0, -496.0], [-612.0, 496.0]],
         gems: &[[-405.0, 0.0], [405.0, 0.0], [0.0, -360.0], [0.0, 360.0], [-675.0, 280.0], [675.0, -280.0]],
         items: &[[-270.0, -240.0], [270.0, 240.0], [-270.0, 240.0], [270.0, -240.0], [0.0, 640.0], [0.0, -640.0], [-765.0, 0.0], [765.0, 0.0]],
@@ -293,7 +348,10 @@ pub const REGIONS: &[Region] = &[
         half: [900.0, 800.0],
         void_y: -500.0,
         pits: &[],
-        barrage: 190,
+        barrage: 0,
+        hazards: &[HazardDef::lane(Look::Horse, [0.0, 0.0], [1.0, 0.0])],
+        gusts: false,
+        view_lift: 0.0,
         spawns: [[-612.0, -496.0], [612.0, 496.0], [612.0, -496.0], [-612.0, 496.0]],
         gems: &[[-405.0, 0.0], [405.0, 0.0], [0.0, -360.0], [0.0, 360.0], [-675.0, 280.0], [675.0, -280.0]],
         items: &[[-270.0, -240.0], [270.0, 240.0], [-270.0, 240.0], [270.0, -240.0], [0.0, 640.0], [0.0, -640.0], [-765.0, 0.0], [765.0, 0.0]],
@@ -308,10 +366,85 @@ pub const REGIONS: &[Region] = &[
         half: [900.0, 800.0],
         void_y: -500.0,
         pits: &[],
-        barrage: 190,
+        barrage: 0,
+        hazards: &[HazardDef::lane(Look::Horse, [0.0, 0.0], [0.0, 1.0])],
+        gusts: false,
+        view_lift: 0.0,
         spawns: [[-612.0, -496.0], [612.0, 496.0], [612.0, -496.0], [-612.0, 496.0]],
         gems: &[[-405.0, 0.0], [405.0, 0.0], [0.0, -360.0], [0.0, 360.0], [-675.0, 280.0], [675.0, -280.0]],
         items: &[[-270.0, -240.0], [270.0, 240.0], [-270.0, 240.0], [270.0, -240.0], [0.0, 640.0], [0.0, -640.0], [-765.0, 0.0], [765.0, 0.0]],
+    },
+    Region {
+        key: "ccm",
+        name: "Cool, Cool Summit",
+        blurb: "The snowy top of Cool, Cool Mountain by the cabin: snowballs come rolling and the drop is a long one",
+        course: "ccm",
+        centre: [-591.0, 3160.0, -2291.0],
+        floor: Some(2560.0),
+        half: [800.0, 700.0],
+        void_y: -500.0,
+        pits: &[],
+        barrage: 0,
+        hazards: &[HazardDef::new(Look::Snowball, [0.0, 0.0])],
+        gusts: false,
+        view_lift: 0.0,
+        spawns: [[-544.0, -434.0], [544.0, 434.0], [544.0, -434.0], [-544.0, 434.0]],
+        gems: &[[-360.0, 0.0], [360.0, 0.0], [0.0, -315.0], [0.0, 315.0], [-600.0, 245.0], [600.0, -245.0]],
+        items: &[[-240.0, -210.0], [240.0, 210.0], [-240.0, 210.0], [240.0, -210.0], [-50.0, 429.0], [0.0, -560.0], [-680.0, 0.0], [680.0, 0.0]],
+    },
+    Region {
+        key: "ccm2",
+        name: "Cool, Cool Foot",
+        blurb: "The snowfield at the foot of the mountain, where the slide comes out: snowballs roll down",
+        course: "ccm",
+        centre: [1609.0, -4007.0, 5909.0],
+        floor: Some(-4607.0),
+        half: [800.0, 700.0],
+        void_y: -500.0,
+        pits: &[],
+        barrage: 0,
+        hazards: &[HazardDef::new(Look::Snowball, [0.0, 0.0])],
+        gusts: false,
+        view_lift: 0.0,
+        spawns: [[-544.0, -434.0], [544.0, 434.0], [544.0, -434.0], [-544.0, 434.0]],
+        gems: &[[-360.0, 0.0], [360.0, 0.0], [0.0, -315.0], [0.0, 315.0], [-600.0, 245.0], [600.0, -245.0]],
+        items: &[[-240.0, -210.0], [240.0, 210.0], [-240.0, 210.0], [240.0, -210.0], [0.0, 560.0], [0.0, -560.0], [-680.0, 0.0], [680.0, 0.0]],
+    },
+    Region {
+        key: "spiral",
+        name: "Spiral Mountain",
+        blurb: "Banjo's home meadow below the mountain: Quarrie boulders tumble across the grass",
+        course: "bk_spiral_mountain",
+        centre: [5411.0, -25.0, 6375.0],
+        floor: Some(-625.0),
+        half: [800.0, 700.0],
+        void_y: -500.0,
+        pits: &[],
+        barrage: 0,
+        hazards: &[HazardDef::new(Look::Boulder, [0.0, 0.0])],
+        gusts: false,
+        view_lift: 0.0,
+        spawns: [[-544.0, -434.0], [544.0, 434.0], [544.0, -434.0], [-544.0, 434.0]],
+        gems: &[[-360.0, 0.0], [360.0, 0.0], [0.0, -315.0], [0.0, 315.0], [-600.0, 245.0], [600.0, -245.0]],
+        items: &[[-240.0, -210.0], [240.0, 210.0], [-240.0, 210.0], [240.0, -210.0], [0.0, 560.0], [0.0, -560.0], [-680.0, 0.0], [680.0, 0.0]],
+    },
+    Region {
+        key: "spiral2",
+        name: "Spiral Mountain Ledge",
+        blurb: "A grassy ledge up the side of Spiral Mountain, the meadow far below",
+        course: "bk_spiral_mountain",
+        centre: [-4189.0, 1436.0, -25.0],
+        floor: Some(836.0),
+        half: [800.0, 700.0],
+        void_y: -500.0,
+        pits: &[],
+        barrage: 0,
+        hazards: &[HazardDef::new(Look::Boulder, [0.0, 0.0])],
+        gusts: false,
+        view_lift: 0.0,
+        spawns: [[-194.0, -434.0], [481.0, 464.0], [544.0, -434.0], [-334.0, 434.0]],
+        gems: &[[-150.0, 0.0], [360.0, 0.0], [0.0, -315.0], [0.0, 315.0], [-320.0, 245.0], [600.0, -245.0]],
+        items: &[[-170.0, -210.0], [240.0, 210.0], [-240.0, 210.0], [240.0, -210.0], [0.0, 560.0], [0.0, -560.0], [-313.0, 205.0], [617.0, 30.0]],
     },
 ];
 
@@ -379,6 +512,9 @@ impl Region {
         a.void_y = self.void_y;
         a.barrage = self.barrage;
         a.barrage_cd = self.barrage;
+        a.gusts = self.gusts;
+        a.view_lift = self.view_lift;
+        a.hazards = build_hazards(self.hazards, |x, z| g.floor(x, z, 900.0).unwrap_or(0.0));
         a.ceil_y = 900.0;
         a.spawns = self.spawns;
         let lift = |sp: &[V2]| -> Vec<[f32; 3]> { sp.iter().map(|s| [s[0], g.floor(s[0], s[1], 900.0).unwrap_or(0.0), s[1]]).collect() };
@@ -405,6 +541,11 @@ impl std::fmt::Debug for WorldGround {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "WorldGround(origin {:?}, {} surfaces)", self.origin, self.world.surfaces().len())
     }
+}
+
+/// Every SM64 quicksand surface type (shallow, deep, moving, instant).
+pub fn is_quicksand(k: i32) -> bool {
+    matches!(k, SURFACE_SHALLOW_QUICKSAND | SURFACE_DEEP_QUICKSAND | SURFACE_INSTANT_QUICKSAND | SURFACE_DEEP_MOVING_QUICKSAND | SURFACE_SHALLOW_MOVING_QUICKSAND | SURFACE_QUICKSAND | SURFACE_MOVING_QUICKSAND | SURFACE_INSTANT_MOVING_QUICKSAND)
 }
 
 /// Steepest floor (normal.y) something may rest on; about 45 degrees.
@@ -463,12 +604,26 @@ impl Ground for WorldGround {
         [self.origin[0] as f32, self.origin[1] as f32, self.origin[2] as f32]
     }
 
+    fn floor_effect(&self, x: f32, z: f32, y: f32) -> FloorFx {
+        let o = self.origin;
+        let Some(h) = self.course_hit(x as f64 + o[0], z as f64 + o[2], y as f64 + o[1] + 2.0) else { return FloorFx::None };
+        if h.height < y as f64 + o[1] - 8.0 {
+            return FloorFx::None;
+        }
+        match h.surface.map(|s| s.kind) {
+            Some(SURFACE_BURNING) => FloorFx::Burn,
+            Some(k) if is_quicksand(k) => FloorFx::Sink,
+            _ => FloorFx::None,
+        }
+    }
+
     fn standable(&self, x: f32, y: f32, z: f32) -> bool {
         let o = self.origin;
         let (wx, wy, wz) = (x as f64 + o[0], y as f64 + o[1], z as f64 + o[2]);
         let Some(h) = self.course_hit(wx, wz, wy + 1.0) else { return false };
         let Some(s) = h.surface else { return false };
         let k = s.kind;
+        // Quicksand you can stand in (it sinks you only while you stand still, see `Brawl::floor_effects`); the deep kinds are not ground.
         let bad = matches!(k, SURFACE_BURNING | SURFACE_DEATH_PLANE | SURFACE_DEEP_QUICKSAND | SURFACE_SHALLOW_QUICKSAND);
         !bad && s.normal[1] >= WALKABLE_NY && self.world.water_level(wx, wz) < h.height + 12.0
     }
@@ -500,6 +655,7 @@ pub mod tests {
         let id = std::env::var("FIND_COURSE").unwrap_or_else(|_| "bob".into());
         let Some(world) = course_world(&id) else { return };
         let (hx, hz) = (env("FIND_HX", 1200.0), env("FIND_HZ", 1100.0));
+        let (tol, min_cover, min_edge) = (env("FIND_TOL", 40.0), env("FIND_COVER", 0.9), env("FIND_EDGE", 0.5));
         let (mut x0, mut x1, mut z0, mut z1) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
         for s in world.surfaces() {
             for v in [s.v1, s.v2, s.v3] {
@@ -535,7 +691,7 @@ pub mod tests {
                             let inside = ix.abs() as f64 * cell <= hx && iz.abs() as f64 * cell <= hz;
                             let near_edge = (ix.abs() as f64 * cell - hx).abs() <= cell && iz.abs() as f64 * cell <= hz + cell || (iz.abs() as f64 * cell - hz).abs() <= cell && ix.abs() as f64 * cell <= hx + cell;
                             let f = g.course_hit(x, z, y0 + 60.0);
-                            let flat = f.as_ref().is_some_and(|h| (h.height - y0).abs() <= 40.0 && h.surface.as_ref().is_some_and(|s| s.normal[1] >= WALKABLE_NY && !matches!(s.kind, SURFACE_BURNING | SURFACE_DEATH_PLANE)));
+                            let flat = f.as_ref().is_some_and(|h| (h.height - y0).abs() <= tol && h.surface.as_ref().is_some_and(|s| s.normal[1] >= WALKABLE_NY && !matches!(s.kind, SURFACE_BURNING | SURFACE_DEATH_PLANE)));
                             if inside {
                                 total += 1;
                                 if flat {
@@ -555,7 +711,7 @@ pub mod tests {
                     }
                     let cover = ok as f64 / total.max(1) as f64;
                     let edge = edge_ok as f64 / edge_total.max(1) as f64;
-                    if cover >= 0.9 && edge >= 0.5 {
+                    if cover >= min_cover && edge >= min_edge {
                         found.push((cover * edge, cx, cz, y0, cover));
                     }
                 }
@@ -612,6 +768,50 @@ pub mod tests {
         list("spawns", &[[-0.68, -0.62], [0.68, 0.62], [0.68, -0.62], [-0.68, 0.62]]);
         list("gems", &[[-0.45, 0.0], [0.45, 0.0], [0.0, -0.45], [0.0, 0.45], [-0.75, 0.35], [0.75, -0.35]]);
         list("items", &[[-0.3, -0.3], [0.3, 0.3], [-0.3, 0.3], [0.3, -0.3], [0.0, 0.8], [0.0, -0.8], [-0.85, 0.0], [0.85, 0.0]]);
+    }
+
+    /// Exploration aid (ignored): what each region's floor is made of (surface kinds over a 50-unit grid, water, lava, quicksand)
+    /// within its rim and a ring of 600 around it. `cargo test survey_regions -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn survey_regions() {
+        let only = std::env::var("SURVEY").ok();
+        for r in REGIONS {
+            if only.as_deref().is_some_and(|k| k != r.key) {
+                continue;
+            }
+            let Some(world) = course_world(r.course) else { continue };
+            let a = r.build(world.clone());
+            let o = a.origin();
+            let mut kinds: std::collections::BTreeMap<i32, (u32, u32)> = Default::default();
+            let mut water = (0u32, 0u32);
+            let mut wsum = [0.0f32; 2];
+            let step = 50.0;
+            let (hx, hz) = (r.half[0] + 600.0, r.half[1] + 600.0);
+            let mut z = -hz;
+            while z <= hz {
+                let mut x = -hx;
+                while x <= hx {
+                    let inside = x.abs() <= r.half[0] && z.abs() <= r.half[1];
+                    let (wx, wz) = (x as f64 + o[0] as f64, z as f64 + o[2] as f64);
+                    if let Some(h) = WorldGround::new(world.clone(), [0.0; 3]).course_hit(wx, wz, o[1] as f64 + 400.0) {
+                        let k = h.surface.as_ref().map_or(-1, |s| s.kind);
+                        let e = kinds.entry(k).or_default();
+                        if inside { e.0 += 1 } else { e.1 += 1 }
+                        if world.water_level(wx, wz) > h.height + 12.0 {
+                            if inside { water.0 += 1 } else { water.1 += 1 }
+                            wsum[0] += x;
+                            wsum[1] += z;
+                        }
+                    }
+                    x += step;
+                }
+                z += step;
+            }
+            let ks: Vec<String> = kinds.iter().map(|(k, (i, o))| format!("{k:#x}:{i}/{o}")).collect();
+            let nw = (water.0 + water.1).max(1) as f32;
+            println!("{:10} kinds(in/ring) {} water {:?} at ({:.0}, {:.0}) water_y {:.0} floor {:.0}", r.key, ks.join(" "), water, wsum[0] / nw, wsum[1] / nw, world.water_level(o[0] as f64, o[2] as f64), o[1]);
+        }
     }
 
     /// Exploration aid (ignored): an ASCII height map of a course.

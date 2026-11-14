@@ -200,6 +200,16 @@ pub enum LavaPhase {
     Falling,
 }
 
+/// A floor that does something to whoever stands on it (read from a real course's surface types).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FloorFx {
+    None,
+    /// Quicksand: slows, then spits the fighter out hurt.
+    Sink,
+    /// Lava: burns and bounces.
+    Burn,
+}
+
 /// The ground of an arena that is a stretch of a real course instead of a set of boxes. All
 /// coordinates are arena-local (origin = the region's centre, y = 0 its main floor); the
 /// implementation translates to the course. Engine-free: `brawl_region::WorldGround` wraps a
@@ -211,6 +221,10 @@ pub trait Ground: Send + Sync + std::fmt::Debug {
     fn push(&self, p: &mut [f32; 3], r: f32);
     /// Can something rest at (x, y, z)? Flat enough, dry, not lava, death or quicksand.
     fn standable(&self, x: f32, y: f32, z: f32) -> bool;
+    /// What the floor under (x, z) at about height `y` does to whoever stands there (quicksand, lava from the course's surfaces).
+    fn floor_effect(&self, _x: f32, _z: f32, _y: f32) -> FloorFx {
+        FloorFx::None
+    }
     /// Where the arena origin sits in the world the picture is drawn in (zero for the box arenas).
     fn origin(&self) -> [f32; 3] {
         [0.0; 3]
@@ -249,6 +263,11 @@ pub struct Arena {
     /// Real-world regions: ticks between shell strikes on the fighters once the round is under way (0 = calm), and the countdown.
     pub barrage: i32,
     pub barrage_cd: i32,
+    /// Real-world regions: the course's set pieces (see `brawl_hazard.rs`), and whether gusts blow (Rainbow Ride).
+    pub hazards: Vec<super::brawl_core::Hazard>,
+    pub gusts: bool,
+    /// Extra camera pitch (radians) for a deep, walled region whose near wall would fill the low view.
+    pub view_lift: f32,
 }
 
 pub const LAVA_LOW: f32 = -70.0;
@@ -281,6 +300,9 @@ impl Arena {
             has_cannon: false,
             barrage: 0,
             barrage_cd: 0,
+            hazards: vec![],
+            gusts: false,
+            view_lift: 0.0,
         };
         let corners = |r: f32| [[-r, -r], [r, -r], [-r, r], [r, r]];
         match kind {
@@ -438,7 +460,7 @@ impl Arena {
         if self.kind == ArenaKind::Ember {
             self.step_lava();
         }
-        if self.kind == ArenaKind::Gale {
+        if self.kind == ArenaKind::Gale || self.gusts {
             self.step_wind();
         }
     }
