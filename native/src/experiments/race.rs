@@ -79,7 +79,8 @@ impl RaceClass {
         let k = rank as f64 / (RIVALS - 1) as f64;
         match self {
             Self::Rookie => RivalSkill { mag: 55.0 - 8.0 * k, long_jump: 0.0, rough: 0.0 },
-            Self::Pro => RivalSkill { mag: 61.0 - 6.0 * k, long_jump: 0.05 - 0.04 * k, rough: 0.0 },
+            // A tighter spread than Rookie's so a Pro race finishes in a bunch (1st to 4th within 5 s with a good player).
+            Self::Pro => RivalSkill { mag: 61.5 - 4.5 * k, long_jump: 0.05 - 0.04 * k, rough: 0.0 },
             Self::Champion => RivalSkill { mag: 64.0 - 2.0 * k, long_jump: 0.14 - 0.08 * k, rough: 0.02 },
         }
     }
@@ -411,8 +412,13 @@ impl RivalBrain {
         let mut mag = skill.mag;
         if gap > 2500.0 {
             mag *= if gap > 6000.0 { 0.78 } else { 0.88 };
+        } else if gap > 1200.0 {
+            // A soft band near the player keeps the pack close without a rival visibly braking.
+            mag *= 0.95;
         } else if gap < -3500.0 {
             mag = 64.0;
+        } else if gap < -1500.0 {
+            mag = (mag + 3.0).min(64.0);
         }
         let mut input = DriveInput { yaw: Some(yaw), mag: Some(mag), ..Default::default() };
         if self.hold_a > 0 {
@@ -472,11 +478,18 @@ pub struct RaceCourse {
     pub lifts: Vec<(V3, V3)>,
 }
 
+/// Koopa's checkpoints the race leaves out: his detour over the plateau (see [`race_course`]).
+const SKIPPED_LOOP: std::ops::RangeInclusive<usize> = 1..=7;
+
 /// Plan the race on `world` (deterministic).
 pub fn race_course(world: &CollisionWorld) -> RaceCourse {
     // Checkpoint 12 sits on the slippery foot of the mountain; snapped to standable ground it lands on the
     // plateau above, which leads nowhere. Without it the plan runs meadow, lift, mountain path.
-    let koopa: Vec<V3> = KOOPA_RACE_ROUTE.iter().enumerate().filter(|(i, _)| *i != 12).map(|(_, p)| *p).collect();
+    // Checkpoints 1-7 are Koopa's own loop over the plateau east of the start: it comes back down to the meadow 4,000 units
+    // south of the grid, and a Mario who simply runs down the slope from the start is there in 4.3 s against about 10 s round
+    // the loop (`try_race_line`, `find_race_shortcuts`). Rivals followed the loop, so anyone who ran straight won by six
+    // seconds; the race now starts down the slope like that runner.
+    let koopa: Vec<V3> = KOOPA_RACE_ROUTE.iter().enumerate().filter(|(i, _)| *i != 12 && !SKIPPED_LOOP.contains(i)).map(|(_, p)| *p).collect();
     let plan = super::crowd_route::mario_route_drop(world, &koopa, RACE_DROP);
     let lifts = plan.windows(2).filter(|w| w[1][1] - w[0][1] > 150.0 && !super::crowd_route::segment_walkable_drop(world, w[0], w[1], RACE_DROP)).map(|w| (w[0], w[1])).collect();
     let mut route = densify(&plan, 200.0);
@@ -1358,6 +1371,165 @@ mod tests {
         assert!(stuck.is_empty(), "rivals that never reached the summit (class, seed, rival): {stuck:?}");
     }
 
+    /// The research checklist's race criteria (`MINIGAMES_RESEARCH.md` section 6) with a competent player (the Champion brain's
+    /// fastest habits, as `JUMPMAN_RACE_AUTO`) on the back row: the gap from 1st to 4th, the player's place changes, how often
+    /// a rival is within 15 m, the player's place and the race length. `RACE_SEEDS` (default 6), `RACE_CLASS`.
+    /// `cargo test --release -p jumpman --lib audit_race -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn audit_race() {
+        let seeds: u64 = std::env::var("RACE_SEEDS").ok().and_then(|v| v.parse().ok()).unwrap_or(6);
+        let only: Option<usize> = std::env::var("RACE_CLASS").ok().and_then(|v| v.parse().ok());
+        for class in RaceClass::ALL.into_iter().filter(|c| only.is_none_or(|o| o == c.index())) {
+            let (mut close, mut gaps, mut changes, mut near, mut places, mut lens, mut n) = (0, 0.0, 0u32, 0.0, vec![], 0.0, 0);
+            for seed in 1..=seeds {
+                let Some(r) = bob_race(class, 30 * 200, seed, Some(RaceClass::Champion.skill(0))) else { return };
+                let mut t: Vec<f64> = r.finish.iter().map(|f| f.map_or(200.0, |t| t as f64 / 30.0)).collect();
+                let me = *t.last().unwrap();
+                t.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                let gap = t[3] - t[0];
+                let place = t.iter().position(|x| *x == me).unwrap() + 1;
+                eprintln!("RACE {class:?} seed {seed}: player {me:.1}s place {place}, 1st-4th {gap:.1}s, place changes {}, rival within 15 m {:.0}%, player pick-ups {}, times {:?}", r.place_changes, 100.0 * r.near, r.player_pickups, t.iter().map(|x| format!("{x:.1}")).collect::<Vec<_>>());
+                close += (gap < 5.0) as u32;
+                gaps += gap;
+                changes += r.place_changes;
+                near += r.near;
+                places.push(place);
+                lens += me;
+                n += 1;
+            }
+            let nf = n as f64;
+            eprintln!("AUDIT RACE {class:?}: 1st-4th under 5 s in {close}/{n} (mean {:.1}s), place changes {:.1}, rival within 15 m {:.0}%, player places {places:?}, player time {:.1}s", gaps / nf, changes as f64 / nf, 100.0 * near / nf, lens / nf);
+        }
+    }
+
+    /// Lines that leave the race route and rejoin it further on with a saving: straight segments the planner's walk check passes
+    /// (drops included), and ones with a single gap a long jump clears (`RACE_GAP` units, default 450). `cargo test --release -p
+    /// jumpman --lib find_race_shortcuts -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn find_race_shortcuts() {
+        use crate::game::world::{CourseRequest, LoadedCourse};
+        let assets = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets");
+        let Ok(course) = LoadedCourse::load(&assets, CourseRequest::new("bob")) else { return };
+        let world = &course.world;
+        let rc = race_course(world);
+        let rail = RailPath::new(&rc.route);
+        let gap_max: f64 = std::env::var("RACE_GAP").ok().and_then(|v| v.parse().ok()).unwrap_or(450.0);
+        let pts: Vec<(f64, V3)> = (0..(rail.total / 150.0) as usize).map(|k| { let a = rail.at(k as f64 * 150.0); (a.s, a.point) }).collect();
+        let floor_at = |x: f64, z: f64, y: f64| -> Option<f64> {
+            let f = world.find_floor(x, y + 300.0, z);
+            f.surface.filter(|s| s.normal[1] > 0.7).map(|_| f.height)
+        };
+        let mut found: Vec<(f64, f64, f64, f64, &str)> = vec![];
+        for i in 0..pts.len() {
+            for j in i + 1..pts.len() {
+                let (si, a) = pts[i];
+                let (sj, b) = pts[j];
+                let d = (b[0] - a[0]).hypot(b[2] - a[2]);
+                let save = sj - si - d;
+                if save < 500.0 || d > 4000.0 || b[1] - a[1] > 60.0 {
+                    continue;
+                }
+                if super::super::crowd_route::segment_walkable_drop(world, a, b, RACE_DROP) {
+                    found.push((save, si, sj, d, "walk"));
+                    continue;
+                }
+                // One gap (no standable floor) no longer than a long jump, landing no higher than the take-off.
+                let steps = (d / 50.0).ceil() as usize;
+                let (mut prev, mut gap, mut gaps, mut ok, mut take_off) = (a[1], 0.0, 0, true, a[1]);
+                for k in 1..=steps {
+                    let t = k as f64 / steps as f64;
+                    let (x, z) = (a[0] + (b[0] - a[0]) * t, a[2] + (b[2] - a[2]) * t);
+                    match floor_at(x, z, prev.max(a[1] + (b[1] - a[1]) * t)) {
+                        Some(h) if (gap == 0.0 && h - prev <= 40.0 && prev - h <= RACE_DROP) || (gap > 0.0 && h <= take_off + 20.0 && take_off - h <= RACE_DROP) => {
+                            prev = h;
+                            gap = 0.0;
+                        }
+                        _ => {
+                            if gap == 0.0 {
+                                gaps += 1;
+                                take_off = prev;
+                            }
+                            gap += d / steps as f64;
+                            if gap > gap_max || gaps > 1 {
+                                ok = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if ok && gaps == 1 && gap == 0.0 {
+                    found.push((save, si, sj, d, "long jump"));
+                }
+            }
+        }
+        found.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+        let mut shown: Vec<(f64, f64)> = vec![];
+        for (save, si, sj, d, kind) in found {
+            if shown.iter().any(|(a, b)| (si - a).abs() < 1200.0 && (sj - b).abs() < 1200.0) {
+                continue;
+            }
+            shown.push((si, sj));
+            let (a, b) = (rail.at(si).point, rail.at(sj).point);
+            eprintln!("SHORTCUT {kind}: s {si:.0} -> {sj:.0} ({d:.0} straight, saves {save:.0}) from ({:.0},{:.0},{:.0}) to ({:.0},{:.0},{:.0})", a[0], a[1], a[2], b[0], b[1], b[2]);
+            if shown.len() >= 15 {
+                break;
+            }
+        }
+    }
+
+    /// Runs one full-physics Mario straight from route distance `RACE_FROM` to `RACE_TO` (full stick at the target; long jumps
+    /// with `RACE_LJ=1`) and prints how long it took and where it ended. `cargo test --release -p jumpman --lib try_race_line --
+    /// --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn try_race_line() {
+        use crate::game::world::{CourseRequest, LoadedCourse};
+        let assets = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets");
+        let Ok(course) = LoadedCourse::load(&assets, CourseRequest::new("bob")) else { return };
+        let rc = race_course(&course.world);
+        let rail = RailPath::new(&rc.route);
+        let env = |k: &str, d: f64| std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d);
+        let (from, to) = (env("RACE_FROM", 9450.0), env("RACE_TO", 12600.0));
+        let r = try_line(&course.world, &rail, rail.at(from).point, rail.at(to).point, std::env::var_os("RACE_LJ").is_some(), true);
+        eprintln!("LINE {from:.0} -> {to:.0}: {r:?}");
+    }
+
+    /// Straight-line run of one crowd Mario from `a` to `b`: (seconds to arrive within 150 units at the target's height, or
+    /// None, final position).
+    pub(super) fn try_line(world: &std::sync::Arc<CollisionWorld>, rail: &RailPath, a: V3, b: V3, long_jump: bool, trace: bool) -> (Option<f64>, V3) {
+        let opts = MarioCrowdOptions { world: world.clone(), route: None, has_leader: false, coin_count: 0, center: [0.0; 3], radius: 6000.0, seed: 1, single_lap: true };
+        let mut crowd = MarioCrowd::new(opts, None, None);
+        let yaw = atan2s(b[2] - a[2], b[0] - a[0]) as f64;
+        crowd.populate_at(&[[a[0], a[1] + 20.0, a[2]]], Personality::Racer, yaw, None);
+        let mut crouched = false;
+        for tick in 0..30 * 20 {
+            let p = crowd.agents[0].body.pos();
+            if (p[0] - b[0]).hypot(p[2] - b[2]) < 150.0 && (p[1] - b[1]).abs() < 200.0 {
+                return (Some(tick as f64 / 30.0), p);
+            }
+            let m = &crowd.agents[0].body.runtime;
+            let grounded = m.action & jumpman_sim::state::ACT_FLAG_AIR == 0;
+            let mut input = DriveInput { yaw: Some(atan2s(b[2] - p[2], b[0] - p[0]) as f64), mag: Some(64.0), ..Default::default() };
+            if crouched {
+                crouched = false;
+                input.jump = true;
+                input.hold_a = true;
+            } else if long_jump && grounded && m.forward_vel > 26.0 {
+                crouched = true;
+                input.crouch = true;
+            }
+            if trace && tick % 15 == 0 {
+                let h = rail.nearest(&p, None, 0);
+                eprintln!("  t={:.1} pos=({:.0},{:.0},{:.0}) s={:.0} act={:x} fv={:.0}", tick as f64 / 30.0, p[0], p[1], p[2], h.s, m.action, m.forward_vel);
+            }
+            crowd.agents[0].manual = Some(input);
+            crowd.update(None);
+        }
+        (None, crowd.agents[0].body.pos())
+    }
+
     /// `RACE_PROBE=x,y,z cargo test ... probe_collision -- --ignored --nocapture`: the walls and floors near a spot of the
     /// route (what a rival is stuck on).
     #[test]
@@ -1384,6 +1556,24 @@ mod tests {
     /// Simulates a field of seven rivals of `class` (and no player: the rubber band sees the player at the
     /// leader's progress) on the real bob course. None when the game data is absent.
     pub(super) fn bob_field_times(class: RaceClass, ticks: u32, seed: u64) -> Option<Vec<Option<u32>>> {
+        bob_race(class, ticks, seed, None).map(|r| r.finish)
+    }
+
+    /// One simulated race (see [`bob_race`]).
+    pub(super) struct RaceRun {
+        /// Finish tick per racer; with a player, the player is the last entry.
+        pub finish: Vec<Option<u32>>,
+        /// Times the player's place changed (after the first 3 s).
+        pub place_changes: u32,
+        /// Share of the player's racing ticks with a rival within 1500 units (15 m).
+        pub near: f64,
+        /// The player's route progress (s) at each pick-up and lift (diagnostics).
+        pub player_pickups: u32,
+    }
+
+    /// As `bob_field_times`, optionally with an eighth racer standing in for the player on the back row, driven by the race brain
+    /// with `player` habits; the rivals' rubber band then follows that racer, as in the game.
+    pub(super) fn bob_race(class: RaceClass, ticks: u32, seed: u64, player: Option<RivalSkill>) -> Option<RaceRun> {
         use crate::game::world::{CourseRequest, LoadedCourse};
         let assets = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets");
         if !assets.join("courses/bob.json").exists() {
@@ -1400,8 +1590,16 @@ mod tests {
         let mut crowd = MarioCrowd::new(opts, None, None);
         let start = rail.at(250.0);
         let yaw = atan2s(start.tangent[1], start.tangent[0]) as f64;
-        let spots: Vec<V3> = (0..RIVALS)
+        let racers = RIVALS + player.is_some() as usize;
+        let pi = player.map(|_| RIVALS);
+        let spots: Vec<V3> = (0..racers)
             .map(|i| {
+                // The player starts on the back row (grid spot 5), as in the game; the rivals fill the rest.
+                let i = match pi {
+                    Some(_) if i == RIVALS => 5,
+                    Some(_) if i >= 5 => i + 1,
+                    _ => i,
+                };
                 let (row, col) = ((i / 4) as f64, (i % 4) as f64 - 1.5);
                 let (tx, tz) = (start.tangent[0], start.tangent[1]);
                 let (x, z) = (start.point[0] - tx * row * 220.0 - tz * col * 170.0, start.point[2] - tz * row * 220.0 + tx * col * 170.0);
@@ -1409,10 +1607,11 @@ mod tests {
             })
             .collect();
         crowd.populate_at(&spots, Personality::Racer, yaw, None);
-        let mut brains = vec![RivalBrain::default(); RIVALS];
-        let mut finish = vec![None; RIVALS];
-        let mut rides: Vec<Option<LakituRide>> = vec![None; RIVALS];
-        let mut lifted = vec![0u32; RIVALS];
+        let mut brains = vec![RivalBrain::default(); racers];
+        let mut finish = vec![None; racers];
+        let mut rides: Vec<Option<LakituRide>> = vec![None; racers];
+        let mut lifted = vec![0u32; racers];
+        let (mut last_place, mut place_changes, mut near, mut racing) = (usize::MAX, 0u32, 0u32, 0u32);
         let mut rng = BrainRng::new(seed);
         let trace = std::env::var_os("RACE_TRACE").is_some();
         if std::env::var("RACE_TRACE").as_deref() == Ok("2") {
@@ -1423,7 +1622,10 @@ mod tests {
         }
         for tick in 0..ticks {
             let positions: Vec<V3> = crowd.agents.iter().map(|a| a.body.pos()).collect();
-            let lead = brains.iter().map(|b| b.s).fold(0.0, f64::max);
+            let lead = match pi {
+                Some(p) => brains[p].s,
+                None => brains.iter().map(|b| b.s).fold(0.0, f64::max),
+            };
             for (i, a) in crowd.agents.iter_mut().enumerate() {
                 if finish[i].is_some() {
                     a.manual = Some(DriveInput::default());
@@ -1435,7 +1637,9 @@ mod tests {
                 let m = &a.body.runtime;
                 let view = RacerView { pos: m.pos, grounded: m.action & jumpman_sim::state::ACT_FLAG_AIR == 0, forward_vel: m.forward_vel, against_wall: m.wall.is_some(), stunned: m.action & (jumpman_sim::state::ACT_FLAG_INTANGIBLE | jumpman_sim::state::ACT_FLAG_INVULNERABLE) != 0 };
                 let others: Vec<V3> = positions.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, p)| *p).collect();
-                let steer = brains[i].steer(&view, &rail, class.skill(i), &others, lead, &mut rng);
+                let skill = if Some(i) == pi { player.unwrap() } else { class.skill(i) };
+                let band = if Some(i) == pi { brains[i].s } else { lead };
+                let steer = brains[i].steer(&view, &rail, skill, &others, band, &mut rng);
                 if let Some((p, y)) = steer.respawn {
                     if std::env::var_os("RACE_PICKS").is_some() {
                         eprintln!("PICKUP rival {i} t={:.1} at s={:.0} pos=({:.0},{:.0},{:.0})", tick as f64 / 30.0, brains[i].pick_at, m.pos[0], m.pos[1], m.pos[2]);
@@ -1462,11 +1666,27 @@ mod tests {
                     eprintln!("t={:.1} s={:.0}/{:.0} best={:.0} pos=({:.0},{:.0},{:.0}) rail=({:.0},{:.0},{:.0}) act={:x} fv={:.0} wall={} pickups={}", tick as f64 / 30.0, hit.s, rail.total, brains[i].best_s, pos[0], pos[1], pos[2], hit.point[0], hit.point[1], hit.point[2], a.body.runtime.action, a.body.runtime.forward_vel, a.body.runtime.wall.is_some(), brains[i].pickups);
                 }
             }
+            if let Some(p) = pi {
+                if finish[p].is_none() {
+                    let progress: Vec<f64> = brains.iter().map(|b| b.s).collect();
+                    let place = standings(&finish, &progress).iter().position(|&i| i == p).unwrap_or(0);
+                    if tick > 90 && place != last_place && last_place != usize::MAX {
+                        place_changes += 1;
+                    }
+                    last_place = place;
+                    racing += 1;
+                    let me = crowd.agents[p].body.pos();
+                    near += crowd.agents.iter().enumerate().any(|(j, a)| j != p && {
+                        let q = a.body.pos();
+                        (q[0] - me[0]).hypot(q[2] - me[2]) < 1500.0 && (q[1] - me[1]).abs() < 600.0
+                    }) as u32;
+                }
+            }
             if finish.iter().all(|f| f.is_some()) {
                 break;
             }
         }
         eprintln!("route {:.0}, pick-ups {:?}, lakitu lifts {:?}", rail.total, brains.iter().map(|b| b.pickups).collect::<Vec<_>>(), lifted);
-        Some(finish)
+        Some(RaceRun { finish, place_changes, near: near as f64 / racing.max(1) as f64, player_pickups: pi.map_or(0, |p| brains[p].pickups) })
     }
 }
