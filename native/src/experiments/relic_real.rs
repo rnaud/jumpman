@@ -402,7 +402,9 @@ pub fn build<P: Probe + ?Sized>(probe: &P, site: &Site, boss_floor: bool) -> Res
         return Err(format!("{}: only {} floor tiles", site.key, f.order.len()));
     }
     let start = f.order[0];
-    let zone = zones(&f, start, if boss_floor { 2 } else { 3 });
+    // Three rooms at least, the lairs too: the entrance, a guard room, then the exit (a lair of two rooms put the boss
+    // straight after the entrance).
+    let zone = zones(&f, start, 3);
     let nz = zone.iter().filter(|z| **z != usize::MAX).max().map_or(0, |m| m + 1);
     if nz < 2 {
         return Err(format!("{}: a single room", site.key));
@@ -891,7 +893,7 @@ mod tests {
             if !connected(&d) {
                 failures.push(format!("{}: floor not connected", s.key));
             }
-            if d.rooms.len() < if boss { 2 } else { 3 } {
+            if d.rooms.len() < 3 {
                 failures.push(format!("{}: {} rooms", s.key, d.rooms.len()));
             }
             for (r, room) in d.rooms.iter().enumerate() {
