@@ -360,6 +360,20 @@ pub fn estats(k: EKind) -> EStats {
     }
 }
 
+/// Mario's body radius on the board (SM64's 37, rounded up).
+pub const HERO_RADIUS: f32 = 40.0;
+
+/// How tall a ground foe stands, for the body test: a hero whose feet are above 70% of it passes over.
+pub fn ekind_height(k: EKind) -> f32 {
+    match k {
+        EKind::Whomp => 320.0,
+        EKind::KingBomb | EKind::Chomp => 220.0,
+        EKind::Bigbutt => 170.0,
+        EKind::Bully => 130.0,
+        _ => 100.0,
+    }
+}
+
 /// Enemy health multiplier for a wave (1-based).
 pub fn wave_hp_mult(wave: u32) -> f32 {
     let n = wave.max(1) as f32 - 1.0;
@@ -1453,6 +1467,46 @@ impl Gate {
         }
     }
 
+    /// The hero's spot `pos` (board-local, `height` above the ground) pushed out of every ground foe's body: the marching
+    /// column has right of way and shoves Mario aside, and Mario cannot walk into a foe either (the foes are never slowed
+    /// or blocked by him, so the waves keep their timing and the defence stays the towers'). Flyers (Boo, Lakitu, Bat,
+    /// Peahat) pass overhead, and a jump that clears most of a foe goes over it. Bodies are [`body::SQUEEZE`] of the contact
+    /// reach so a punch at body contact still lands. A few passes: stepping out of one foe can press into the next.
+    ///
+    /// [`body::SQUEEZE`]: super::body::SQUEEZE
+    pub fn hero_body_push(&self, pos: [f32; 2], height: f32) -> [f32; 2] {
+        use super::body as bd;
+        let mut p = pos;
+        for _ in 0..4 {
+            let before = p;
+            for e in self.enemies.iter() {
+                if !e.alive || e.air || height >= ekind_height(e.kind) * 0.7 {
+                    continue;
+                }
+                let reach = (e.radius + HERO_RADIUS) * bd::SQUEEZE;
+                if (e.pos[0] - p[0]).abs() >= reach || (e.pos[1] - p[1]).abs() >= reach {
+                    continue;
+                }
+                // Coincident: out to the side of the foe's path.
+                p = bd::push_out(p, e.pos, reach, [-e.dir[1], e.dir[0]]);
+            }
+            if bd::dist(before, p) < 0.01 {
+                break;
+            }
+        }
+        p
+    }
+
+    /// Test / audit hook: how deep the hero at `pos` stands inside the deepest ground foe's body.
+    pub fn hero_overlap(&self, pos: [f32; 2], height: f32) -> f32 {
+        use super::body as bd;
+        self.enemies
+            .iter()
+            .filter(|e| e.alive && !e.air && height < ekind_height(e.kind) * 0.7)
+            .map(|e| bd::overlap(pos, e.pos, (e.radius + HERO_RADIUS) * bd::SQUEEZE))
+            .fold(0.0, f32::max)
+    }
+
     fn update_misc(&mut self) {
         for p in self.pickups.iter_mut() {
             if p.alive {
@@ -2487,5 +2541,89 @@ mod tests {
             // Mario helps measurably (Orcs Must Die: the hero matters but the build wins).
             assert!(kept[1] >= kept[0] + 3.0, "map {map}: the fighter keeps {} lives vs the builder's {}", kept[1], kept[0]);
         }
+    }
+
+    /// Body collision (`Gate::hero_body_push`): a foe marching into Mario standing on its road shoves him aside and never
+    /// overlaps him; Mario running into a foe stops at its surface; the column is not held up (the foe walks on past where
+    /// Mario stood); flyers pass over; a punch at body contact still lands. Also the cost at the cap.
+    #[test]
+    fn ground_foes_are_solid_to_the_hero_both_ways_and_flyers_pass_over() {
+        let kinds = [EKind::Goomba, EKind::Bomb, EKind::Bully, EKind::Spiny, EKind::Koopa, EKind::KingBomb, EKind::Chomp, EKind::Whomp, EKind::Wolfos, EKind::Tektite, EKind::Bigbutt];
+        for map in 0..MAPS.len().min(3) {
+            for kind in kinds {
+                let mut g = Gate::new(3, map);
+                g.god = true;
+                g.timer = 1_000_000;
+                let i = g.spawn_enemy(kind, 0, 200.0, 0.0).unwrap();
+                g.enemies[i].hp = 1.0e5;
+                g.enemies[i].max_hp = 1.0e5;
+                // Stand on the road a little ahead of the foe.
+                let (e0, d0) = (g.enemies[i].pos, g.enemies[i].dir);
+                let start = [e0[0] + d0[0] * 260.0, e0[1] + d0[1] * 260.0];
+                let mut h = HeroFrame { pos: start, ..Default::default() };
+                let mut worst = 0.0f32;
+                for t in 0..240 {
+                    g.tick(&h);
+                    if !g.enemies[i].alive {
+                        break;
+                    }
+                    h.pos = g.hero_body_push(h.pos, 0.0);
+                    let o = g.hero_overlap(h.pos, 0.0);
+                    worst = worst.max(o);
+                    assert!(o < 0.5, "map {map} {kind:?} tick {t}: the foe overlaps the hero by {o:.1}");
+                }
+                let passed = !g.enemies[i].alive || g.enemies[i].off > 200.0 + 260.0 + 120.0;
+                assert!(passed, "map {map} {kind:?}: the foe walked on past where the hero stood");
+                // Now the hero runs into a foe (30 units a tick) and punches at body contact.
+                let mut g = Gate::new(3, map);
+                g.god = true;
+                g.timer = 1_000_000;
+                let i = g.spawn_enemy(kind, 0, 600.0, 0.0).unwrap();
+                g.enemies[i].hp = 1.0e5;
+                g.enemies[i].max_hp = 1.0e5;
+                g.enemies[i].speed = 0.0;
+                let e = g.enemies[i].pos;
+                let mut h = HeroFrame { pos: [e[0] - 400.0, e[1]], ..Default::default() };
+                for _ in 0..40 {
+                    let to = [e[0] - h.pos[0], e[1] - h.pos[1]];
+                    let l = to[0].hypot(to[1]).max(1.0);
+                    h.pos = g.hero_body_push([h.pos[0] + to[0] / l * 30.0, h.pos[1] + to[1] / l * 30.0], 0.0);
+                    g.tick(&h);
+                    assert!(g.hero_overlap(h.pos, 0.0) < 0.5, "map {map} {kind:?}: the hero ran into the foe");
+                }
+                let d = (h.pos[0] - g.enemies[i].pos[0]).hypot(h.pos[1] - g.enemies[i].pos[1]);
+                assert!(d < g.enemies[i].radius + HERO_RADIUS + 1.0, "map {map} {kind:?}: the hero reached body contact ({d:.0})");
+                let hp = g.enemies[i].hp;
+                h.face = (g.enemies[i].pos[0] - h.pos[0]).atan2(g.enemies[i].pos[1] - h.pos[1]);
+                h.punch_started = true;
+                g.tick(&h);
+                assert!(g.enemies[i].hp < hp, "map {map} {kind:?}: a punch at body contact lands");
+                eprintln!("body gate map {map} {kind:?}: worst overlap {worst:.2}");
+            }
+            // A flyer passes over: no push.
+            let mut g = Gate::new(3, map);
+            let i = g.spawn_enemy(EKind::Boo, 0, 300.0, 0.0).unwrap();
+            let p = g.enemies[i].pos;
+            assert_eq!(g.hero_body_push(p, 0.0), p);
+        }
+        // Cost at the cap: 180 ground foes around the hero.
+        let mut g = Gate::new(1, 1);
+        g.god = true;
+        g.cap = 190;
+        let mut k = 0;
+        while g.alive_enemies < 180 {
+            g.spawn_enemy([EKind::Goomba, EKind::Bully, EKind::Spiny][k % 3], k, (k as f32 * 37.0) % 3000.0, 0.0);
+            k += 1;
+        }
+        let pts: Vec<[f32; 2]> = g.enemies.iter().filter(|e| e.alive).map(|e| e.pos).collect();
+        let t0 = std::time::Instant::now();
+        let mut acc = 0.0;
+        for (n, p) in pts.iter().cycle().take(30_000).enumerate() {
+            let q = g.hero_body_push([p[0] + (n % 7) as f32, p[1]], 0.0);
+            acc += q[0];
+        }
+        let us = t0.elapsed().as_secs_f64() * 1e6 / 30_000.0;
+        eprintln!("body cost Hold the Gate: {us:.2} us per push with 180 foes ({acc:.0})");
+        assert!(us < 50.0);
     }
 }

@@ -1098,6 +1098,17 @@ impl Experiment for HoldTheGateExperiment {
                 break;
             }
         }
+        // Foes are solid: after they moved, shove the hero out of their bodies (`Gate::hero_body_push`).
+        if self.stage == Stage::Playing && !self.core.over() {
+            let m = &host.sim.mario;
+            let me = self.ground.local(m.pos);
+            let height = (m.pos[1] - self.ground.height(me)).max(0.0) as f32;
+            let to = self.core.hero_body_push(me, height);
+            if to != me {
+                let w = self.ground.frame.dir_to_world([to[0] - me[0], to[1] - me[1]]);
+                host.shift_mario([w[0], 0.0, w[1]]);
+            }
+        }
     }
 
     fn frame(&mut self, host: &mut Host, dt: f64) {
