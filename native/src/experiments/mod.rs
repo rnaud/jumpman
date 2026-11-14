@@ -41,6 +41,7 @@ pub mod dimensions;
 pub mod foes;
 pub mod foes_view;
 pub mod geometry;
+pub mod ground_fit;
 pub mod gate;
 pub mod gate_core;
 pub mod gate_view;

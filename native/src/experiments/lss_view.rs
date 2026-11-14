@@ -303,6 +303,15 @@ fn tube(color: [f32; 3], bottom: f32, top: f32) -> Mesh {
         .with_inserted_indices(Indices::U32(idx))
 }
 
+/// Half heights of the item meshes (index = item kind), at scale 1.
+const ITEM_HALF: [f32; 9] = [34.0, 38.0, 35.0, 46.0, 30.0, 13.0, 20.0, 36.0, 36.0];
+
+/// How high an item's centre floats over the ground: 60 (plus its bob), and more for a big one (an epic star burst is a ball
+/// of 60), so its lowest point stays 10 over the grass.
+pub fn item_lift(kind: usize, scale: f32, bob: f32) -> f32 {
+    (60.0 + bob).max(ITEM_HALF[kind.min(8)] * scale + 10.0)
+}
+
 fn build_shared(meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>) -> Shared {
     let sphere = |meshes: &mut Assets<Mesh>, r: f32| meshes.add(Sphere::new(r * SCALE).mesh().ico(1).unwrap());
     let item_mesh = [
@@ -411,7 +420,7 @@ fn sync_render(
                     slot.kind = item.kind;
                 }
                 let bob = (t * 2.5 + i as f32).sin() * 8.0;
-                place(&mut q, slot.body.unwrap(), true, item.pos + Vec3::Y * (60.0 + bob) * SCALE, spin, Vec3::splat(item.scale));
+                place(&mut q, slot.body.unwrap(), true, item.pos + Vec3::Y * item_lift(k, item.scale, bob) * SCALE, spin, Vec3::splat(item.scale));
                 let ring = *slot.ring.get_or_insert_with(|| hidden(&mut commands, &shared.ring, &shared.ring_mat[0]));
                 commands.entity(ring).insert(MeshMaterial3d(shared.ring_mat[rarity].clone()));
                 place(&mut q, ring, true, item.pos + Vec3::Y * 4.0 * SCALE, ring_rot, Vec3::splat(70.0 * SCALE));
@@ -1181,6 +1190,21 @@ fn overlay_display(state: Res<AppState>, mut roots: Query<&mut Node, With<Overla
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every floor item's lowest point clears the ground through its bob at every rarity size (scale 0.7 fading in to 1.3
+    /// for an epic): an epic star burst, a ball of 60, used to dip into the grass at the bottom of its bob.
+    #[test]
+    fn floor_items_clear_the_ground_through_their_bob() {
+        for kind in 0..9 {
+            for scale in [0.7f32, 1.0, 1.15, 1.3] {
+                for k in 0..20 {
+                    let bob = (k as f32 * 0.4).sin() * 8.0;
+                    let low = item_lift(kind, scale, bob) - ITEM_HALF[kind] * scale;
+                    assert!(low >= 9.9, "item {kind} at x{scale}: lowest point {low:.1} over the ground");
+                }
+            }
+        }
+    }
 
     #[test]
     fn bridge_reset_sizes_every_list_and_clears_state() {

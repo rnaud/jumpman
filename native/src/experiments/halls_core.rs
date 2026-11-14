@@ -213,6 +213,9 @@ pub struct Hazard {
     pub dmg: i32,
 }
 
+/// How fast a heart drop falls to the floor (units a tick).
+pub const DROP_FALL: f32 = 14.0;
+
 #[derive(Clone, Copy, Debug)]
 pub struct Drop {
     pub alive: bool,
@@ -1081,11 +1084,16 @@ impl Halls {
     fn drops_tick(&mut self, f: &PlayerFrame) {
         let me = [f.pos[0], f.pos[2]];
         let mut healed = false;
+        let geom = &self.geom;
         for d in self.drops.iter_mut() {
             if !d.alive {
                 continue;
             }
             d.age += 1;
+            // It drops to the floor under it (a Boo dies in the air) and lies there.
+            if let Some(y) = geom.floor_y(d.pos[0], d.pos[2], d.pos[1] + 10.0) {
+                d.pos[1] = (d.pos[1] - DROP_FALL).max(y);
+            }
             if d.age > 600 {
                 d.alive = false;
             } else if d.age > 12 && dist2([d.pos[0], d.pos[2]], me) < 100.0 && (f.pos[1] - d.pos[1]).abs() < 180.0 && self.player.hp < self.save.max_hp {

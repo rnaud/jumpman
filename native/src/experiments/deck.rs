@@ -32,6 +32,22 @@ pub const STAGE_COURSE: &str = "castle_grounds";
 const STAGE_NEAR: [f64; 2] = [-2400.0, 3000.0];
 /// The stage centre, set on entering (a stand-in far from everything until then and in unit tests).
 static STAGE: std::sync::RwLock<[f64; 3]> = std::sync::RwLock::new([-150000.0, 1000.0, -150000.0]);
+/// The stage course's collision, set on entering (none in unit tests): what the foes and props stand on.
+static STAGE_WORLD: std::sync::RwLock<Option<std::sync::Arc<CollisionWorld>>> = std::sync::RwLock::new(None);
+
+/// A stage mark put on the real lawn under it: the stage is level only to within a small step, so a foe drawn at the
+/// stage's height could stand that much in the grass or over it. Unchanged without the course (unit tests).
+pub fn on_floor(p: [f64; 3]) -> [f64; 3] {
+    match STAGE_WORLD.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        Some(w) => on_floor_in(w, p),
+        None => p,
+    }
+}
+
+/// [`on_floor`] in a given world.
+pub fn on_floor_in(world: &CollisionWorld, p: [f64; 3]) -> [f64; 3] {
+    [p[0], super::ground_fit::floor_near(world, p[0], p[2], p[1]), p[2]]
+}
 
 /// The stage centre in course coordinates (the hero stands left of it, the foes right, the camera looks at -z).
 pub fn stage() -> [f64; 3] {
@@ -65,6 +81,13 @@ pub fn stage_on(world: &CollisionWorld) -> [f64; 3] {
     }
     best.map_or([STAGE_NEAR[0], 0.0, STAGE_NEAR[1]], |(_, p)| p)
 }
+/// How far (Bevy units) a foe's model origin is lifted above its mark so its lowest point is on the lawn: its model's reach
+/// below the origin (`ground_fit`) at its drawn scale (`grow` is the spawn-in growth, 0..1).
+pub fn foe_rest_lift(kind: EnemyKind, grow: f32) -> f32 {
+    let info = kind.info();
+    super::ground_fit::rest_lift(info.model, FOE_K * info.scale * grow) * crate::render::SCALE
+}
+
 /// The hero faces +x (toward the foes).
 const HERO_YAW: f64 = 0x4000 as f64;
 /// Model scale factor for foes (their glb units are SM64 units).
@@ -903,6 +926,7 @@ impl Experiment for StarDeckExperiment {
         let world = host.course_world();
         if !world.surfaces().is_empty() {
             *STAGE.write().unwrap_or_else(|e| e.into_inner()) = stage_on(&world);
+            *STAGE_WORLD.write().unwrap_or_else(|e| e.into_inner()) = Some(world.clone());
         }
         build_stage(host);
         host.place_mario(at(hero_home(true), 0.0, 20.0, 0.0), Some(HERO_YAW));
@@ -1530,7 +1554,7 @@ fn sync_foes(
             let i = g.foes3d.len();
             let Some(kind) = g.run.combat.as_ref().map(|c| c.foes[i].kind) else { break };
             let info = kind.info();
-            let home = foe_slot(i, g.n_start);
+            let home = on_floor(foe_slot(i, g.n_start));
             let entity = if root.exists(info.model) {
                 let mut e = crate::render::object_view::spawn_model(&mut commands, &assets, &root, info.model, true);
                 e.insert((XpEntity, FoeBody(i), Visibility::Hidden));
@@ -1559,7 +1583,8 @@ fn sync_foes(
         let alive_u = ((t - f.born) / 0.4).clamp(0.0, 1.0);
         let mut scale = FOE_K * info.scale * smooth(alive_u) as f32;
         let mut pos = to_bevy(f.home);
-        pos.y += info.hover * 100.0 * 0.01 * 1.5 + (t as f32 * 2.0 + i as f32 * 1.7).sin() * if info.hover > 0.0 { 0.12 } else { 0.0 };
+        // Centre-origin models (the Tether Hound's ball, the Gloomwisp, the Zapper) stand on their lowest point, then hover.
+        pos.y += foe_rest_lift(f.kind, smooth(alive_u) as f32) + info.hover * 100.0 * 0.01 * 1.5 + (t as f32 * 2.0 + i as f32 * 1.7).sin() * if info.hover > 0.0 { 0.12 } else { 0.0 };
         let mut yaw = -std::f32::consts::FRAC_PI_2;
         let mut visible = alive_u > 0.0;
         if let Some((t0, dur)) = f.lunge {
@@ -1568,7 +1593,8 @@ fn sync_foes(
                 // Wind back, then lunge toward the hero and return.
                 let k = if u < 0.35 { -0.25 * smooth(u / 0.35) as f32 } else if u < 0.6 { -0.25 + 1.25 * smooth((u - 0.35) / 0.25) as f32 } else { 1.0 - smooth((u - 0.6) / 0.4) as f32 };
                 pos.x -= k * (FOE_LUNGE as f32 * crate::render::SCALE);
-                pos.y += (u * std::f64::consts::PI) as f32 * 0.5;
+                // A hop over the lunge: up and back down onto its mark (it used to rise all the way and snap down at the end).
+                pos.y += (u * std::f64::consts::PI).sin() as f32 * 0.5;
             }
         }
         if let Some(d) = f.died {
@@ -1581,6 +1607,8 @@ fn sync_foes(
             let u = ((t - f.hurt) / 0.3) as f32;
             pos.x += (u * 40.0).sin() * 0.2 * (1.0 - u);
             scale *= 1.0 + 0.16 * (1.0 - u);
+            // A centre-origin model swells about its centre: keep its lowest point on the lawn.
+            pos.y += foe_rest_lift(f.kind, smooth(alive_u) as f32) * 0.16 * (1.0 - u);
         }
         tf.translation = pos;
         tf.rotation = Quat::from_rotation_y(yaw);
@@ -1684,6 +1712,9 @@ fn update_props(
             if !root.exists(model) {
                 return;
             }
+            // Its height over the stage, kept over the lawn right under it.
+            let floor = on_floor([pos[0], stage()[1], pos[2]])[1];
+            let pos = [pos[0], floor + pos[1] - stage()[1], pos[2]];
             let mut e = crate::render::object_view::spawn_model(&mut commands, &assets, &root, model, true);
             e.insert((XpEntity, Prop { screens, spin }, Visibility::Hidden, Transform::from_translation(to_bevy(pos)).with_scale(Vec3::splat(scale)).with_rotation(Quat::from_rotation_y(yaw))));
         };
@@ -1778,7 +1809,7 @@ fn project_foes(mut g: ResMut<DeckGame>, cameras: Query<(&Camera, &GlobalTransfo
     for (i, f) in g.foes3d.iter().enumerate() {
         let info = f.kind.info();
         let base = to_bevy(f.home);
-        let h = info.height * FOE_K * info.scale + info.hover * 0.01 * 1.5 * 100.0 * 0.0 + if info.hover > 0.0 { info.hover * 1.4 } else { 0.0 };
+        let h = info.height * FOE_K * info.scale + info.hover * 0.01 * 1.5 * 100.0 * 0.0 + if info.hover > 0.0 { info.hover * 1.4 } else { 0.0 } + foe_rest_lift(f.kind, 1.0);
         let (Ok(b), Ok(t), Ok(c)) = (camera.world_to_viewport(gt, base), camera.world_to_viewport(gt, base + Vec3::Y * h), camera.world_to_viewport(gt, base + Vec3::Y * h * 0.5)) else { continue };
         let half_w = ((b.y - t.y).abs() * 0.45).clamp(22.0, 80.0);
         out[i] = FoeScreen { center: c, top: t, bottom: b, half_w, on: true };

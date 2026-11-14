@@ -45,6 +45,32 @@ fn at(d: &Dungeon, p: [f32; 2], lift: f32) -> Vec3 {
     to_bevy(d.world(p, lift))
 }
 
+/// Bevy position `lift` above the scene's own floor under a floor-plane point: a real dungeon's tile heights are steps on a
+/// 110 grid (a ramp is a staircase of them, a bump inside a tile is missed), so feet and loot stand on the collision floor
+/// found near the tile's height instead. Generated floors are flat and come out the same.
+fn at_floor(w: &CollisionWorld, d: &Dungeon, p: [f32; 2], lift: f32) -> Vec3 {
+    to_bevy(world_on_floor(w, d, p, lift))
+}
+
+/// [`at_floor`] in course units.
+pub fn world_on_floor(w: &CollisionWorld, d: &Dungeon, p: [f32; 2], lift: f32) -> [f64; 3] {
+    let o = d.world(p, 0.0);
+    [o[0], super::ground_fit::floor_near(w, o[0], o[2], o[1]) + lift as f64, o[2]]
+}
+
+/// How high a drop's centre floats over the floor: its half height (a coin on edge stands 30 tall each side, a potion is a
+/// ball of 36, an item a tilted 46 cube reaching 32 at scale 1) plus a hover, so it clears the floor through its bob.
+pub fn drop_lift(kind: DropKind, scale: f32, t: f32) -> f32 {
+    match kind {
+        DropKind::Gold => 35.0,
+        DropKind::Potion => 36.0 * scale + 6.0 + (t.sin() + 1.0) * 4.0,
+        DropKind::Item => 32.0 * scale + 6.0 + (t.sin() + 1.0) * 4.0,
+    }
+}
+
+/// How far a Wraith (a Boo, centred on its origin) floats clear of the floor under its lowest point, before its bob of 16.
+const WRAITH_FLOAT: f32 = 30.0;
+
 /// Course position of a floor-plane point on the floor.
 fn world_pos(d: &Dungeon, p: [f32; 2]) -> [f64; 3] {
     d.world(p, 0.0)
@@ -1110,6 +1136,8 @@ impl RelicDescentExperiment {
         let t = self.t as f32;
         let core = &self.core;
         let dg = &core.dungeon;
+        let wd = host.sim.mario.world.clone();
+        let w = &*wd;
         let me = core.player.pos;
         let lerp =|p: [f32; 2], q: [f32; 2]| [p[0] + (q[0] - p[0]) * a, p[1] + (q[1] - p[1]) * a];
         let b = &mut *host.relic;
@@ -1140,7 +1168,7 @@ impl RelicDescentExperiment {
                     b.foes.push(FoeItem {
                         id: i as u32,
                         species: sp,
-                        pos: at(dg, [p[0] + shake, p[1]], foe_lift(e) + (t * 3.0 + i as f32).sin().abs() * if sp.flies() { 12.0 } else { 0.0 }),
+                        pos: at_floor(w, dg, [p[0] + shake, p[1]], foe_lift(e) + (t * 3.0 + i as f32).sin().abs() * if sp.flies() { 12.0 } else { 0.0 }),
                         yaw: self.yaws[i],
                         radius: e.radius,
                         pose: foe_pose(e, moving),
@@ -1174,9 +1202,11 @@ impl RelicDescentExperiment {
             let shake = if e.winding_up() { (t * 70.0).sin() * 12.0 } else { 0.0 };
             let pulse = if e.state == EState::Fuse { 1.0 + 0.2 * (t * 30.0).sin().abs() } else { 1.0 };
             item.kind = e.kind as u8;
-            item.pos = at(dg, [p[0] + shake, p[1]], lift + hop + bob);
-            item.yaw = self.yaws[i];
             item.scale = scale * pulse * (1.0 + 0.12 * e.flash as f32 / 4.0) * if e.mods != 0 { 1.2 } else { 1.0 } * (e.radius / enemy_stats(e.kind).radius / if e.mods != 0 { 1.2 } else { 1.0 });
+            // A Wraith is a Boo centred on its origin: it floats clear of the floor whatever its size.
+            let lift = if e.kind == EnemyKind::Wraith { super::ground_fit::BOO_FOOT * item.scale + WRAITH_FLOAT } else { lift };
+            item.pos = at_floor(w, dg, [p[0] + shake, p[1]], lift + hop + bob);
+            item.yaw = self.yaws[i];
             item.aux = e.mods as f32;
             // Health bar for hurt, elite and boss foes within view range.
             if nbars < b.bars.len() && (e.hp < e.max_hp || e.is_elite() || e.kind == EnemyKind::King) && e.kind != EnemyKind::King {
@@ -1224,12 +1254,13 @@ impl RelicDescentExperiment {
                 item.kind = 0;
                 continue;
             }
-            let bob = 40.0 + (t * 3.0 + i as f32).sin() * 8.0;
             let pop = (1.0 - d.age as f32 / 10.0).max(0.0) * 80.0;
+            let scale = if d.kind == DropKind::Item { 1.0 + 0.1 * d.item.rarity as u8 as f32 } else { 1.0 };
+            let bob = drop_lift(d.kind, scale, t * 3.0 + i as f32);
             match d.kind {
-                DropKind::Gold => *item = RItem { kind: 1, pos: at(dg, d.pos, 35.0 + pop), yaw: 0.0, scale: 1.0, aux: 0.0 },
-                DropKind::Potion => *item = RItem { kind: 2, pos: at(dg, d.pos, bob + pop), yaw: 0.0, scale: 1.0, aux: 0.0 },
-                DropKind::Item => *item = RItem { kind: 3, pos: at(dg, d.pos, bob + pop), yaw: 0.0, scale: 1.0 + 0.1 * d.item.rarity as u8 as f32, aux: d.item.rarity as u8 as f32 },
+                DropKind::Gold => *item = RItem { kind: 1, pos: at_floor(w, dg, d.pos, bob + pop), yaw: 0.0, scale, aux: 0.0 },
+                DropKind::Potion => *item = RItem { kind: 2, pos: at_floor(w, dg, d.pos, bob + pop), yaw: 0.0, scale, aux: 0.0 },
+                DropKind::Item => *item = RItem { kind: 3, pos: at_floor(w, dg, d.pos, bob + pop), yaw: 0.0, scale, aux: d.item.rarity as u8 as f32 },
             }
             let worth_label = match d.kind {
                 DropKind::Gold => d.amount >= 40,
@@ -1244,14 +1275,14 @@ impl RelicDescentExperiment {
                 if kind == 2 && !b.names.contains_key(&id) {
                     b.names.insert(id, d.item.name());
                 }
-                b.labels[nlabels] = LabelView { on: true, pos: at(dg, d.pos, bob + pop), id, kind, rarity };
+                b.labels[nlabels] = LabelView { on: true, pos: at_floor(w, dg, d.pos, bob + pop), id, kind, rarity };
                 nlabels += 1;
             }
         }
         for (i, c) in core.chests.iter().enumerate() {
             let item = &mut b.chests[i];
             match c {
-                Some(ch) => *item = RItem { kind: 1, pos: at(dg, ch.pos, 0.0), yaw: 0.0, scale: 1.6, aux: if ch.opened { 1.0 } else { 0.0 } },
+                Some(ch) => *item = RItem { kind: 1, pos: at_floor(w, dg, ch.pos, 0.0), yaw: 0.0, scale: 1.6, aux: if ch.opened { 1.0 } else { 0.0 } },
                 None => item.kind = 0,
             }
         }
@@ -1636,6 +1667,67 @@ impl Experiment for RelicDescentExperiment {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Feet and loot stand on the scene's own floor: on a dungeon whose floor is a slope (its tile heights are the steps a
+    /// real floor's 110 grid makes of it), foes chasing the hero across it and every drop are placed on the slope itself at
+    /// their own spot, where the tile's step would have them up to half a tile's rise in it or over it; a Wraith (a Boo)
+    /// floats clear of it and the drops' lowest points clear it through their bob.
+    #[test]
+    fn foes_and_loot_stand_on_a_sloped_dungeon_floor() {
+        use super::super::ground_fit::{tests::slope_world, BOO_FOOT};
+        let slope = 0.25f32;
+        let mut r = Relic::new(11, Hero::Mario, 2, 0);
+        r.stats.max_hp *= 1000.0;
+        r.player.hp = r.stats.max_hp;
+        let (w, h, tile) = (r.dungeon.w, r.dungeon.h, r.dungeon.tile);
+        r.dungeon.origin = [0.0, 1000.0, 0.0];
+        r.dungeon.heights = (0..w * h).map(|i| slope * ((i % w) as f32 + 0.5) * tile).collect();
+        let world = slope_world(1000.0, slope as f64, (w.max(h) as f64 + 4.0) * tile as f64);
+        let plane = |p: [f32; 2]| 1000.0 + (slope * p[0]) as f64;
+        let c = r.start_pos();
+        r.player.pos = c;
+        for (k, kind) in [EnemyKind::Scamp, EnemyKind::Bruiser, EnemyKind::Lancer, EnemyKind::Wraith, EnemyKind::Sapper].into_iter().enumerate() {
+            let a = k as f32 * 1.3;
+            if let Some(i) = r.spawn_enemy(kind, [c[0] + a.cos() * 500.0, c[1] + a.sin() * 500.0], 0, 0) {
+                r.enemies[i].hp = 1.0e5;
+                r.enemies[i].max_hp = 1.0e5;
+            }
+        }
+        let (mut worst_tile, mut checked) = (0.0f64, 0);
+        for t in 0..30 * 15 {
+            let f = PlayerFrame { pos: r.player.pos, grounded: true, face: r.player.face, ..Default::default() };
+            r.tick(&f, &Intent::default());
+            r.player.iframes = 0;
+            for e in r.enemies.iter().filter(|e| e.alive) {
+                let q = world_on_floor(&world, &r.dungeon, e.pos, 0.0);
+                assert!((q[1] - plane(e.pos)).abs() < 0.5, "tick {t}: {:?} at {:?} stands {:.1} off the slope", e.kind, e.pos, q[1] - plane(e.pos));
+                worst_tile = worst_tile.max((r.dungeon.world(e.pos, 0.0)[1] - plane(e.pos)).abs());
+                checked += 1;
+            }
+            for d in r.drops.iter().filter(|d| d.alive) {
+                let q = world_on_floor(&world, &r.dungeon, d.pos, 0.0);
+                assert!((q[1] - plane(d.pos)).abs() < 0.5, "a drop lies on the slope");
+            }
+        }
+        assert!(checked > 300, "foes walked ({checked})");
+        assert!(worst_tile > 10.0, "the tile steps really are off the slope ({worst_tile:.1}), so the test means something");
+        // A Wraith (a Boo of any size) drawn `BOO_FOOT * scale + WRAITH_FLOAT` up keeps its lowest point over the floor
+        // through its bob of 16.
+        for scale in [0.8f32, 1.0, 1.2, 1.5] {
+            let low = BOO_FOOT * scale + WRAITH_FLOAT - 16.0 - BOO_FOOT * scale;
+            assert!(low > 5.0, "a Wraith dips into the floor at scale {scale}");
+        }
+        // Drops: the lowest point of each clears the floor through its bob, a little over it.
+        for (kind, half) in [(DropKind::Gold, 30.0f32), (DropKind::Potion, 36.0), (DropKind::Item, 32.0)] {
+            for scale in [1.0f32, 1.2, 1.4] {
+                for ph in 0..32 {
+                    let s = if kind == DropKind::Item { scale } else { 1.0 };
+                    let low = drop_lift(kind, s, ph as f32 * 0.2) - half * s;
+                    assert!((0.0..=20.0).contains(&low), "{kind:?} x{s}: lowest point {low:.1} over the floor");
+                }
+            }
+        }
+    }
 
     #[test]
     fn lessons_come_once_each_most_urgent_first() {

@@ -282,6 +282,43 @@ fn the_stage_is_level_real_ground() {
     }
 }
 
+/// Foes stand on the lawn: each foe's mark is put on the real floor under it (the stage is level only to within a small
+/// step), and a centre-origin model (the Tether Hound's Chain Chomp ball, the Gloomwisp's Boo, the Zapper's Amp) is lifted
+/// by its reach below its origin, so its lowest point is on the mark (through its spawn-in growth) and never in the grass.
+#[test]
+fn foes_stand_on_the_lawn_with_their_lowest_point() {
+    use super::ground_fit;
+    for kind in ENEMY_KINDS {
+        let info = kind.info();
+        for k in 0..=10 {
+            let grow = k as f32 / 10.0;
+            let low = foe_rest_lift(kind, grow) - ground_fit::foot(info.model) * 1.7 * info.scale * grow * crate::render::SCALE;
+            assert!(low.abs() < 1e-5, "{kind:?}: lowest point {low} off its mark at growth {grow}");
+        }
+    }
+    assert!(foe_rest_lift(EnemyKind::TetherHound, 1.0) > 1.5, "the Chomp's ball is lifted by its radius");
+    assert_eq!(foe_rest_lift(EnemyKind::Scuttler, 1.0), 0.0, "a Goomba stands on its origin");
+    use crate::game::world::{CourseRequest, LoadedCourse};
+    let assets = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets");
+    if !assets.join(format!("courses/{STAGE_COURSE}.json")).exists() {
+        eprintln!("skipped the course half: no {STAGE_COURSE} data on this machine");
+        return;
+    }
+    let course = LoadedCourse::load(&assets, CourseRequest::new(STAGE_COURSE)).expect("course loads");
+    let stage = stage_on(&course.world);
+    let mut worst = 0.0f64;
+    for n in 1..=3 {
+        for i in 0..n + 3 {
+            let mark = foe_slot_at(stage, i, n);
+            let p = on_floor_in(&course.world, mark);
+            let real = course.world.find_floor(p[0], p[1] + 100.0, p[2]).height;
+            assert!((p[1] - real).abs() < 0.5, "slot {i} of {n}: drawn at {:.1}, the lawn is {real:.1}", p[1]);
+            worst = worst.max((mark[1] - real).abs());
+        }
+    }
+    eprintln!("the stage height was off the lawn under a foe by up to {worst:.1}");
+}
+
 /// Chains feel different from loose cards (`MINIGAMES_RESEARCH.md` section 4, checklist 3): every further link rings a
 /// higher chime, throws more sparks and shakes the stage harder; and a card that lands holds the fight for a beat of
 /// hit-stop that grows with the damage (checklist 10).

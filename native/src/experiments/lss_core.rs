@@ -1848,6 +1848,13 @@ impl Lss {
             }
             let mut pk = self.pickups[p];
             pk.age += 1;
+            // A new pickup lies on the ground at its own spot: loot spilled 110 out from a fighter (on a slope, or one who
+            // fell in the air) or swapped out mid-jump starts at the fighter's height, not the floor's.
+            if pk.age <= 2 && !matches!(pk.kind, PickKind::Crate { .. }) {
+                if let Some(g) = terrain.ground(pk.pos[0], pk.pos[1] + 150.0, pk.pos[2]) {
+                    pk.pos[1] = g.y;
+                }
+            }
             if let PickKind::Crate { drop_y, opened } = pk.kind {
                 if drop_y > pk.pos[1] {
                     let nd = (drop_y - 16.0).max(pk.pos[1]);
@@ -2849,6 +2856,55 @@ pub(crate) mod tests {
         l.fighters[1].pos = [0.0, -900.0, 0.0];
         run(&mut l, &t, 1);
         assert!(l.events.iter().any(|e| matches!(e, Event::Elim { victim: 1, killer: None, .. })));
+    }
+
+    /// A tilted island: the ground rises 0.3 per unit of x (an SM64 floor query from `y` finds it when it is no more than
+    /// 78 above `y`).
+    struct Slope;
+
+    impl Terrain for Slope {
+        fn ground(&self, x: f32, y: f32, z: f32) -> Option<Ground> {
+            let g = 0.3 * x;
+            (x.hypot(z) < 6300.0 && g <= y + 78.0).then_some(Ground { y: g, surf: Surf::Solid })
+        }
+        fn wall(&self, pos: [f32; 3]) -> [f32; 3] {
+            pos
+        }
+    }
+
+    /// Loot lies on the ground at its own spot: what an eliminated fighter spills 110 around him on a slope, and what he
+    /// drops in mid-air, ends on the slope under each item, not at his height.
+    #[test]
+    fn spilled_and_dropped_loot_lies_on_a_slope() {
+        let (mut l, flat) = new_match(4, 3);
+        l.fast_forward(40.0, &flat);
+        l.freeze_bots = true;
+        let t = Slope;
+        assert!((1..4).all(|i| l.fighters[i].alive), "everybody landed");
+        for p in l.pickups.iter_mut() {
+            p.alive = false;
+        }
+        let m = vec![None; l.fighters.len()];
+        for (id, air) in [(1usize, 0.0f32), (2, 260.0)] {
+            let x = if id == 1 { 900.0 } else { -700.0 };
+            l.fighters[id].pos = [x, 0.3 * x + air, 400.0];
+            for kind in ALL_KINDS.iter().take(4) {
+                l.give(id, Item::new(*kind, Rarity::Rare));
+            }
+            l.eliminate(id, Cause::Fight);
+        }
+        // A survivor swaps a weapon out in mid-air: it drops where he is.
+        l.fighters[3].pos = [300.0, 0.3 * 300.0 + 200.0, -500.0];
+        for kind in ALL_KINDS.iter().filter(|k| k.is_weapon()).cycle().take(8) {
+            l.give(3, Item::new(*kind, Rarity::Common));
+            l.give(3, Item::new(*kind, Rarity::Epic));
+        }
+        let live = l.pickups.iter().filter(|p| p.alive).count();
+        assert!(live >= 6, "loot was spilled and dropped ({live})");
+        l.tick(&t, &m);
+        for p in l.pickups.iter().filter(|p| p.alive) {
+            assert!((p.pos[1] - 0.3 * p.pos[0]).abs() < 0.5, "loot at {:?} lies {:.1} off the slope", p.pos, p.pos[1] - 0.3 * p.pos[0]);
+        }
     }
 
     #[test]

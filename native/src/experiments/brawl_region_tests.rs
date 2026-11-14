@@ -12,6 +12,8 @@ use std::sync::Arc;
 mod hazard_tests;
 #[path = "brawl_body_tests.rs"]
 mod body_tests;
+#[path = "brawl_ground_tests.rs"]
+mod ground_tests;
 
 fn idle() -> [Input; MAXF] {
     [Input::default(); MAXF]

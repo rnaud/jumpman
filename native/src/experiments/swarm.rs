@@ -110,6 +110,34 @@ fn look(kind: EnemyKind) -> (f32, f32) {
     }
 }
 
+/// Foes this wide (radius) stand on the highest floor under their body, not just the point under their centre.
+pub const BIG_BODY: f32 = 150.0;
+/// How far a Wisp (a Boo) floats clear of the ground under its lowest point, before its bob of 16.
+const WISP_FLOAT: f32 = 30.0;
+
+/// Height of a foe's model origin over an arena-local point (before its hop / bob): on the course's own floor there (the
+/// highest part under a big body), lifted by what its model needs to stand on it: a Chomp's ball by its radius over the
+/// slope's normal (`scale` is the model's drawn scale), a Wisp so it floats clear of the grass, the rest by their look.
+pub fn foe_origin_y(t: &Terrain, kind: EnemyKind, p: [f32; 2], radius: f32, scale: f32) -> f32 {
+    let (floor, ny) = t.surface(p);
+    match kind {
+        EnemyKind::Chomp => floor + super::ground_fit::CHOMP_FOOT * scale / ny.max(0.5),
+        EnemyKind::Wisp => floor + super::ground_fit::BOO_FOOT * scale + WISP_FLOAT,
+        _ => (if radius >= BIG_BODY { floor.max(t.footprint(p, radius)) } else { floor }) + look(kind).1,
+    }
+}
+
+/// How high a gem's centre floats over the floor: its half height (a coin stood on edge, a heart, a chest box; `scale` is
+/// its drawn scale) plus a hover, so its lowest point clears the grass through its bob. A chest sits on the ground.
+pub fn gem_lift(look: u8, scale: f32, t: f32) -> f32 {
+    let half = match look {
+        3 | 5 | 6 => 46.0,
+        4 => 40.0,
+        _ => 34.0,
+    } * scale;
+    if look == 4 { half } else { half + 6.0 + (t.sin() + 1.0) * 4.0 }
+}
+
 /// One streamed square of ground: `CH x CH` cells of [`CELL`] units.
 struct Chunk {
     /// Height of the player when it was sampled (floors far above that, roofs and ledges, are not sampled).
@@ -212,6 +240,21 @@ impl Terrain {
             done += 1;
         }
         done
+    }
+
+    /// The course's own floor under a local point and its normal's y, found near the streamed ground there: the bilinear
+    /// corners of a 100-unit cell cut through bumps and miss steps and dips, so feet and pickups stand on this instead.
+    pub fn surface(&self, p: [f32; 2]) -> (f32, f32) {
+        let near = self.height(p) as f64;
+        let (x, z) = (self.center[0] + p[0] as f64, self.center[1] + p[1] as f64);
+        super::ground_fit::floor_hit(&self.world, x, z, near).map_or((near as f32, 1.0), |(h, ny)| (h as f32, ny as f32))
+    }
+
+    /// The highest floor under a round body of radius `r` (centre and four points half way out): a big foe on uneven ground
+    /// stands on the highest part under it, not with its uphill side in the hill.
+    pub fn footprint(&self, p: [f32; 2], r: f32) -> f32 {
+        let h = r * 0.5;
+        [[0.0, 0.0], [h, 0.0], [-h, 0.0], [0.0, h], [0.0, -h]].iter().map(|d| self.surface([p[0] + d[0], p[1] + d[1]]).0).fold(f32::MIN, f32::max)
     }
 
     /// Ground height at a local point (bilinear; unknown corners take their neighbours' mean, else the fallback).
@@ -909,6 +952,21 @@ impl StarSwarmExperiment {
         to_bevy([self.center[0] + p[0] as f64, (self.ground(p) + height) as f64, self.center[2] + p[1] as f64])
     }
 
+    /// World position of an arena-plane point at course height `y`.
+    fn at_y(&self, p: [f32; 2], y: f32) -> Vec3 {
+        to_bevy([self.center[0] + p[0] as f64, y as f64, self.center[2] + p[1] as f64])
+    }
+
+    /// The course's own floor under an arena-local point (what pickups lie on).
+    fn floor_y(&self, p: [f32; 2]) -> f32 {
+        self.terrain.as_ref().map_or(0.0, |t| t.surface(p).0)
+    }
+
+    /// Course height of a foe's model origin (see [`foe_origin_y`]).
+    fn foe_y(&self, kind: EnemyKind, p: [f32; 2], radius: f32, scale: f32) -> f32 {
+        self.terrain.as_ref().map_or(look(kind).1, |t| foe_origin_y(t, kind, p, radius, scale))
+    }
+
     /// A third-person orbit camera behind the hero: the shell's rig supplies the yaw, pitch and zoom the player drags
     /// (right stick, touch drag, mouse); the hero moves relative to that yaw. The distance grows slightly with the
     /// crowd, the course's walls and hills pull the camera in, and the look-at point (eased by [`Follow`]) sits above the
@@ -971,7 +1029,8 @@ impl StarSwarmExperiment {
                 let flies = if sp.flies() { 130.0 + (t * 3.0 + i as f32).sin() * 14.0 } else { 0.0 };
                 let hop = e.hop_height();
                 let pulse = (1.0 + 0.12 * e.flash as f32 / 4.0) * elite_k;
-                b.foes.push(FoeItem { id: i as u32, species: sp, pos: self.at([p[0] + shake, p[1]], flies + hop), yaw: self.yaws[i], radius: e.radius * 0.95, pose: e.pose(), pulse, age: 0.0 });
+                let q = [p[0] + shake, p[1]];
+                b.foes.push(FoeItem { id: i as u32, species: sp, pos: self.at_y(q, self.foe_y(e.kind, q, e.radius, 1.0) + flies + hop), yaw: self.yaws[i], radius: e.radius * 0.95, pose: e.pose(), pulse, age: 0.0 });
                 item.kind = 0;
                 continue;
             }
@@ -986,7 +1045,9 @@ impl StarSwarmExperiment {
             // A lit bomber swells and throbs until it blows.
             let fuse = 1.0 + e.fuse() * 0.35 * (1.0 + (t * 40.0).sin() * 0.4);
             item.kind = e.kind as u8;
-            item.pos = self.at([p[0] + shake, p[1]], lift + hop + bob);
+            let _ = lift;
+            let q = [p[0] + shake, p[1]];
+            item.pos = self.at_y(q, self.foe_y(e.kind, q, e.radius, scale * elite_k) + hop + bob);
             item.yaw = self.yaws[i];
             item.scale = scale * elite_k * fuse * (1.0 + 0.12 * e.flash as f32 / 4.0);
             item.aux = if e.elite { 1.0 } else { 0.0 };
@@ -1014,7 +1075,7 @@ impl StarSwarmExperiment {
         for (i, o) in core.orbs.iter().enumerate() {
             let item = &mut b.orbs[i];
             if o.alive {
-                *item = RItem { kind: 1, pos: self.at(o.pos, 75.0), yaw: 0.0, scale: 1.0, aux: 0.0 };
+                *item = RItem { kind: 1, pos: self.at_y(o.pos, self.floor_y(o.pos) + 75.0), yaw: 0.0, scale: 1.0, aux: 0.0 };
             } else {
                 item.kind = 0;
             }
@@ -1030,7 +1091,7 @@ impl StarSwarmExperiment {
                     5 | 6 => 1.2,
                     x => 0.8 + 0.3 * x as f32,
                 };
-                *item = RItem { kind: 1, pos: self.at(g.pos, 45.0 + (t * 3.0 + i as f32).sin() * 8.0), yaw: 0.0, scale, aux: look as f32 };
+                *item = RItem { kind: 1, pos: self.at_y(g.pos, self.floor_y(g.pos) + gem_lift(look, scale, t * 3.0 + i as f32)), yaw: 0.0, scale, aux: look as f32 };
             } else {
                 item.kind = 0;
             }
@@ -1614,6 +1675,94 @@ mod tests {
 
     fn assets() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets")
+    }
+
+    /// Foes and pickups stand on the floor of a tilted, bumpy course (a 70-unit mound the 100-unit streamed grid cuts
+    /// through): a small foe's feet and every pickup's lowest point on the real floor at its own spot, a big body on the
+    /// highest part under it, the Chomp's ball (a sphere about its centre) touching the slope and never in it, a Wisp clear
+    /// of the grass. Foes walk across the mound for a while.
+    #[test]
+    fn foes_and_pickups_stand_on_a_sloped_bumpy_course() {
+        use super::super::ground_fit::{tests::{bumpy_world, bumpy_y}, BOO_FOOT, CHOMP_FOOT};
+        let (base, slope) = (500.0, 0.3);
+        let world = bumpy_world(base, slope as f64, 4000.0);
+        let mut t = Terrain::new(world, [0.0, 0.0], base as f32);
+        let mut mask = WalkMask::streamed();
+        while t.stream([0.0, 0.0], base as f32, 64, &mut mask) > 0 {}
+        let real = |p: [f32; 2]| bumpy_y(base, slope, p[0] as f64, p[1] as f64, true) as f32;
+        let (mut worst_grid, mut checked) = (0.0f32, 0);
+        let mut s = Swarm::with_cap(5, 60);
+        s.explore = true;
+        s.storm = false;
+        s.half = 1.0e6;
+        s.mask = Some(mask);
+        // Walk the player around the mound so the foes cross it.
+        for tick in 0..30 * 30 {
+            let a = tick as f32 * 0.01;
+            let pos = [500.0 + a.cos() * 600.0, 500.0 + a.sin() * 600.0];
+            s.player.hp = s.player.max_hp;
+            s.tick(&PlayerFrame { pos, y: base as f32, ..Default::default() });
+            while s.choices.is_some() {
+                s.pick(0);
+            }
+            if s.over {
+                break;
+            }
+            for e in s.enemies.iter().filter(|e| e.alive) {
+                let p = e.pos;
+                if p[0].abs() > 1900.0 || p[1].abs() > 1900.0 {
+                    continue;
+                }
+                let floor = real(p);
+                worst_grid = worst_grid.max((t.height(p) - floor).abs());
+                checked += 1;
+                let y = foe_origin_y(&t, e.kind, p, e.radius, 1.0);
+                if e.radius < BIG_BODY && e.kind != EnemyKind::Wisp && e.kind != EnemyKind::Chomp {
+                    assert!((y - look(e.kind).1 - floor).abs() < 0.5, "tick {tick}: {:?} at {p:?} stands {:.1} off the floor", e.kind, y - floor);
+                }
+            }
+        }
+        assert!(checked > 500, "foes walked the course ({checked})");
+        assert!(worst_grid > 20.0, "the coarse grid really misses the mound ({worst_grid:.1}), so the test means something");
+        // Fixed spots on the slope, the mound and its rim.
+        for p in [[-800.0f32, 120.0], [0.0, 0.0], [350.0, 350.0], [500.0, 650.0], [690.0, 500.0], [720.0, 520.0], [1500.0, -300.0]] {
+            let floor = real(p);
+            for kind in [EnemyKind::Skitter, EnemyKind::Brute, EnemyKind::Splitter] {
+                let y = foe_origin_y(&t, kind, p, 60.0, 1.0);
+                assert!((y - floor).abs() < 0.5, "{kind:?} at {p:?}: {:.1} off the floor", y - floor);
+            }
+            // A big body is never below the floor under its centre (it may stand on the higher side of its footprint).
+            let y = foe_origin_y(&t, EnemyKind::Tyrant, p, 260.0, 1.0);
+            assert!(y >= floor - 0.5 && y <= floor + 260.0 * slope as f32 * 0.5 + 75.0, "tyrant at {p:?}: {:.1} off", y - floor);
+            // The Chomp's ball (on the plain slope away from the mound): its centre a radius from the plane.
+            if !(250.0..=750.0).contains(&p[0]) {
+                for scale in [1.4f32, 1.96] {
+                    let r = CHOMP_FOOT * scale;
+                    let c = foe_origin_y(&t, EnemyKind::Chomp, p, 160.0, scale);
+                    let gap = (c - (base as f32 + slope as f32 * p[0])) / (1.0 + (slope * slope) as f32).sqrt() - r;
+                    assert!(gap.abs() < 0.5, "chomp ball at {p:?}: {gap:.1} off the slope");
+                }
+            }
+            // A Wisp's lowest point clears the ground through its bob.
+            let y = foe_origin_y(&t, EnemyKind::Wisp, p, 60.0, 0.9 * 1.4);
+            assert!(y - 16.0 - BOO_FOOT * 0.9 * 1.4 > floor, "wisp at {p:?} dips into the grass");
+            // Pickups: the lowest point of every look clears the floor, a chest sits on it.
+            for look in 0..=6u8 {
+                for scale in [0.8f32, 1.1, 1.4, 1.5] {
+                    for ph in 0..16 {
+                        let lift = gem_lift(look, scale, ph as f32 * 0.4);
+                        let half = match look { 3 | 5 | 6 => 46.0, 4 => 40.0, _ => 34.0 } * scale;
+                        let low = t.surface(p).0 + lift - half;
+                        assert!(low >= floor - 0.5, "gem look {look} at {p:?} dips {:.1} into the ground", floor - low);
+                        if look == 4 {
+                            assert!((low - floor).abs() < 0.5, "a chest sits on the ground");
+                        } else {
+                            assert!(low - floor < 20.0, "a gem hovers just over the ground");
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Every level with the game data present: its course loaded.

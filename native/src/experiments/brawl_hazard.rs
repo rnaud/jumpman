@@ -60,6 +60,9 @@ pub enum HzState {
     Rest,
 }
 
+/// The Chain Chomp's model scale: a ball of 130 (`CHOMP_FOOT` 145 at 0.9), about its 100-radius, 220-tall body.
+pub const CHOMP_SCALE: f32 = 0.9;
+
 /// How much faster than first tuned the set pieces move (they were tuned against a 520-unit run; it is 760 now).
 pub const HAZARD_PACE: f32 = 1.2;
 
@@ -317,6 +320,23 @@ impl Brawl {
         self.arena.support(x, z, y + 160.0).map(|s| s.0)
     }
 
+    /// The ground under an anchored lunger's body at (x, z): sampled from the higher of its post and the spot it aims at (the
+    /// chain reaches 560 over slopes), else the post's height.
+    fn lunger_floor(&self, h: usize, x: f32, z: f32) -> f32 {
+        let hz = &self.arena.hazards[h];
+        let top = hz.home[1].max(hz.aim[1]).max(hz.pos[1]) + 120.0;
+        self.hz_floor(x, z, top).unwrap_or(hz.home[1])
+    }
+
+    /// Where a Chain Chomp's ball is drawn: the centre `CHOMP_SCALE * CHOMP_FOOT` above its feet, a little more on a slope
+    /// (a ball touching a tilted floor sits `r / normal_y` above the floor under its centre), so none of it is in the ground.
+    pub fn chomp_centre(&self, pos: [f32; 3]) -> f32 {
+        let r = CHOMP_SCALE * crate::experiments::ground_fit::CHOMP_FOOT;
+        let floor = |x: f32, z: f32| self.arena.support(x, z, pos[1] + 200.0).map(|s| s.0);
+        let ny = crate::experiments::ground_fit::normal_y(floor, pos[0], pos[2], 40.0).max(0.5);
+        pos[1] + r / ny
+    }
+
     /// Set the state and clear the tick count / hit mask.
     fn hz_go(&mut self, h: usize, st: HzState) {
         let hz = &mut self.arena.hazards[h];
@@ -387,14 +407,16 @@ impl Brawl {
         let hz = self.arena.hazards[h];
         let sp = hz.spec();
         let home = hz.home;
-        let hz = &mut self.arena.hazards[h];
-        hz.t = hz.t.saturating_add(1);
+        self.arena.hazards[h].t = hz.t.saturating_add(1);
+        let hz = self.arena.hazards[h];
         match hz.st {
             HzState::Idle => {
-                // Bob about the post, facing whoever is closest.
+                // Bob about the post, facing whoever is closest (on the ground there: the post may stand on a slope).
                 let w = self.tick as f32 * 0.09 + h as f32;
-                let rest = [home[0] + w.cos() * 60.0, home[1], home[2] + w.sin() * 60.0];
-                hz.pos = rest;
+                let (rx, rz) = (home[0] + w.cos() * 60.0, home[2] + w.sin() * 60.0);
+                let ry = self.lunger_floor(h, rx, rz);
+                let hz = &mut self.arena.hazards[h];
+                hz.pos = [rx, ry, rz];
                 hz.cd -= 1;
                 if hz.cd > 0 || calm {
                     return;
@@ -419,10 +441,14 @@ impl Brawl {
                 self.hz_go(h, HzState::Warn);
             }
             HzState::Warn => {
-                // Rear back from the post.
+                // Rear back from the post (a little hop off the ground under it).
                 let k = hz.t as f32 / sp.warn as f32;
-                hz.pos = [home[0] - hz.dir[0] * 70.0 * k, home[1] + 30.0 * k, home[2] - hz.dir[1] * 70.0 * k];
-                if hz.t >= sp.warn {
+                let (t, dir) = (hz.t, hz.dir);
+                let (x, z) = (home[0] - dir[0] * 70.0 * k, home[2] - dir[1] * 70.0 * k);
+                let y = self.lunger_floor(h, x, z) + 30.0 * k;
+                let hz = &mut self.arena.hazards[h];
+                hz.pos = [x, y, z];
+                if t >= sp.warn {
                     self.hz_go(h, HzState::Act);
                     let p = self.arena.hazards[h].aim;
                     self.ev.push(Ev::Hazard { look: hz_look(self, h), pos: p, strike: true });
@@ -431,7 +457,10 @@ impl Brawl {
             HzState::Act => {
                 let k = (hz.t as f32 / sp.act as f32).min(1.0);
                 let from = [home[0] - hz.dir[0] * 70.0, home[2] - hz.dir[1] * 70.0];
-                let p = [from[0] + (hz.aim[0] - from[0]) * k, hz.aim[1] + 40.0 * (1.0 - k), from[1] + (hz.aim[2] - from[1]) * k];
+                let (x, z) = (from[0] + (hz.aim[0] - from[0]) * k, from[1] + (hz.aim[2] - from[1]) * k);
+                // Over the ground it flies across (the lunge ends on the spot it aimed at), a hop that lands at the end.
+                let p = [x, self.lunger_floor(h, x, z) + 40.0 * (1.0 - k), z];
+                let hz = &mut self.arena.hazards[h];
                 hz.pos = p;
                 let (t, dir) = (hz.t, hz.dir);
                 let zone = Zone::Circle { c: [p[0], p[2]], r: sp.radius };
@@ -442,8 +471,10 @@ impl Brawl {
             }
             HzState::Rest => {
                 let k = (hz.t as f32 / sp.rest as f32).min(1.0);
-                hz.pos = [hz.aim[0] + (home[0] - hz.aim[0]) * k, home[1], hz.aim[2] + (home[2] - hz.aim[2]) * k];
-                if hz.t >= sp.rest {
+                let (x, z, t) = (hz.aim[0] + (home[0] - hz.aim[0]) * k, hz.aim[2] + (home[2] - hz.aim[2]) * k, hz.t);
+                let y = self.lunger_floor(h, x, z);
+                self.arena.hazards[h].pos = [x, y, z];
+                if t >= sp.rest {
                     self.hz_go(h, HzState::Idle);
                     self.hz_cooldown(h);
                 }

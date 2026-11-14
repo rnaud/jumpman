@@ -48,6 +48,20 @@ const PIPE: &str = "actors/warp_pipe/warp_pipe_geo.glb";
 const STAR: &str = "actors/star/star_geo.glb";
 
 /// Per-foe display: model scale and hover height (SM64 units).
+/// The Chain Chomp boss's model scale: a ball of 145 across its 84-radius body (it was 1.5 while it sat half in the ground).
+const CHOMP_SCALE: f32 = 1.0;
+
+/// How far above the ground under a board point a foe's model origin is drawn: its look's lift, and for the Chomp's ball
+/// its radius over the slope's normal (a ball touching a tilted lawn sits higher than on the flat).
+pub fn foe_lift(g: &BoardGround, k: EKind, p: [f32; 2]) -> f32 {
+    let (_, lift) = look(k);
+    if k != EKind::Chomp {
+        return lift;
+    }
+    let ny = super::ground_fit::normal_y(|x, z| Some(g.height([x, z]) as f32), p[0], p[1], 40.0).max(0.5);
+    lift + CHOMP_SCALE * super::ground_fit::CHOMP_FOOT / ny
+}
+
 fn look(k: EKind) -> (f32, f32) {
     match k {
         EKind::Goomba => (2.2, 0.0),
@@ -58,7 +72,8 @@ fn look(k: EKind) -> (f32, f32) {
         EKind::Lakitu => (2.2, 160.0),
         EKind::Koopa => (2.2, 0.0),
         EKind::KingBomb => (1.1, 0.0),
-        EKind::Chomp => (1.5, 0.0),
+        // A ball centred on its origin: `foe_lift` lifts it by its radius so it rolls on the path.
+        EKind::Chomp => (CHOMP_SCALE, 0.0),
         EKind::Whomp => (0.85, 0.0),
         // Ported units: sized from their radius by `foes_view`; flyers hover.
         EKind::Bat | EKind::Peahat => (1.0, 110.0),
@@ -818,8 +833,9 @@ impl HoldTheGateExperiment {
                 item.kind = 0;
                 continue;
             }
-            let (scale, lift) = look(e.kind);
+            let (scale, _) = look(e.kind);
             let p = lerp(e.prev, e.pos);
+            let lift = foe_lift(&g, e.kind, p);
             if e.dir[0].abs() + e.dir[1].abs() > 0.01 {
                 self.yaws[i] = e.dir[0].atan2(e.dir[1]);
             }
@@ -1488,6 +1504,52 @@ mod tests {
                 d += 100.0;
             }
         }
+    }
+
+    /// Foes walk the real lawn: along every lane of both boards (and across its width) the ground the view stands a foe on
+    /// is the course's own floor there within a few units, so feet are neither in the grass nor over it; the Chain Chomp's
+    /// ball is lifted by its radius over the slope's normal, so no part of it is below the lawn.
+    #[test]
+    fn foes_stand_on_the_real_lawn_along_every_lane() {
+        use crate::game::world::{CourseRequest, LoadedCourse};
+        let assets = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets");
+        if !assets.join(format!("courses/{COURSE}.json")).exists() {
+            eprintln!("skipped: no {COURSE} course data on this machine");
+            return;
+        }
+        let course = LoadedCourse::load(&assets, CourseRequest::new(COURSE)).expect("course loads");
+        let trees: Vec<[f64; 2]> = course.objects.objects.iter().filter(|o| o.behavior == jumpman_sim::object::ObjectBehaviorKind::Tree).map(|o| [o.pos[0], o.pos[2]]).collect();
+        let r = CHOMP_SCALE * super::super::ground_fit::CHOMP_FOOT;
+        let mut worst = 0.0f64;
+        for (map, site) in SITES.iter().enumerate() {
+            let m = Map::new(map);
+            let g = BoardGround::sample(&course.world, &trees, &m, *site);
+            for lane in &m.lanes {
+                let mut seg = 0u16;
+                let mut d = 0.0;
+                while d < lane.len {
+                    for side in [-40.0, 0.0, 40.0] {
+                        let (p, _) = lane.sample(&mut seg, d, side);
+                        let w = g.world(p, 0.0);
+                        let real = super::super::ground_fit::floor_near(&course.world, w[0], w[2], w[1]);
+                        worst = worst.max((w[1] - real).abs());
+                        assert!((w[1] - real).abs() < 12.0, "map {map}: ground at {p:?} drawn at {:.1}, the lawn is at {real:.1}", w[1]);
+                        // The ball: its centre at least its radius from the lawn's plane there.
+                        let lift = foe_lift(&g, EKind::Chomp, p) as f64;
+                        let hit = course.world.find_floor(w[0], w[1] + 100.0, w[2]);
+                        let n = hit.surface.as_ref().map_or([0.0, 1.0, 0.0], |s| s.normal);
+                        let gap = (w[1] + lift - hit.height) * n[1] - r as f64;
+                        assert!(gap > -6.0, "map {map}: the chomp's ball {gap:.1} into the lawn at {p:?}");
+                    }
+                    d += 25.0;
+                }
+            }
+        }
+        eprintln!("worst drawn-ground error along the lanes: {worst:.1}");
+        // On the flat the ball is lifted exactly its radius; other foes stand on their origin.
+        let flat = BoardGround::flat(BoardFrame { origin: [0.0, 500.0, 0.0], turn: 0 });
+        assert!((foe_lift(&flat, EKind::Chomp, [0.0, 0.0]) - r).abs() < 0.01);
+        assert_eq!(foe_lift(&flat, EKind::Goomba, [0.0, 0.0]), 0.0);
     }
 
     /// Search real courses for spots where a map's board fits (GATE_SCAN=course,course...): the tool that picked [`SITES`].

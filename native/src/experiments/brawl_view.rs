@@ -663,6 +663,28 @@ fn weapon_entity(commands: &mut Commands, m: &Meshes, kind: u8) -> Entity {
     parent
 }
 
+/// An item's drawn scale and lift (Bevy units above its resting point) at time `t`: each one's lowest point stays on the
+/// floor through its pulse (the 1-up mushroom is a sprite centred on its origin; the rock and the bubble are unit spheres).
+pub fn item_look(kind: u8, lit: bool, t: f32) -> (Vec3, f32) {
+    let mushroom = super::ground_fit::MUSHROOM_FOOT * SCALE;
+    match kind {
+        0 => (Vec3::splat(0.85), 0.0),
+        1 => (Vec3::new(0.46, 0.9, 0.46), 0.45),
+        2 => (Vec3::new(0.42, 0.34, 0.42), 0.34),
+        3 => (Vec3::splat(if lit { 0.8 + 0.12 * (t * 20.0).sin().abs() } else { 0.8 }), 0.0),
+        7 => {
+            let k = 1.2 + 0.1 * (t * 3.0).sin();
+            (Vec3::splat(k), mushroom * k)
+        }
+        8 => (Vec3::splat(1.1 + 0.08 * (t * 4.0).sin()), 0.45),
+        9 => {
+            let k = 0.55 + 0.06 * (t * 3.0).sin();
+            (Vec3::splat(k), k)
+        }
+        _ => (Vec3::splat(1.0), 0.35),
+    }
+}
+
 fn spawn_actor(commands: &mut Commands, assets: &AssetServer, root: &AssetRoot, m: &Meshes, path: &str, fallback: &Handle<Mesh>, fallback_mat: &Handle<StandardMaterial>) -> Entity {
     if root.exists(path) {
         let mut e = crate::render::object_view::spawn_model(commands, assets, root, path, true);
@@ -829,16 +851,7 @@ fn sync_render(
                 e
             }
         };
-        let (scale, lift) = match it.kind {
-            0 => (Vec3::splat(0.85), 0.0),
-            1 => (Vec3::new(0.46, 0.9, 0.46), 0.45),
-            2 => (Vec3::new(0.42, 0.34, 0.42), 0.3),
-            3 => (Vec3::splat(if it.lit { 0.8 + 0.12 * (t * 20.0).sin().abs() } else { 0.8 }), 0.0),
-            7 => (Vec3::splat(1.2 + 0.1 * (t * 3.0).sin()), 0.0),
-            8 => (Vec3::splat(1.1 + 0.08 * (t * 4.0).sin()), 0.45),
-            9 => (Vec3::splat(0.55 + 0.06 * (t * 3.0).sin()), 0.55),
-            _ => (Vec3::splat(1.0), 0.35),
-        };
+        let (scale, lift) = item_look(it.kind, it.lit, t);
         let rot = Quat::from_rotation_y(it.yaw) * Quat::from_rotation_x(it.tilt);
         place(&mut q, e, true, it.pos + Vec3::Y * lift * if it.held { 0.0 } else { 1.0 }, rot, scale);
     }

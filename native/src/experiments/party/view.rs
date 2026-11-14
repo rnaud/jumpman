@@ -13,6 +13,7 @@ use crate::render::to_bevy;
 use bevy::math::DVec3;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
+use jumpman_sim::collision::CollisionWorld;
 use jumpman_sim::mario_runtime::MarioRuntime;
 use jumpman_sim::math::atan2s;
 use jumpman_sim::state::*;
@@ -309,6 +310,12 @@ pub fn stage_shapes(
     }
 }
 
+/// A Goomba's feet on the course floor under it, found near its arena height (unchanged where nothing is near: an empty
+/// stand-in world, a gap).
+pub fn goomba_on_floor(world: &CollisionWorld, p: [f64; 3]) -> [f64; 3] {
+    [p[0], crate::experiments::ground_fit::floor_near(world, p[0], p[2], p[1]), p[2]]
+}
+
 /// The real models of the mini-games (Goombas, falling Bob-ombs, the Power Star, the crown star), pooled.
 #[allow(clippy::too_many_arguments)]
 pub fn mini_models(mut commands: Commands, app: Res<PartyApp>, assets: Res<AssetServer>, root: Res<crate::render::AssetRoot>, time: Res<Time>, mut pool: Query<(&MiniModel, &mut Transform, &mut Visibility)>, mut counts: Local<[usize; 4]>) {
@@ -319,7 +326,8 @@ pub fn mini_models(mut commands: Commands, app: Res<PartyApp>, assets: Res<Asset
     let piece_head = |p: usize| app.pieces.get(p).map(|pc| to_bevy(pc.mario.pos()) + Vec3::Y * 2.3);
     let mut want: [Vec<(Vec3, f32, f32)>; 4] = Default::default();
     if let Some(s) = scene {
-        want[0] = s.goombas.iter().map(|(p, yaw, k)| (to_bevy(*p), *yaw, *k)).collect();
+        // Goombas stand on the course's own floor at their spot (the arena's 100-unit samples miss its bumps).
+        want[0] = s.goombas.iter().map(|(p, yaw, k)| (to_bevy(goomba_on_floor(&app.world, *p)), *yaw, *k)).collect();
         want[1] = s.bombs.iter().map(|p| (to_bevy(*p), 0.0, 1.0)).collect();
         let spin = time.elapsed_secs() * 3.0;
         if let Some(p) = s.star_at {

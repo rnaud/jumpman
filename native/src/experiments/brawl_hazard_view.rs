@@ -4,25 +4,44 @@
 use super::*;
 use crate::render::SCALE;
 
-/// Model, base scale and lift (local units the model's origin sits above the hazard's position).
-fn look_model(look: Look) -> (Option<&'static str>, f32, f32) {
+/// Model, base scale and lift (local units the model's origin sits above the hazard's position). The centre-origin models
+/// (the Chomp's ball, the iron ball, the Boo) are lifted by their reach below the origin (`ground_fit`), so they rest on
+/// the ground (the Boo floats its sim height above it) instead of sinking half into it.
+pub fn look_model(look: Look) -> (Option<&'static str>, f32, f32) {
+    use crate::experiments::ground_fit::{BOO_FOOT, IRON_BALL_FOOT};
     match look {
-        Look::ChainChomp => (Some("actors/chain_chomp/chain_chomp_geo.glb"), 1.5, 0.0),
+        // The Chomp's lift depends on the slope under it: see `Brawl::chomp_centre`.
+        Look::ChainChomp => (Some("actors/chain_chomp/chain_chomp_geo.glb"), CHOMP_SCALE, CHOMP_SCALE * crate::experiments::ground_fit::CHOMP_FOOT),
         Look::DekuBaba => (Some("levels/oot_enemies/deku_baba.glb"), 1.6, 95.0),
         Look::Whomp => (Some("actors/whomp/whomp_geo.glb"), 1.0, 0.0),
         Look::WhompKing => (Some("actors/whomp/whomp_geo.glb"), 1.45, 0.0),
         Look::Thwomp => (Some("actors/thwomp/thwomp_geo.glb"), 1.3, 0.0),
-        Look::IronBall => (Some("actors/bowling_ball/bowling_ball_geo.glb"), 0.75, 85.0),
+        Look::IronBall => (Some("actors/bowling_ball/bowling_ball_geo.glb"), 0.75, 0.75 * IRON_BALL_FOOT),
         Look::Boulder => (None, 100.0, 100.0),
         Look::Snowball => (None, 110.0, 110.0),
         Look::Horse => (Some("levels/oot_residents/horse_normal.glb"), 1.0, 0.0),
         Look::Goomba => (Some("actors/goomba/goomba_geo.glb"), 4.2, 0.0),
         Look::Wave => (None, 1.0, 0.0),
         Look::Tornado => (Some("actors/tornado/tweester_geo.glb"), 0.13, 0.0),
-        Look::Boo => (Some("actors/boo/boo_geo.glb"), 1.9, 0.0),
+        Look::Boo => (Some("actors/boo/boo_geo.glb"), 1.9, 1.9 * BOO_FOOT),
         Look::Redead => (Some("levels/oot_enemies/redead.glb"), 1.0, 0.0),
     }
 }
+
+/// Where chain link `i` of `n` hangs between the post's top `anchor` and the ball's centre `head` (local units): on the line,
+/// sagging with slack, but never below the ground under it (`floor`) plus a link's radius.
+pub fn chain_link(anchor: Vec3, head: Vec3, i: usize, n: usize, reach: f32, floor: impl Fn(f32, f32) -> Option<f32>) -> Vec3 {
+    let k = (i as f32 + 1.0) / (n as f32 + 1.0);
+    let sag = (k * std::f32::consts::PI).sin() * 40.0 * (1.0 - (dist2([anchor.x, anchor.z], [head.x, head.z]) / reach).min(1.0));
+    let mut p = anchor.lerp(head, k) - Vec3::Y * sag;
+    if let Some(g) = floor(p.x, p.z) {
+        p.y = p.y.max(g + LINK_R);
+    }
+    p
+}
+
+/// A chain link's outer radius (local units; the torus is 9 inside, 20 outside): drawn upright, it reaches 20 below its centre.
+pub const LINK_R: f32 = 20.0;
 
 struct Ents {
     look: Look,
@@ -130,6 +149,9 @@ impl HazardViews {
             let mut rot = Quat::from_rotation_y(h.yaw);
             let mut scale = Vec3::ONE;
             let mut at = pos + Vec3::Y * lift;
+            if h.look == Look::ChainChomp {
+                at.y = core.chomp_centre(pos.to_array());
+            }
             match h.look {
                 Look::Whomp | Look::WhompKing => {
                     // Rear back during the warning, fall flat on its face, lie there, then push itself up.
@@ -200,12 +222,11 @@ impl HazardViews {
             // ---- chain ----
             if !e.links.is_empty() {
                 let anchor = Vec3::from(h.home) + Vec3::Y * 110.0;
-                let head = pos + Vec3::Y * 90.0;
+                let head = at;
                 let n = e.links.len();
+                let floor = |x: f32, z: f32| core.arena.support(x, z, anchor.y.max(head.y)).map(|s| s.0);
                 for (i, l) in e.links.iter().enumerate() {
-                    let k = (i as f32 + 1.0) / (n as f32 + 1.0);
-                    let sag = (k * std::f32::consts::PI).sin() * 40.0 * (1.0 - (dist2([anchor.x, anchor.z], [head.x, head.z]) / sp.reach).min(1.0));
-                    let p = anchor.lerp(head, k) - Vec3::Y * sag;
+                    let p = chain_link(anchor, head, i, n, sp.reach, floor);
                     let r = Quat::from_rotation_y(h.yaw + i as f32 * 1.57) * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
                     host.commands.entity(*l).insert((Transform::from_translation(bv(p)).with_rotation(r), if live { Visibility::Inherited } else { Visibility::Hidden }));
                 }

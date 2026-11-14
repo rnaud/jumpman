@@ -200,14 +200,37 @@ impl Field {
     }
 
     /// Floor height of the arena at (x, z), None off the arena.
+    /// Between samples the floor is interpolated from the four around the point when they are one connected floor (a slope,
+    /// a bump: a Goomba walking it keeps its feet on it instead of stepping cell to cell, half a cell's rise in the hill or
+    /// over it); across a ledge it is the nearest sample's.
     pub fn height(&self, x: f64, z: f64) -> Option<f64> {
-        let fi = ((x - (self.center[0] - self.radius)) / self.step).round();
-        let fj = ((z - (self.center[2] - self.radius)) / self.step).round();
+        let (gx, gz) = ((x - (self.center[0] - self.radius)) / self.step, (z - (self.center[2] - self.radius)) / self.step);
+        let (fi, fj) = (gx.round(), gz.round());
         if fi < 0.0 || fj < 0.0 || fi >= self.n as f64 || fj >= self.n as f64 {
             return None;
         }
         let v = self.h[fj as usize * self.n + fi as usize];
-        (!v.is_nan()).then_some(v as f64)
+        if v.is_nan() {
+            return None;
+        }
+        let (i0, j0) = (gx.floor(), gz.floor());
+        if i0 < 0.0 || j0 < 0.0 || i0 + 1.0 >= self.n as f64 || j0 + 1.0 >= self.n as f64 {
+            return Some(v as f64);
+        }
+        let (i0, j0) = (i0 as usize, j0 as usize);
+        let at = |i: usize, j: usize| self.h[j * self.n + i] as f64;
+        let mut c = [at(i0, j0), at(i0 + 1, j0), at(i0, j0 + 1), at(i0 + 1, j0 + 1)];
+        // At the arena's rim one corner may be off it: complete the cell's plane from the other three.
+        if let [k] = (0..4).filter(|k| c[*k].is_nan()).collect::<Vec<_>>()[..] {
+            c[k] = c[k ^ 1] + c[k ^ 2] - c[k ^ 3];
+        }
+        let (lo, hi) = c.iter().fold((f64::MAX, f64::MIN), |(l, h), y| (l.min(*y), h.max(*y)));
+        if c.iter().any(|y| y.is_nan()) || hi - lo > STEP_H {
+            return Some(v as f64);
+        }
+        let (tx, tz) = (gx - i0 as f64, gz - j0 as f64);
+        let (a, b) = (c[0] + (c[1] - c[0]) * tx, c[2] + (c[3] - c[2]) * tx);
+        Some(a + (b - a) * tz)
     }
 
     /// Standable points of the arena (cell centres, not right at the rim).

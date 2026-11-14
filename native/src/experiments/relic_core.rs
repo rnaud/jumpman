@@ -628,7 +628,7 @@ impl Ring {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DropKind {
     Gold,
     Potion,

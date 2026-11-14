@@ -18,7 +18,7 @@ mod hazard;
 #[path = "brawl_body.rs"]
 mod body;
 pub use body::Solid;
-pub use hazard::{build_hazards, Hazard, HazardDef, HzKind, HzState, Look, Spec, Zone, HAZARD_GRACE, MAXH};
+pub use hazard::{build_hazards, Hazard, HazardDef, HzKind, HzState, Look, Spec, Zone, HAZARD_GRACE, MAXH, CHOMP_SCALE};
 pub use foes::{roster, visual_radius, Mon, Monsters, MAXM, MON_RESPAWN};
 
 
@@ -2113,9 +2113,11 @@ impl Brawl {
         }
         it.pos[0] = p[0];
         it.pos[2] = p[2];
-        // Ground.
+        // Ground. One resting on it follows a rise as the gems do (pushed up a slope by the wind it rides up the floor
+        // instead of sliding into the hill).
+        let reach = if it.grounded { 6.0f32.max(self.arena.gem_reach()) } else { 6.0 };
         it.grounded = false;
-        if let Some((top, _)) = self.arena.support(it.pos[0], it.pos[2], prev_y + 6.0) {
+        if let Some((top, _)) = self.arena.support(it.pos[0], it.pos[2], prev_y + reach) {
             if it.pos[1] <= top && it.vel[1] <= 0.0 {
                 it.pos[1] = top;
                 let bounce = match it.kind {

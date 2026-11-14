@@ -36,6 +36,39 @@ use std::sync::Arc;
 /// Far from every course object and from the other experiments' arenas.
 pub const ORIGIN: [f64; 3] = [-240000.0, 2000.0, -240000.0];
 const FLAME: &str = "actors/flame/red_flame_geo.glb";
+/// How far a Boo's lowest point stays over the floor.
+const BOO_CLEAR: f32 = 10.0;
+/// A heart drop's drawn scale.
+pub const DROP_SCALE: f32 = 1.7;
+
+/// How high a heart drop's centre is drawn over the point it lies on: the heart is centred on its origin, so its half
+/// height plus a hover that keeps it clear of the floor through its bob.
+pub fn drop_lift(phase: f32) -> f32 {
+    super::ground_fit::HEART_FOOT * DROP_SCALE + 8.0 + (phase.sin() + 1.0) * 4.0
+}
+
+/// How far below its root a pickup's model reaches at its animation height (the root bobs 30 up, plus or minus 12): the
+/// star, key and heart models are centred on their origin; a skill orb's ring hangs 22 below.
+pub fn pick_reach(kind: PickKind) -> f32 {
+    use super::ground_fit::{HEART_FOOT, KEY_FOOT, STAR_FOOT};
+    match kind {
+        PickKind::Fragment => STAR_FOOT * 0.95,
+        PickKind::Key(_) => KEY_FOOT * 2.4,
+        PickKind::HeartUp => HEART_FOOT * 2.6,
+        PickKind::HeartOfHalls => STAR_FOOT * 3.0,
+        PickKind::Skill(_) => 22.0,
+    }
+}
+
+/// Where a pickup's root goes: its authored spot, raised when the floor under it would cut into the model through its bob
+/// (a big heart authored 10 over a ledge stood 100 in it); one floating high over the floor stays where it was put.
+pub fn pick_rest(geom: &Geom, kind: PickKind, p: [f32; 3]) -> [f32; 3] {
+    match geom.floor_y(p[0], p[2], p[1] + 20.0) {
+        // Lowest point: root + 30 - 12 - reach, kept 10 over the floor.
+        Some(f) => [p[0], p[1].max(f + pick_reach(kind) + 10.0 - 18.0), p[2]],
+        None => p,
+    }
+}
 const CHEST_BASE: &str = "actors/treasure_chest/treasure_chest_base_geo.glb";
 const CHEST_LID: &str = "actors/treasure_chest/treasure_chest_lid_geo.glb";
 const FLAP_VEL: f64 = 56.0;
@@ -619,8 +652,9 @@ impl PaintedHallsExperiment {
                     }
                 }
                 Feat::Pick { x, y, z, kind, .. } => {
-                    let e = self.spawn_pick(host, kind, [x, y, z]);
-                    self.picks.push(PickEnt { idx: i, ent: e, lid: None, base: at([x, y, z]), chest: false });
+                    let p = pick_rest(&self.core.geom, kind, [x, y, z]);
+                    let e = self.spawn_pick(host, kind, p);
+                    self.picks.push(PickEnt { idx: i, ent: e, lid: None, base: at(p), chest: false });
                 }
                 Feat::Chest { x, z, y, kind, yaw, .. } => {
                     let _ = kind;
@@ -690,6 +724,7 @@ impl PaintedHallsExperiment {
                 Feat::Gate { hint, req, .. } => self.glyph(host, req, [hint[0], hint[1] + 120.0, hint[2]]),
                 Feat::Boss { .. } => {
                     if let Some((p, kind)) = boss_reward {
+                        let p = pick_rest(&self.core.geom, kind, p);
                         let e = self.spawn_pick(host, kind, p);
                         self.picks.push(PickEnt { idx: i, ent: e, lid: None, base: at(p), chest: false });
                     }
@@ -1285,7 +1320,15 @@ impl PaintedHallsExperiment {
             let squash = 1.0 + 0.15 * f.flash as f32 / 6.0;
             let shy = if f.kind == FoeKind::Boo && !f.solid { 0.8 } else { 1.0 };
             let rise = if f.kind == FoeKind::Piranha { match f.state { FState::Hide => 0.35, FState::Rise => 0.35 + 0.65 * (f.t as f32 / 18.0).min(1.0), _ => 1.0 } } else { 1.0 };
-            *slot = FoeView { kind: (f.kind as u8) + 1, pos: at([p[0], p[1] + lift + hop, p[2]]), yaw, scale: scale * pulse * squash * shy * if f.kind == FoeKind::Piranha { rise } else { 1.0 }, tilt: 0.0 };
+            let scale = scale * pulse * squash * shy * if f.kind == FoeKind::Piranha { rise } else { 1.0 };
+            let mut y = p[1] + lift + hop;
+            if f.kind == FoeKind::Boo {
+                // A Boo is centred on its origin and flies at the hero's height: never low enough to dip into the floor.
+                if let Some(fy) = core.geom.floor_y(p[0], p[2], p[1] + 10.0) {
+                    y = y.max(fy + super::ground_fit::BOO_FOOT * scale + BOO_CLEAR);
+                }
+            }
+            *slot = FoeView { kind: (f.kind as u8) + 1, pos: at([p[0], y, p[2]]), yaw, scale, tilt: 0.0 };
         }
         // Boss.
         b.boss = match core.boss {
@@ -1321,7 +1364,7 @@ impl PaintedHallsExperiment {
         }
         for (i, slot) in b.drops.iter_mut().enumerate() {
             match core.drops.get(i) {
-                Some(d) => *slot = FoeView { kind: 1, pos: at([d.pos[0], d.pos[1] + 30.0 + (t * 3.0 + i as f32).sin() * 8.0, d.pos[2]]), yaw: 0.0, scale: 1.7, tilt: 0.0 },
+                Some(d) => *slot = FoeView { kind: 1, pos: at([d.pos[0], d.pos[1] + drop_lift(t * 3.0 + i as f32), d.pos[2]]), yaw: 0.0, scale: DROP_SCALE, tilt: 0.0 },
                 None => slot.kind = 0,
             }
         }
@@ -1644,6 +1687,49 @@ impl Experiment for PaintedHallsExperiment {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every pickup of every room clears the floor under it through its bob (a big heart authored just over a ledge used to
+    /// stand 100 in it) and keeps its authored spot when that already clears it; heart drops fall to the floor and lie on
+    /// it, drawn with their lowest point over it; a Boo is never drawn low enough to dip into the floor.
+    #[test]
+    fn pickups_drops_and_boos_stay_over_the_floor() {
+        let rs = rooms();
+        let mut raised = 0;
+        for (ri, r) in rs.iter().enumerate() {
+            let g = r.build_geom(ri, &|_| false);
+            for f in &r.feats {
+                let Feat::Pick { x, y, z, kind, .. } = *f else { continue };
+                let p = pick_rest(&g, kind, [x, y, z]);
+                assert!(p[1] >= y && p[0] == x && p[2] == z);
+                if p[1] > y {
+                    raised += 1;
+                }
+                if let Some(floor) = g.floor_y(x, z, y + 20.0) {
+                    for k in 0..24 {
+                        let bob = (k as f32 * 0.5).sin() * 12.0;
+                        let low = p[1] + 30.0 + bob - pick_reach(kind);
+                        assert!(low >= floor + 9.9 - 1e-3 || p[1] == y && low >= floor, "{}: {kind:?} at {:?} dips {:.1} into the floor", r.name, [x, y, z], floor - low);
+                    }
+                }
+            }
+        }
+        assert!(raised >= 1, "at least the ledge heart is raised");
+        // Drops: a heart dropped by a Boo in the air falls onto the floor and lies there.
+        let mut h = Halls::new(SaveData::default(), 3);
+        let floor = h.geom.floor_y(0.0, 0.0, 5000.0).expect("a floor in the middle of the first room");
+        h.drops.push(Drop { alive: true, pos: [0.0, floor + 260.0, 0.0], age: 0 });
+        let s = h.player.pos;
+        let frame = PlayerFrame { pos: s, grounded: true, ..Default::default() };
+        for _ in 0..40 {
+            h.tick(&frame);
+        }
+        let d = h.drops.first().expect("the drop is still there");
+        assert!((d.pos[1] - floor).abs() < 0.5, "the drop lies on the floor ({:.1} over it)", d.pos[1] - floor);
+        for k in 0..32 {
+            let low = drop_lift(k as f32 * 0.3) - super::super::ground_fit::HEART_FOOT * DROP_SCALE;
+            assert!((5.0..=20.0).contains(&low), "a heart drop's lowest point {low:.1} over the floor");
+        }
+    }
 
     #[test]
     fn collision_floor_and_walls_match_the_geometry() {

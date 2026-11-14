@@ -46,7 +46,7 @@ use bevy::prelude::*;
 use jumpman_sim::state::*;
 
 #[path = "brawl_hazard_view.rs"]
-mod hazard_view;
+pub mod hazard_view;
 
 const CRATER_FOG: (f64, f64) = (7000.0, 26000.0);
 const CANNON_BASE: &str = "actors/cannon_base/cannon_base_geo.glb";

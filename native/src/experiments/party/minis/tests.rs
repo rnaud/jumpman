@@ -413,3 +413,41 @@ fn goombas_do_not_walk_through_marios() {
     }
     assert!(worst < 1e-6, "a Goomba stood {worst:.1} inside a Mario");
 }
+
+/// Goombas walk a sloped arena with their feet on its floor: between the 100-unit samples the floor is interpolated (they
+/// used to take the nearest sample's height, up to half a cell's rise in the hill or over it), and the view puts them on the
+/// course's own floor near that height (a hand-made sloped world here).
+#[test]
+fn goombas_keep_their_feet_on_a_sloped_arena() {
+    use crate::experiments::ground_fit::tests::{slope_world, slope_y};
+    let (base, slope) = (500.0, 0.3);
+    let real = |x: f64| slope_y(base, slope, x);
+    let f = Arc::new(Field::from_heights([0.0, 0.0], Mini::GoombaStomp.radius(), 100.0, |x, _| Some(real(x))));
+    let world = slope_world(base, slope, 4000.0);
+    let mut g = goomba_stomp::GoombaStomp::new(4, ALL4, f.clone());
+    // Marios far off, out of the Goombas' way.
+    let b: [Body; 4] = std::array::from_fn(|p| {
+        let a = p as f64 * 1.57;
+        let (x, z) = (a.cos() * 3000.0, a.sin() * 3000.0);
+        body([x, real(x), z])
+    });
+    let (mut checked, mut worst_nearest) = (0, 0.0f64);
+    for _ in 0..30 * 20 {
+        g.step(DT, &b, &[Drive::default(); 4]);
+        let _ = g.events();
+        for m in g.goombas.iter().filter(|m| m.dead.is_none()) {
+            let want = real(m.pos[0]);
+            assert!((m.pos[1] - want).abs() < 0.5, "a Goomba at {:?} stands {:.1} off the slope", m.pos, m.pos[1] - want);
+            // The nearest sample's height (the old floor) is off between samples.
+            let x0 = -Mini::GoombaStomp.radius();
+            let k = ((m.pos[0] - x0) / 100.0).round() * 100.0 + x0;
+            worst_nearest = worst_nearest.max((real(k) - want).abs());
+            // The view's snap onto the world's floor agrees.
+            let q = crate::experiments::party::view::goomba_on_floor(&world, m.pos);
+            assert!((q[1] - want).abs() < 0.5, "drawn {:.1} off the slope", q[1] - want);
+            checked += 1;
+        }
+    }
+    assert!(checked > 200, "Goombas walked ({checked})");
+    assert!(worst_nearest > 5.0, "the nearest sample really was off ({worst_nearest:.1})");
+}
