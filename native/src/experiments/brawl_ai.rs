@@ -86,11 +86,16 @@ pub struct Brain {
     pub dive_arm: bool,
     pub spec_wait: i16,
     pub contact: i16,
+    /// Where the chased foe could be knocked to (a cliff edge or a hazard about to strike), as a unit direction from them; zero
+    /// when there is none near. Refreshed every few ticks.
+    pub push_dir: V2,
+    /// A drop close behind me (unit direction), zero when there is none: do not stand there with a foe in front.
+    pub my_edge: V2,
 }
 
 impl Brain {
     pub fn new(diff: Diff, boss: bool, seed: u64) -> Self {
-        Self { diff, boss, goal: Goal::Wander, timer: 0, rng: Rng::new(seed), atk_cd: 0, jump_cd: 0, stuck: 0, last: [0.0; 2], wander: [0.0; 2], strafe: 1.0, dive_arm: false, spec_wait: 0, contact: 0 }
+        Self { diff, boss, goal: Goal::Wander, timer: 0, rng: Rng::new(seed), atk_cd: 0, jump_cd: 0, stuck: 0, last: [0.0; 2], wander: [0.0; 2], strafe: 1.0, dive_arm: false, spec_wait: 0, contact: 0, push_dir: [0.0; 2], my_edge: [0.0; 2] }
     }
     pub fn reset(&mut self) {
         self.goal = Goal::Wander;
@@ -99,6 +104,8 @@ impl Brain {
         self.dive_arm = false;
         self.spec_wait = 0;
         self.contact = 0;
+        self.push_dir = [0.0; 2];
+        self.my_edge = [0.0; 2];
     }
 }
 
@@ -256,6 +263,28 @@ impl Brawl {
                 }
             }
         }
+        // A course hazard is about to strike where I stand: get out sideways (a low roller close by: jump it).
+        if p.hazards {
+            if let Some((z, hz)) = self.arena.hazards.iter().find_map(|h| h.zone().filter(|z| z.contains(here, me.radius() + 25.0)).map(|z| (z, *h))) {
+                let roller = self.arena.hazards.iter().find(|h| h.spec().kind == HzKind::Roller && h.st == HzState::Act && h.spec().height < 210.0 && dist2([h.pos[0], h.pos[2]], here) < h.spec().radius + 170.0);
+                if roller.is_some() && me.grounded && b.jump_cd == 0 && b.diff == Diff::Hard {
+                    inp.jump = true;
+                    b.jump_cd = 14;
+                } else {
+                    // Out of a lunge sideways (its ring sits on me, so "away from the middle" means nothing); the rest straight out.
+                    let away = if hz.spec().kind == HzKind::Lunger { [-hz.dir[1] * b.strafe.signum(), hz.dir[0] * b.strafe.signum()] } else { z.escape(here) };
+                    dest = Some([here[0] + away[0] * 520.0, here[1] + away[1] * 520.0]);
+                    want_jump_when_close = false;
+                }
+            }
+        }
+        // Quicksand: never stand still in it.
+        if me.sink > 24 && dest.is_none_or(|d| dist2(here, d) < 200.0) {
+            if dist2(here, b.wander) < 200.0 || b.wander == [0.0; 2] {
+                b.wander = self.random_point(&mut b.rng);
+            }
+            dest = Some(b.wander);
+        }
         // Steering with edge / hazard avoidance.
         if let Some(d) = dest {
             let dir = norm2([d[0] - here[0], d[1] - here[1]], [0.0, 0.0]);
@@ -386,8 +415,9 @@ impl Brawl {
                 return;
             }
         }
-        // Grab something to hit with.
-        if me.held < 0 && b.rng.chance(p.item_use) {
+        // Grab something to hit with (more eagerly when the push_dir says a foe stands by a drop: a throw finishes it).
+        let edge_bonus = if b.push_dir != [0.0; 2] { 1.5 } else { 1.0 };
+        if me.held < 0 && b.rng.chance((p.item_use * edge_bonus).min(1.0)) {
             let foe_d = foe.map_or(9999.0, |f| f.1);
             let mut best: Option<(usize, f32)> = None;
             for (k, it) in self.items.iter().enumerate() {
@@ -412,10 +442,65 @@ impl Brawl {
                 return;
             }
         }
-        match foe {
-            Some((j, _)) => b.goal = Goal::Chase(j as u8),
+        match self.best_victim(i, b, p).or(foe.map(|f| f.0)) {
+            Some(j) => b.goal = Goal::Chase(j as u8),
             None => b.goal = Goal::Wander,
         }
+    }
+
+    /// Normal / Hard: the foe worth chasing, nearest first but one standing by a drop or a hazard counts as much closer.
+    fn best_victim(&self, i: usize, b: &mut Brain, p: &Params) -> Option<usize> {
+        if b.diff == Diff::Easy || !p.hazards {
+            return None;
+        }
+        let me = &self.f[i];
+        let here = [me.pos[0], me.pos[2]];
+        let mut best: Option<(usize, f32)> = None;
+        for j in 0..self.n {
+            let o = &self.f[j];
+            if j == i || !o.alive || o.team == me.team {
+                continue;
+            }
+            let mut d = dist2(here, [o.pos[0], o.pos[2]]);
+            if d < 1100.0 && self.knock_target([o.pos[0], o.pos[2]], o.pos[1]).is_some() {
+                d -= 450.0;
+            }
+            if best.is_none_or(|(_, bd)| d < bd) {
+                best = Some((j, d));
+            }
+        }
+        best.map(|b| b.0)
+    }
+
+    /// Unit direction from `p` (height `y`) to the nearest drop within `r`: no floor, or floor far below, inside the rim.
+    pub fn drop_dir(&self, p: V2, y: f32, r: f32) -> Option<V2> {
+        const DIRS: [V2; 8] = [[1.0, 0.0], [0.7071, 0.7071], [0.0, 1.0], [-0.7071, 0.7071], [-1.0, 0.0], [-0.7071, -0.7071], [0.0, -1.0], [0.7071, -0.7071]];
+        for k in [0.5, 1.0] {
+            for d in DIRS {
+                let q = [p[0] + d[0] * r * k, p[1] + d[1] * r * k];
+                if self.arena.bounds.is_some_and(|b| q[0].abs() > b[0] || q[1].abs() > b[1]) {
+                    continue;
+                }
+                let lava = self.arena.kind == ArenaKind::Ember;
+                match self.arena.support(q[0], q[1], y + 60.0) {
+                    None => return Some(d),
+                    Some((top, _)) if top < y - 220.0 || (lava && top < self.arena.lava + 10.0) => return Some(d),
+                    _ => {}
+                }
+            }
+        }
+        None
+    }
+
+    /// Where a foe at `p` could be knocked to their cost: a drop within 330, or a hazard about to strike near them.
+    pub fn knock_target(&self, p: V2, y: f32) -> Option<V2> {
+        if let Some(c) = self.hazard_near(p, 260.0) {
+            let d = [c[0] - p[0], c[1] - p[1]];
+            if len2(d) > 20.0 {
+                return Some(norm2(d, [1.0, 0.0]));
+            }
+        }
+        self.drop_dir(p, y, 330.0)
     }
 
     /// Chase / fight logic: moves, attacks and uses what is in hand.
@@ -434,6 +519,24 @@ impl Brawl {
         let facing = angle_diff(me.yaw, yaw_of(to)).abs();
         let high = (o.pos[1] - me.pos[1]).abs() < 130.0;
         *dest = Some(tpos);
+        // Ring-outs (Normal / Hard): every few ticks, look for a drop or a hazard beside the foe and for a drop behind me.
+        if b.diff != Diff::Easy && (self.tick as usize + i) % 8 == 0 {
+            b.push_dir = self.knock_target([o.pos[0], o.pos[2]], o.pos[1]).unwrap_or([0.0; 2]);
+            b.my_edge = self.drop_dir(here, me.pos[1], 170.0).unwrap_or([0.0; 2]);
+        }
+        let free_now = matches!(me.act, Act::Idle | Act::Air);
+        if b.push_dir != [0.0; 2] && free_now && d > 70.0 && d < 700.0 && me.held < 0 {
+            // Come at the foe from the far side of the drop: a blow sends them along the line from me to them, over the edge.
+            let spot = [tpos[0] - b.push_dir[0] * (95.0 + o.radius()), tpos[1] - b.push_dir[1] * (95.0 + o.radius())];
+            let aligned = to[0] * b.push_dir[0] + to[1] * b.push_dir[1];
+            if aligned < 0.75 && dist2(here, spot) > 40.0 {
+                *dest = Some(spot);
+            }
+        } else if b.my_edge != [0.0; 2] && d < 320.0 && free_now {
+            // My back is to a drop: step round the foe toward the middle instead of trading blows here.
+            let side = [-to[1] * b.strafe, to[0] * b.strafe];
+            *dest = Some([here[0] - b.my_edge[0] * 200.0 + side[0] * 160.0, here[1] - b.my_edge[1] * 200.0 + side[1] * 160.0]);
+        }
         let held = if me.held >= 0 { Some(self.items[me.held as usize].kind) } else { None };
         let free = matches!(me.act, Act::Idle | Act::Air);
         match held {
@@ -518,7 +621,7 @@ impl Brawl {
             }
         }
         // Keep a little spacing sideways so two bots do not just circle.
-        if d < 160.0 && b.diff != Diff::Easy && held != Some(ItemKind::Hammer) {
+        if d < 160.0 && b.diff != Diff::Easy && held != Some(ItemKind::Hammer) && b.push_dir == [0.0; 2] {
             let side = [-to[1] * b.strafe, to[0] * b.strafe];
             *dest = Some([tpos[0] + side[0] * 90.0, tpos[1] + side[1] * 90.0]);
         }
@@ -566,8 +669,9 @@ impl Brawl {
             let ok_bump = !hazards || !self.arena.in_bumper(ahead[0], ahead[1], 55.0);
             let ok_plank = !hazards || sup.is_none_or(|(_, idx)| !matches!(self.arena.solids.get(idx).map(|s| s.plank), Some(Plank::Shaking(_))));
             let ok_mon = !hazards || !self.mon_danger_at(ahead);
+            let ok_hz = !hazards || !self.hazard_danger_at(ahead, me.radius()) || self.hazard_danger_at(here, me.radius());
             let ok_shell = !hazards || !self.proj.iter().any(|p| p.alive && p.kind == PKind::Shell && dist2([p.aim[0], p.aim[2]], ahead) < 280.0 && dist2([p.aim[0], p.aim[2]], here) > 200.0);
-            if ok_real && ok_ground && ok_bounds && ok_lava && ok_bump && ok_plank && ok_shell && ok_mon {
+            if ok_real && ok_ground && ok_bounds && ok_lava && ok_bump && ok_plank && ok_shell && ok_mon && ok_hz {
                 if let Some((top, _)) = sup {
                     if top > me.pos[1] + STEP || hop {
                         if top < me.pos[1] + 330.0 {

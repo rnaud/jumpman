@@ -747,8 +747,9 @@ impl Brawl {
                                     }
                                 }
                             }
-                            self.hz_go(h, HzState::Idle);
-                            self.arena.hazards[h].cd = 0;
+                            // A long breather before it can scream again (it shambles on, but bites only after it).
+                            self.hz_go(h, HzState::Rest);
+                            return;
                         }
                     }
                 }

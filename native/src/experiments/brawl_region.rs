@@ -314,7 +314,7 @@ pub const REGIONS: &[Region] = &[
         void_y: -600.0,
         pits: &[],
         barrage: 0,
-        hazards: &[HazardDef::lane(Look::Wave, [0.0, 0.0], [1.0, 0.0])],
+        hazards: &[HazardDef::lane(Look::Wave, [0.0, 0.0], [0.0, 1.0])],
         gusts: false,
         spawns: [[-612.0, -496.0], [612.0, 496.0], [612.0, -496.0], [-612.0, 496.0]],
         gems: &[[-405.0, 0.0], [405.0, 0.0], [0.0, -360.0], [0.0, 360.0], [-675.0, 280.0], [675.0, -280.0]],

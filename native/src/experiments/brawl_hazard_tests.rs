@@ -281,3 +281,93 @@ fn every_region_hazard_stands_on_its_course_and_bots_survive_them() {
         assert!(!a.hazards.is_empty() || a.gusts || a.barrage > 0, "{}: every region has something of its course going on", r.key);
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Bots: telegraphs, quicksand, ring-outs.
+// ---------------------------------------------------------------------------------------------
+
+/// You (an idle human, slot 0) against one bot (slot 1) of `diff` on `region`, past the calm opening.
+fn vs_bot(region: Region, diff: Diff, seed: u64) -> Brawl {
+    let cfg = Config { seed, humans: 1, bots: 1, diff, arena: ArenaKind::Field, ..Default::default() };
+    let mut b = Brawl::with_arena(cfg, Some(region.build(fixture())));
+    for _ in 0..INTRO_TICKS + 2 {
+        b.tick(&idle());
+    }
+    for it in b.items.iter_mut() {
+        it.alive = false;
+    }
+    b.item_timer = 100_000;
+    for g in b.gems.iter_mut() {
+        g.state = GemState::Spent;
+    }
+    b.round_t = ROUND_SECS - HAZARD_GRACE - 1.0;
+    b
+}
+
+#[test]
+fn bots_walk_out_of_a_telegraph() {
+    let mut hits = [0u32; 2];
+    for (k, diff) in [Diff::Normal, Diff::Hard].into_iter().enumerate() {
+        for seed in 0..6u64 {
+            let mut b = vs_bot(region_with(vec![HazardDef::new(Look::ChainChomp, [0.0, 0.0])]), diff, seed);
+            put(&mut b, 0, 380.0, 650.0);
+            b.f[0].inv = 60000;
+            put(&mut b, 1, -260.0, 40.0);
+            // Hold the bot still until the Chomp picks it, then let it think.
+            let mut started = false;
+            for _ in 0..30 * 12 {
+                let h = b.arena.hazards[0];
+                if !started {
+                    put(&mut b, 1, -260.0, 40.0);
+                    if h.st == HzState::Warn {
+                        started = true;
+                    }
+                }
+                let hp = b.f[1].hp;
+                b.tick(&idle());
+                if started && b.f[1].hp < hp {
+                    hits[k] += 1;
+                    break;
+                }
+                if started && b.arena.hazards[0].st == HzState::Rest {
+                    break;
+                }
+            }
+            assert!(started);
+        }
+    }
+    println!("chomp hits on a bot over 6 lunges: normal {}, hard {}", hits[0], hits[1]);
+    assert!(hits[1] <= 1 && hits[0] <= 3, "bots read the ring: {hits:?}");
+}
+
+#[test]
+fn a_hard_bot_knocks_a_foe_standing_by_a_drop_over_it() {
+    // A taller fixture region: the pit at z -1000..-800 (x -200..200) is inside the rim.
+    let region = Region { half: [450.0, 1100.0], spawns: [[-300.0, -300.0], [300.0, 500.0], [300.0, -300.0], [-300.0, 500.0]], ..fixture_region() };
+    let b0 = vs_bot(region, Diff::Hard, 1);
+    let d = b0.knock_target([0.0, -720.0], 0.0).expect("the pit is seen");
+    assert!(d[1] < -0.6, "toward the pit: {d:?}");
+    assert!(b0.knock_target([-300.0, 300.0], 0.0).is_none(), "open ground has nothing to knock into");
+    let mut falls = 0;
+    for seed in 0..5u64 {
+        let mut b = vs_bot(region, Diff::Hard, seed);
+        put(&mut b, 0, 0.0, -730.0);
+        put(&mut b, 1, -350.0, -900.0);
+        for _ in 0..30 * 15 {
+            b.tick(&idle());
+            if b.ev.iter().any(|e| matches!(e, Ev::Fell(0))) {
+                falls += 1;
+                break;
+            }
+            if b.phase != Phase::Fight {
+                break;
+            }
+            // You stand your ground by the edge (back on your spot when knocked along it but not over).
+            if b.f[0].grounded && b.f[0].act == Act::Idle && b.tick % 45 == 0 {
+                put(&mut b, 0, 0.0, -730.0);
+            }
+        }
+    }
+    println!("ring-outs: {falls}/5");
+    assert!(falls >= 3, "the bot sets up the ring-out: {falls}/5");
+}
