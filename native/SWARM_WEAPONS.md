@@ -98,3 +98,24 @@ scripted kiting runs in `swarm_core.rs` tests (`hero_survival`).
   `cargo test ... a_scripted_walker_reaches_chests` steps the real simulation to the
   chests of every course (`SWARM_BOT_LEVELS=bob,island`, `SWARM_BOT_CHESTS=<n>`, `SWARM_BOT_TRACE=1`).
 
+## Shrines, pots and the last fight
+
+- **Shrines** (`swarm_shrines.rs`, drawn by `swarm_shrine_view.rs`, icons in `swarm_icons.rs`). `swarm_world::plan_world` places
+  them after the chests from the same flood fill (every site reachable), on roomy level spots at least 600 from a chest and
+  apart from each other; 4 to 9 a level, one of each kind first. Once seen they stay on the compass (their own colours).
+  Charge (stand in the 360-unit circle ~9 s while the swarm is drawn in: +10% damage, +15 health or +12% XP, a card,
+  healing), Challenge (an elite and a ring of foes, 25 s within reach: two cards and gold), Greed (gold, a card, +15% XP;
+  every later foe +12% health and the swarm +12% thicker, stacking), Boss altar (a King or Chomp now, as tough as the next
+  scheduled one; it drops a chest), Duplicator (30/60/90 gold for a free level of something carried). Pots (10-30, in small
+  clusters, hidden corners first) break when walked into: gold, sometimes a heart or a magnet.
+  Hooks: `JUMPMAN_SWARM_TP=shrine:<n>[:<dist>]` / `pot:<n>`, `JUMPMAN_SWARM_CHESTS=1` lists them too.
+- **Star Tyrant**: base health 68000 (clock and tier scale it), four phases. Below 75/50/25% it stops at the gate (no big hit
+  skips one), shields itself for 4 s (a tenth of the damage gets through), fires a great ring and calls a guard (an elite
+  from the second gate). From the second phase it drops meteors where the player is heading (red circles that land after
+  1.2 s, 60% of the player's health each, a jump clears them); after the dawn it is enraged (volleys twice as often). While it
+  stands, hearts drop a fifth as often. `tune_tier` (`SWARM_TUNE_FIGHT`, `SWARM_TYRANT_HP`, `SWARM_METEOR`) reports reach, win
+  rate among those who reach it, fight length, gates and meteor hits.
+- **Planner crossings**: a diagonal step is checked at its quarter points, and every checked point needs ground at the step's
+  height under it and a body width to either side; the walker only counts a waypoint as passed close up (no corner cutting).
+  The walker reaches 64/64 sampled chests (8 a level).
+

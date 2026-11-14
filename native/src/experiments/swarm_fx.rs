@@ -413,7 +413,7 @@ pub fn style(
 pub fn gallery(mut bridge: ResMut<SwarmBridge>) {
     let t = bridge.time;
     let me = bridge.marker.pos;
-    let kinds: [u8; 7] = [1, 2, 4, 5, 6, 7, 8];
+    let kinds: [u8; 8] = [1, 2, 4, 5, 6, 7, 8, 9];
     for (i, item) in bridge.rings.iter_mut().enumerate() {
         item.kind = 0;
         let kind = if i < RING_SLOTS { kinds.get(i).copied() } else { [10u8, 11, 12].get(i - RING_SLOTS).copied() };

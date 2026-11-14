@@ -196,24 +196,58 @@ pub struct LakituRide {
     pub to: V3,
     /// Ticks since the pick-up.
     pub tick: u32,
+    /// Height of the arc over the straight line at its middle (see [`LakituRide::clear_ground`]).
+    pub apex: f64,
 }
 pub const LIFT_PICK: u32 = 9;
 pub const LIFT_CARRY: u32 = 35;
 pub const LIFT_DROP: u32 = LIFT_TICKS - LIFT_PICK - LIFT_CARRY;
 pub const LIFT_LEAVE: u32 = 24;
 /// Height of Lakitu's cloud above the racer he holds (Mario hangs just under the cloud).
-pub const LAKITU_HANG: f64 = 190.0;
+pub const LAKITU_HANG: f64 = 230.0;
 
 fn smooth(t: f64) -> f64 {
     let t = t.clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
 }
 
+/// The inverse of [`smooth`] on 0..1 (bisection; only used to sample the arc evenly).
+fn unsmooth(u: f64) -> f64 {
+    let (mut lo, mut hi) = (0.0, 1.0);
+    for _ in 0..30 {
+        let mid = 0.5 * (lo + hi);
+        if smooth(mid) < u {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    0.5 * (lo + hi)
+}
+
 impl LakituRide {
     /// A ride from the racer's spot at the foot to the drop point above the top of the lift.
     pub fn new(from: V3, rail: &RailPath, top: f64) -> Self {
         let at = rail.at(top + 60.0);
-        Self { from, to: [at.point[0], at.point[1] + 120.0, at.point[2]], tick: 0 }
+        let to = [at.point[0], at.point[1] + 120.0, at.point[2]];
+        let run = (to[0] - from[0]).hypot(to[2] - from[2]);
+        Self { from, to, tick: 0, apex: 280.0 + run * 0.18 }
+    }
+    /// Raise the arc until it passes at least 300 units over the course's ground everywhere between the ends (Lakitu
+    /// carries the racer over the mountainside, never through it).
+    pub fn clear_ground(mut self, world: &CollisionWorld) -> Self {
+        let flat = Self { apex: 0.0, ..self };
+        for k in 2..=22 {
+            let u = k as f64 / 24.0;
+            let t = LIFT_PICK as f64 + LIFT_CARRY as f64 * unsmooth(u);
+            let p = flat.racer_at(t);
+            let floor = world.find_floor(p[0], 20000.0, p[2]);
+            if floor.surface.is_some() {
+                let need = floor.height + 300.0 - p[1];
+                self.apex = self.apex.max(need / (4.0 * u * (1.0 - u)));
+            }
+        }
+        self
     }
     /// Still holding the racer (his input is ignored and his position is the ride's).
     pub fn carrying(&self) -> bool {
@@ -223,11 +257,6 @@ impl LakituRide {
     pub fn visible(&self) -> bool {
         self.tick < LIFT_TICKS + LIFT_LEAVE
     }
-    /// The arc's apex above the higher end: enough to clear the slope between foot and top.
-    fn apex(&self) -> f64 {
-        let run = (self.to[0] - self.from[0]).hypot(self.to[2] - self.from[2]);
-        280.0 + run * 0.18
-    }
     /// The held racer's position at (fractional) tick `t`.
     pub fn racer_at(&self, t: f64) -> V3 {
         if t <= LIFT_PICK as f64 {
@@ -236,7 +265,7 @@ impl LakituRide {
         let u = smooth((t - LIFT_PICK as f64) / LIFT_CARRY as f64);
         let (a, b) = (self.from, self.to);
         // A parabola over the straight line: rises steeply off the meadow, settles onto the path.
-        let lift = self.apex() * 4.0 * u * (1.0 - u) + (b[1] - a[1]) * (u * (2.0 - u) - u);
+        let lift = self.apex * 4.0 * u * (1.0 - u) + (b[1] - a[1]) * (u * (2.0 - u) - u);
         [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u + lift, a[2] + (b[2] - a[2]) * u]
     }
     /// Lakitu's (cloud) position at fractional tick `t`.
@@ -431,7 +460,9 @@ pub fn densify(route: &[V3], step: f64) -> Vec<V3> {
 
 /// Lakitu's model (the cameraman's cloud and all, from the player's own import) and its scale.
 const LAKITU_MODEL: &str = "actors/lakitu_cameraman/lakitu_geo.glb";
-const LAKITU_SCALE: f32 = 1.0;
+const LAKITU_SCALE: f32 = 2.6;
+/// Where the model sits on the cloud (SM64 units above the cloud's middle).
+const LAKITU_RIDE_Y: f32 = 55.0;
 
 /// One tick of a rival's Lakitu ride: while he is carried his body is held on the arc with no input.
 /// Returns whether the rival is being carried (the brain is skipped). The ride is kept after the drop while
@@ -658,7 +689,7 @@ impl SummitRaceExperiment {
             }
             a.manual = Some(steer.input);
             if let Some(top) = lift_for(r.brain.best_s, &self.lifts) {
-                r.ride = Some(LakituRide::new(a.body.pos(), rail, top));
+                r.ride = Some(LakituRide::new(a.body.pos(), rail, top).clear_ground(&a.body.runtime.world));
                 r.brain.lifted(rail, top);
                 ride_rival(&mut a.body, &mut a.manual, &mut r.ride);
             }
@@ -675,7 +706,7 @@ impl SummitRaceExperiment {
                     let p = ride.lakitu_at(t);
                     let bob = (t * 0.35).sin() * 6.0;
                     let yaw = ride.yaw() * std::f64::consts::PI / 32768.0;
-                    let tf = Transform::from_translation(crate::render::to_bevy([p[0], p[1] + bob, p[2]])).with_rotation(Quat::from_rotation_y(yaw as f32)).with_scale(Vec3::splat(LAKITU_SCALE));
+                    let tf = Transform::from_translation(crate::render::to_bevy([p[0], p[1] + bob, p[2]])).with_rotation(Quat::from_rotation_y(yaw as f32));
                     host.commands.entity(*e).insert((tf, Visibility::Inherited));
                 }
                 _ => {
@@ -831,20 +862,27 @@ impl Experiment for SummitRaceExperiment {
             let e = host.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone()), Transform::default(), Visibility::Hidden));
             self.guide.push(e);
         }
-        // Lakitu: the imported cameraman model when the player's data has it, else a small original stand-in.
-        let lakitu_mesh = (!host.asset_root.exists(LAKITU_MODEL)).then(|| (host.meshes.add(Sphere::new(70.0 * SCALE)), host.unlit(Color::srgb(0.96, 0.97, 1.0)), host.unlit(Color::srgb(0.95, 0.75, 0.2))));
+        // Lakitu: a low-poly cloud of our own (the cameraman's cloud is a separate object in the original), with the imported
+        // cameraman on it, animated, when the player's data has him; otherwise an original shell-and-head stand-in.
+        let puff = host.meshes.add(Sphere::new(1.0).mesh().ico(1).unwrap());
+        let cloud = host.materials.add(StandardMaterial { base_color: Color::srgb(0.97, 0.98, 1.0), emissive: LinearRgba::rgb(0.25, 0.26, 0.3), perceptual_roughness: 1.0, ..default() });
+        let has_model = host.asset_root.exists(LAKITU_MODEL);
+        let (shell, skin) = (host.unlit(Color::srgb(0.25, 0.7, 0.25)), host.unlit(Color::srgb(1.0, 0.85, 0.3)));
         for _ in 0..RIVALS + 1 {
-            let e = match &lakitu_mesh {
-                None => host.spawn((crate::render::scene(host.assets, LAKITU_MODEL), Transform::default(), Visibility::Hidden)),
-                Some((mesh, cloud, shell)) => {
-                    let e = host.spawn((Transform::default(), Visibility::Hidden));
-                    for (dx, dy, dz, s, m) in [(-55.0, 0.0, 0.0, 1.0, cloud), (55.0, 0.0, 0.0, 1.0, cloud), (0.0, 10.0, 40.0, 0.9, cloud), (0.0, 10.0, -40.0, 0.9, cloud), (0.0, 85.0, 0.0, 0.7, shell)] {
-                        let c = host.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(m.clone()), Transform::from_xyz(dx * SCALE, dy * SCALE, dz * SCALE).with_scale(Vec3::splat(s)), Visibility::Inherited));
-                        host.commands.entity(e).add_child(c);
-                    }
-                    e
+            let e = host.spawn((Transform::default(), Visibility::Hidden));
+            for (dx, dy, dz, r) in [(-60.0, 0.0, 0.0, 62.0), (60.0, 0.0, 0.0, 62.0), (0.0, 12.0, 45.0, 58.0), (0.0, 12.0, -45.0, 58.0), (0.0, 26.0, 0.0, 70.0), (-28.0, -18.0, 0.0, 50.0), (28.0, -18.0, 0.0, 50.0)] {
+                let c = host.spawn((Mesh3d(puff.clone()), MeshMaterial3d(cloud.clone()), Transform::from_xyz(dx * SCALE, dy * SCALE, dz * SCALE).with_scale(Vec3::splat(r * SCALE)), Visibility::Inherited));
+                host.commands.entity(e).add_child(c);
+            }
+            if has_model {
+                let m = crate::render::object_view::spawn_model(host.commands, host.assets, host.asset_root, LAKITU_MODEL, true).insert((super::XpEntity, Transform::from_xyz(0.0, LAKITU_RIDE_Y * SCALE, 0.0).with_scale(Vec3::splat(LAKITU_SCALE)))).id();
+                host.commands.entity(e).add_child(m);
+            } else {
+                for (dy, r, m) in [(70.0, 55.0, &shell), (135.0, 34.0, &skin)] {
+                    let c = host.spawn((Mesh3d(puff.clone()), MeshMaterial3d(m.clone()), Transform::from_xyz(0.0, dy * SCALE, 0.0).with_scale(Vec3::splat(r * SCALE)), Visibility::Inherited));
+                    host.commands.entity(e).add_child(c);
                 }
-            };
+            }
             self.lakitus.push(e);
         }
         let meta = init_clips(host);
@@ -990,13 +1028,16 @@ impl Experiment for SummitRaceExperiment {
                         let rail = self.rail.as_ref().unwrap();
                         self.runners[0].hit = Some(rail.at(self.runners[0].brain.best_s));
                         host.fx("bonk", r.to);
+                        // The camera trailed the arc through the air: put it back behind the racer on the path.
+                        let yaw = host.sim.mario.face_angle[1];
+                        host.rig.snap_behind(yaw);
                     }
                     self.runners[0].ride = Some(r);
                 }
                 Some(_) => self.runners[0].ride = None,
                 None => {
                     if let (Some(top), Some(rail)) = (lift_for(self.runners[0].brain.best_s, &self.lifts), self.rail.as_ref()) {
-                        let ride = LakituRide::new(host.sim.mario.pos, rail, top);
+                        let ride = LakituRide::new(host.sim.mario.pos, rail, top).clear_ground(&host.sim.mario.world);
                         self.runners[0].brain.lifted(rail, top);
                         if let Some(a) = self.auto.as_mut() {
                             a.lifted(rail, top);
@@ -1289,7 +1330,7 @@ mod tests {
                 }
                 a.manual = Some(steer.input);
                 if let Some(top) = lift_for(brains[i].best_s, &lifts) {
-                    rides[i] = Some(LakituRide::new(a.body.pos(), &rail, top));
+                    rides[i] = Some(LakituRide::new(a.body.pos(), &rail, top).clear_ground(&course.world));
                     brains[i].lifted(&rail, top);
                     ride_rival(&mut a.body, &mut a.manual, &mut rides[i]);
                     lifted[i] += 1;

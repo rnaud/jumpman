@@ -161,7 +161,7 @@ Root causes found on the real collision:
 
 **Character support.** The player can be any of the four; rivals are always Marios.
 
-**Open.** The lift is a teleport with a toast, not an animated Lakitu. One route only (THI's race route would need
+**Open.** (The lift is now animated: Lakitu on a cloud carries the racer along an arc that clears the ground, same 50-tick ride for everyone.) One route only (THI's race route would need
 the other course loaded).
 
 ## Relic Descent (`relic*`)
