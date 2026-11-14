@@ -125,9 +125,32 @@ impl Grid {
 /// Is the step from cell `a` (floor `ha`) to its neighbour `b` (floor `hb`) walled off at foot height? Mario's own wall
 /// checks sit 30 and 60 units above his feet (radii 24 and 50); a low wall, a curb or a fence post between two open cells
 /// stops him there even though both cells are standable (the walker used to push against such a wall for minutes).
+///
+/// A diagonal step is checked at its quarter points too, and every checked point needs ground under it near the step's own
+/// height: a diagonal used to cut the corner of a thin fence's end (Graveyard) and to cross a crack between two floors that
+/// has no floor at all (Koopa Troopa Beach), where Mario's step stops dead although both cells are fine.
 fn crossing_blocked<P: Probe + ?Sized>(probe: &P, a: (f32, f32), ha: f32, b: (f32, f32), hb: f32) -> bool {
-    let (mx, mz) = ((a.0 + b.0) * 0.5, (a.1 + b.1) * 0.5);
-    probe.wall_near(mx, ha.max(hb) + 30.0, mz, 24.0) || probe.wall_near(mx, ha.max(hb) + 60.0, mz, 40.0)
+    let diagonal = a.0 != b.0 && a.1 != b.1;
+    let ts: &[f32] = if diagonal { &[0.25, 0.5, 0.75] } else { &[0.5] };
+    for &t in ts {
+        let (x, z) = (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t);
+        let h = ha + (hb - ha) * t;
+        if probe.wall_near(x, ha.max(hb) + 30.0, z, 24.0) || probe.wall_near(x, ha.max(hb) + 60.0, z, 40.0) {
+            return true;
+        }
+        // Ground under the step and a body width to either side of it (Mario stalls at the lip of a crack).
+        let (dx, dz) = (b.0 - a.0, b.1 - a.1);
+        let l = dx.hypot(dz).max(1.0);
+        let (px, pz) = (-dz / l * 35.0, dx / l * 35.0);
+        for (ox, oz) in [(0.0, 0.0), (px, pz), (-px, -pz)] {
+            let mut f = [f32::NAN; LAYERS];
+            let n = probe.floors(x + ox, z + oz, &mut f);
+            if !f[..n].iter().any(|v| (v - h).abs() <= 45.0) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// The result of the flood fill, kept for the scoring (and for tests).
@@ -289,12 +312,61 @@ struct Cand {
     w: f32,
     hide: u8,
     key: f32,
+    /// Level, reached neighbours two cells out (of 8): how much room there is around the spot.
+    open: i32,
+}
+
+/// The shrines of a level (Megabonk-style interactables, see `swarm_shrines.rs`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ShrineKind {
+    /// Stand in its circle while it charges (the swarm comes for you): a stat boost and a card.
+    Charge,
+    /// Touch it to call a hard wave with an elite; survive it for two cards and gold.
+    Challenge,
+    /// A cursed bargain: gold, a card and more XP now, tougher and more numerous foes for the rest of the run.
+    Greed,
+    /// Summons a boss on the spot (it drops a chest like any boss) and pays a little gold.
+    Altar,
+    /// The duplicator: pay gold for a free level of something you already carry (up to three times, dearer each time).
+    Duplicator,
+}
+
+pub const SHRINE_KINDS: [ShrineKind; 5] = [ShrineKind::Charge, ShrineKind::Challenge, ShrineKind::Greed, ShrineKind::Altar, ShrineKind::Duplicator];
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShrineSite {
+    /// Local x/z, like a chest's.
+    pub pos: [f32; 2],
+    pub y: f32,
+    pub kind: ShrineKind,
+}
+
+/// A breakable pot (gold inside, now and then a heart).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PotSite {
+    pub pos: [f32; 2],
+    pub y: f32,
+}
+
+/// Everything the planner places on a level.
+#[derive(Clone, Debug, Default)]
+pub struct WorldPlan {
+    pub chests: Vec<ChestSite>,
+    pub shrines: Vec<ShrineSite>,
+    pub pots: Vec<PotSite>,
 }
 
 /// Plan the chests of a course. `bounds` is `[x0, z0, x1, z1]` in course units around everything that may be walked;
 /// `start` the player's start (x, floor y, z); the sites come back relative to `origin`. `seed` fixes the layout.
 pub fn plan<P: Probe + ?Sized>(probe: &P, start: [f32; 3], bounds: [f32; 4], origin: [f32; 2], seed: u64) -> Vec<ChestSite> {
-    let Some(mut r) = flood(probe, start, bounds) else { return vec![] };
+    plan_world(probe, start, bounds, origin, seed).chests
+}
+
+/// The chests (exactly as [`plan`]), then the shrines and the pots, from the same flood fill: every site is a spot the
+/// player can reach. Shrines want room around them (a charge circle is fought in) and keep apart from the chests and each
+/// other; pots come in little clusters of two or three, mostly in the hidden corners.
+pub fn plan_world<P: Probe + ?Sized>(probe: &P, start: [f32; 3], bounds: [f32; 4], origin: [f32; 2], seed: u64) -> WorldPlan {
+    let Some(mut r) = flood(probe, start, bounds) else { return WorldPlan::default() };
     let g = &mut r.grid;
     let (nx, nz) = (g.nx, g.nz);
     let cells = (nx * nz) as usize;
@@ -368,11 +440,11 @@ pub fn plan<P: Probe + ?Sized>(probe: &P, start: [f32; 3], bounds: [f32; 4], ori
             }
             // Efraimidis-Spirakis key: bigger weights sort first.
             let u = rng.f32().max(1e-6);
-            cands.push(Cand { pos: [x - origin[0], z - origin[1]], y: h, w, hide, key: u.ln() / w });
+            cands.push(Cand { pos: [x - origin[0], z - origin[1]], y: h, w, hide, key: u.ln() / w, open });
         }
     }
     if cands.is_empty() {
-        return vec![];
+        return WorldPlan::default();
     }
     cands.sort_by(|a, b| b.key.total_cmp(&a.key));
     let area = r.total as f32 * CELL * CELL;
@@ -417,7 +489,7 @@ pub fn plan<P: Probe + ?Sized>(probe: &P, start: [f32; 3], bounds: [f32; 4], ori
     picked.sort_by(|&a, &b| cands[b].w.total_cmp(&cands[a].w));
     let golden = (picked.len() / 6).max(1);
     let rare = picked.len() / 3;
-    picked
+    let chests: Vec<ChestSite> = picked
         .iter()
         .enumerate()
         .map(|(rank, &i)| {
@@ -425,7 +497,70 @@ pub fn plan<P: Probe + ?Sized>(probe: &P, start: [f32; 3], bounds: [f32; 4], ori
             let tier = if rank < golden { ChestTier::Golden } else if rank < golden + rare { ChestTier::Rare } else { ChestTier::Common };
             ChestSite { pos: c.pos, y: c.y, tier, hide: c.hide }
         })
-        .collect()
+        .collect();
+    // Shrines and pots draw from their own stream, so the chests stay exactly what they were.
+    let mut rng = Rng::new(seed ^ 0x5A21_7E00_0B07);
+    let d2 = |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2);
+    let used: Vec<[f32; 2]> = chests.iter().map(|c| c.pos).collect();
+    // Shrines: roomy, level spots in a random order, apart from chests (600) and from each other.
+    let want_shrines = ((3.0 + area / 4.0e6) as usize).clamp(4, 9);
+    let mut order: Vec<usize> = (0..cands.len()).filter(|&i| cands[i].open >= 7).collect();
+    for i in (1..order.len()).rev() {
+        order.swap(i, rng.below(i as u32 + 1) as usize);
+    }
+    let mut shrine_at: Vec<usize> = vec![];
+    let mut spacing = 1800.0f32;
+    for _ in 0..4 {
+        for &i in &order {
+            if shrine_at.len() >= want_shrines {
+                break;
+            }
+            let p = cands[i].pos;
+            if !shrine_at.contains(&i) && used.iter().all(|&u| d2(u, p) > 600.0 * 600.0) && shrine_at.iter().all(|&j| d2(cands[j].pos, p) > spacing * spacing) {
+                shrine_at.push(i);
+            }
+        }
+        spacing *= 0.7;
+    }
+    // One of each kind first (the ones the level has the most use for first), then more charge, challenge and greed.
+    let kinds = [ShrineKind::Charge, ShrineKind::Duplicator, ShrineKind::Challenge, ShrineKind::Altar, ShrineKind::Greed, ShrineKind::Charge, ShrineKind::Challenge, ShrineKind::Charge, ShrineKind::Greed];
+    let mut kinds: Vec<ShrineKind> = kinds[..shrine_at.len()].to_vec();
+    for i in (1..kinds.len()).rev() {
+        kinds.swap(i, rng.below(i as u32 + 1) as usize);
+    }
+    let shrines: Vec<ShrineSite> = shrine_at.iter().zip(kinds).map(|(&i, kind)| ShrineSite { pos: cands[i].pos, y: cands[i].y, kind }).collect();
+    // Pots: clusters of two or three around a seeded pick of the spots, hidden corners first.
+    let want_pots = ((8.0 + area / 1.5e6) as usize).clamp(10, 30);
+    let mut keys: Vec<(f32, usize)> = (0..cands.len()).map(|i| (rng.f32().max(1e-6).ln() / (if cands[i].hide != 0 { 3.0 } else { 1.0 }), i)).collect();
+    keys.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let taken = |p: [f32; 2]| used.iter().any(|&u| d2(u, p) < 220.0 * 220.0) || shrines.iter().any(|s| d2(s.pos, p) < 450.0 * 450.0);
+    let mut pots: Vec<PotSite> = vec![];
+    let mut centres: Vec<[f32; 2]> = vec![];
+    for &(_, i) in &keys {
+        if pots.len() >= want_pots {
+            break;
+        }
+        let c = &cands[i];
+        if taken(c.pos) || centres.iter().any(|&q| d2(q, c.pos) < 900.0 * 900.0) {
+            continue;
+        }
+        centres.push(c.pos);
+        pots.push(PotSite { pos: c.pos, y: c.y });
+        // Neighbours on the same floor join the cluster.
+        let extra = 1 + rng.below(2) as usize;
+        let mut n = 0;
+        for o in cands.iter() {
+            if n >= extra || pots.len() >= want_pots {
+                break;
+            }
+            let dd = d2(o.pos, c.pos);
+            if dd > 90.0 * 90.0 && dd < 260.0 * 260.0 && (o.y - c.y).abs() < 30.0 && !taken(o.pos) && pots.iter().all(|q| d2(q.pos, o.pos) > 90.0 * 90.0) {
+                pots.push(PotSite { pos: o.pos, y: o.y });
+                n += 1;
+            }
+        }
+    }
+    WorldPlan { chests, shrines, pots }
 }
 
 #[cfg(test)]
@@ -566,5 +701,45 @@ pub mod tests {
         for (p, q) in a.iter().zip(&b) {
             assert!((p.pos[0] - 100.0 - q.pos[0]).abs() < 1e-3 && (p.pos[1] + 50.0 - q.pos[1]).abs() < 1e-3);
         }
+    }
+
+    #[test]
+    fn shrines_and_pots_are_reachable_spaced_and_deterministic() {
+        let t = toy();
+        let r = flood(&t, [0.0, 0.0, 0.0], bounds()).unwrap();
+        let d = |a: [f32; 2], b: [f32; 2]| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt();
+        let mut kinds_seen = std::collections::HashSet::new();
+        for seed in 1..8u64 {
+            let w = plan_world(&t, [0.0, 0.0, 0.0], bounds(), [0.0, 0.0], seed);
+            let again = plan_world(&t, [0.0, 0.0, 0.0], bounds(), [0.0, 0.0], seed);
+            assert_eq!(w.shrines, again.shrines);
+            assert_eq!(w.pots, again.pots);
+            // The chests are exactly what `plan` gives.
+            let c = plan(&t, [0.0, 0.0, 0.0], bounds(), [0.0, 0.0], seed);
+            assert_eq!(c.iter().map(|c| c.pos).collect::<Vec<_>>(), w.chests.iter().map(|c| c.pos).collect::<Vec<_>>());
+            assert!(w.shrines.len() >= 4, "seed {seed}: {} shrines", w.shrines.len());
+            assert!(w.pots.len() >= 10, "seed {seed}: {} pots", w.pots.len());
+            for s in &w.shrines {
+                kinds_seen.insert(format!("{:?}", s.kind));
+                assert!(r.reached(s.pos[0], s.pos[1], s.y), "seed {seed}: {s:?} is not reached");
+                assert!(w.chests.iter().all(|c| d(c.pos, s.pos) > 590.0), "seed {seed}: a shrine on a chest");
+            }
+            for (i, a) in w.shrines.iter().enumerate() {
+                for b in &w.shrines[i + 1..] {
+                    assert!(d(a.pos, b.pos) > 600.0, "seed {seed}: shrines too close");
+                }
+            }
+            for p in &w.pots {
+                assert!(r.reached(p.pos[0], p.pos[1], p.y), "seed {seed}: pot {p:?} is not reached");
+                assert!(w.shrines.iter().all(|s| d(s.pos, p.pos) > 440.0));
+            }
+            // One of each kind on a level with room for five.
+            if w.shrines.len() >= 5 {
+                for k in SHRINE_KINDS {
+                    assert!(w.shrines.iter().any(|s| s.kind == k), "seed {seed}: no {k:?}");
+                }
+            }
+        }
+        assert_eq!(kinds_seen.len(), SHRINE_KINDS.len());
     }
 }

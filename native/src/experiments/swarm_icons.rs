@@ -122,6 +122,43 @@ fn mix(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
     [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]
 }
 
+/// Shrine and pot glyphs (`ShrineKind as u8`, then 5 for a pot) and their main colour; the frame is the shrine's colour.
+fn shrine_glyph(kind: u8) -> ([&'static str; GLYPH], u32) {
+    match kind {
+        // Charge: a lightning bolt inside a circle.
+        0 => (["....####....", "..##....##..", ".#.....##.#.", ".#....##..#.", "#....##....#", "#...#####..#", "#..#####...#", "#....##....#", ".#..##....#.", ".#.##.....#.", "..##....##..", "....####...."], 0x60d8ff),
+        // Challenge: crossed swords.
+        1 => (["w..........w", ".w........w.", "..w......w..", "...w....w...", "....w..w....", ".....ww.....", ".....ww.....", "....w..w....", "..gw....wg..", "..g......g..", ".bb......bb.", "kb........bk"], 0xff6048),
+        // Greed: a horned skull over gold.
+        2 => (["#..........#", "##..####..##", ".##########.", "..########..", "..#kk##kk#..", "..#kk##kk#..", "...######...", "...#o##o#...", "....####....", "..gg.gg.gg..", ".gggggggggg.", "gggggggggggg"], 0xc070ff),
+        // Boss altar: a crown on a block.
+        3 => (["............", ".g...g...g..", ".gg.ggg.gg..", ".ggggggggg..", ".grgggggrg..", ".ggggggggg..", "............", ".##########.", ".#oooooooo#.", ".#o######o#.", ".#oooooooo#.", ".##########."], 0xff9030),
+        // Duplicator: two overlapping cards.
+        4 => (["#######.....", "#+++++#.....", "#+wwww######", "#+wwww#++++#", "#+wwww#+ww+#", "#+wwww#+ww+#", "#+++++#+ww+#", "#######+ww+#", "......#+ww+#", "......#++++#", "......######", "............"], 0x58e070),
+        // Pot.
+        _ => (["....kkkk....", "....oooo....", ".....##.....", "...######...", "..########..", ".####++####.", ".###++#####.", ".##########.", ".##########.", "..########..", "...######...", "....oooo...."], 0xc86a3a),
+    }
+}
+
+/// A shrine's colour (`ShrineKind as u8`): its icon frame, beam, circle and compass dot.
+pub fn shrine_rgb(kind: u8) -> [f32; 3] {
+    rgb(match kind {
+        0 => 0x40c8ff,
+        1 => 0xff4a3a,
+        2 => 0xb050ff,
+        3 => 0xff9a2a,
+        4 => 0x40e060,
+        _ => 0xc86a3a,
+    })
+}
+
+/// A shrine's (or a pot's, `kind` 5) icon as 16x16 RGBA bytes, framed in its colour like the upgrade icons.
+pub fn shrine_pixels(kind: u8) -> Vec<u8> {
+    let (rows, main) = shrine_glyph(kind);
+    let frame = shrine_rgb(kind);
+    draw(&rows, rgb(main), frame, false)
+}
+
 /// The icon as 16x16 RGBA bytes (sRGB), row by row from the top.
 pub fn pixels(u: Upgrade) -> Vec<u8> {
     let cat = category(u);
@@ -129,6 +166,10 @@ pub fn pixels(u: Upgrade) -> Vec<u8> {
     let (rows, main) = glyph(u);
     let evo = cat == Category::Evolution;
     let main = if evo { mix(rgb(main), [1.0, 1.0, 1.0], 0.25) } else { rgb(main) };
+    draw(&rows, main, frame, evo)
+}
+
+fn draw(rows: &[&'static str; GLYPH], main: [f32; 3], frame: [f32; 3], evo: bool) -> Vec<u8> {
     let back = mix([0.05, 0.06, 0.16], frame, 0.18);
     let mut px = vec![[0.0f32; 4]; SIZE * SIZE];
     for y in 0..SIZE {
@@ -244,6 +285,19 @@ mod tests {
         let mut f = format!("P6\n{w} {h}\n255\n").into_bytes();
         f.extend(out);
         std::fs::write(path, f).unwrap();
+    }
+
+    #[test]
+    fn shrine_and_pot_icons_are_well_formed_and_distinct() {
+        let all: Vec<Vec<u8>> = (0..6u8).map(shrine_pixels).collect();
+        for k in 0..6u8 {
+            let (rows, _) = shrine_glyph(k);
+            assert!(rows.iter().all(|r| r.len() == GLYPH && r.bytes().all(|c| b".#+owkgrb".contains(&c))), "shrine {k}");
+            assert_eq!(all[k as usize].len(), SIZE * SIZE * 4);
+            for j in k as usize + 1..all.len() {
+                assert_ne!(all[k as usize], all[j]);
+            }
+        }
     }
 
     #[test]

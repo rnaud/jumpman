@@ -16,7 +16,7 @@ use bevy::prelude::*;
 /// Chests drawn at once (those within the draw range of the player).
 pub const DRAWN: usize = 24;
 /// Compass dots.
-pub const DOTS: usize = 10;
+pub const DOTS: usize = 14;
 /// World distance at the edge of the compass.
 pub const COMPASS_RANGE: f32 = 4200.0;
 
@@ -52,6 +52,11 @@ pub struct ChestBoard {
     pub fight: f32,
     pub opened: u32,
     pub total: u32,
+    /// Shrines near the player and unbroken pots (drawn by `swarm_shrine_view.rs`).
+    pub shrines: Vec<super::swarm_shrine_view::ShrineItem>,
+    pub pots: Vec<Vec3>,
+    /// A charge shrine's charge while the player holds it (0 = none).
+    pub charge: f32,
 }
 
 pub struct ChestViewPlugin;
@@ -112,11 +117,16 @@ struct Mats {
     beam: [Handle<StandardMaterial>; 3],
 }
 
+/// A compass dot's colour: chest tiers 0..=2, then the shrine kinds (3 + `ShrineKind as u8`).
 fn tier_color(tier: u8) -> Color {
     match tier {
         0 => Color::srgb(0.78, 0.5, 0.2),
         1 => Color::srgb(0.55, 0.78, 1.0),
-        _ => Color::srgb(1.0, 0.82, 0.2),
+        2 => Color::srgb(1.0, 0.82, 0.2),
+        t => {
+            let c = super::swarm_shrine_view::shrine_rgb(t - 3);
+            Color::srgb(c[0], c[1], c[2])
+        }
     }
 }
 
@@ -258,6 +268,8 @@ fn sync_compass(
     }
     let text = if board.fight > 0.0 {
         format!("HOLD OUT {:.0}s", board.fight.ceil())
+    } else if board.charge > 0.0 {
+        format!("CHARGING {:.0}%", (board.charge * 100.0).floor())
     } else if board.keys > 0 {
         format!("CHESTS {}/{}  KEYS {}", board.opened, board.total, board.keys)
     } else {

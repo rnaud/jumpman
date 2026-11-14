@@ -264,7 +264,7 @@ impl Plugin for SwarmViewPlugin {
             (prof_begin, super::swarm_fx::gallery.run_if(crate::experiments::brawl_fx::gallery_on), sync_render, super::swarm_fx::style.run_if(crate::fx::n64::enabled), prof_render_done, manage_ui, update_hud, update_hud_extra, update_nums, card_input, brief_input, summary_input, style_cards, overlay_display, prof_ui_done).chain().after(super::run_frame).run_if(|b: Res<SwarmBridge>| b.active),
         );
         app.init_resource::<super::swarm_fx::SwarmFx>().add_systems(Update, super::swarm_fx::reset.after(super::run_frame).run_if(|b: Res<SwarmBridge>| !b.active));
-        app.add_plugins(super::swarm_chest_view::ChestViewPlugin);
+        app.add_plugins((super::swarm_chest_view::ChestViewPlugin, super::swarm_shrine_view::ShrineViewPlugin));
         app.add_systems(Update, cleanup.after(super::run_frame).run_if(|b: Res<SwarmBridge>| !b.active));
         app.add_systems(Update, push_foes.after(super::run_frame).before(super::foes_view::sync_foes).run_if(|b: Res<SwarmBridge>| b.active));
     }
@@ -576,6 +576,7 @@ fn sync_render(
                     6 => [1.0, 0.5, 0.15],
                     7 => [0.9, 0.97, 1.0],
                     8 => [0.55, 0.85, 1.0],
+                    9 => [1.0, 0.18, 0.12],
                     10 => [1.0, 0.42, 0.1],
                     11 => [0.45, 0.9, 0.25],
                     12 => [0.5, 0.2, 0.85],

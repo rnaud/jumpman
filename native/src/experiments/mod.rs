@@ -115,6 +115,8 @@ pub mod swarm_bot;
 pub mod swarm_cam;
 pub mod swarm_chest_view;
 pub mod swarm_world;
+pub mod swarm_shrines;
+pub mod swarm_shrine_view;
 pub mod textures;
 
 use crate::camera::{CameraRig, MainCamera};

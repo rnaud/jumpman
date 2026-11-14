@@ -60,6 +60,7 @@ fn ring_look(kind: u8) -> Look {
         6 => l(pat::BURST, 0, [1.0, 0.5, 0.15], true, Shape::Sprite),
         7 => l(pat::SLASH, 0, [0.42, 0.78, 1.0], true, Shape::Sector),
         8 => l(pat::RING, 3, [0.55, 0.85, 1.0], true, Shape::Ring),
+        9 => l(pat::RING, 2, [1.0, 0.2, 0.12], true, Shape::Ring),
         10 => l(pat::ZONE, 0, [1.0, 0.42, 0.1], true, Shape::Disc),
         11 => l(pat::ZONE, 1, [0.45, 0.9, 0.25], false, Shape::Disc),
         12 => l(pat::ZONE, 2, [0.5, 0.2, 0.85], false, Shape::Disc),
@@ -445,7 +446,7 @@ mod tests {
 
     #[test]
     fn every_ring_kind_has_a_look() {
-        for kind in [1u8, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12] {
+        for kind in [1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] {
             let l = ring_look(kind);
             assert!(l.pattern >= 0.0 && l.color.iter().all(|c| (0.0..=1.0).contains(c)), "kind {kind}");
         }

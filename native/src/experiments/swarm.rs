@@ -611,9 +611,10 @@ impl StarSwarmExperiment {
         let t0 = std::time::Instant::now();
         let bounds = walkable_bounds(&world);
         let (cx, cz) = (self.level.center[0] as f32, self.level.center[1] as f32);
-        let sites = super::swarm_world::plan(&CourseProbe(&world), [cx, start_y, cz], bounds, [cx, cz], self.core_seed());
-        info!("swarm chests {}: {} planned in {:.0} ms over {:?}", self.level.key, sites.len(), t0.elapsed().as_secs_f64() * 1000.0, bounds);
-        self.core.wchests = sites.into_iter().map(|site| WorldChest { site, opened: false, revealed: false }).collect();
+        let plan = super::swarm_world::plan_world(&CourseProbe(&world), [cx, start_y, cz], bounds, [cx, cz], self.core_seed());
+        info!("swarm chests {}: {} planned ({} shrines, {} pots) in {:.0} ms over {:?}", self.level.key, plan.chests.len(), plan.shrines.len(), plan.pots.len(), t0.elapsed().as_secs_f64() * 1000.0, bounds);
+        self.core.wchests = plan.chests.into_iter().map(|site| WorldChest { site, opened: false, revealed: false }).collect();
+        self.core.set_world_extras(&plan.shrines, &plan.pots);
         self.chests_planned = true;
     }
 
@@ -625,6 +626,10 @@ impl StarSwarmExperiment {
             for (i, w) in self.core.wchests.iter().enumerate() {
                 info!("swarm chest {i}: {:?} at local {:?} y {:.0} hide {:#06b}", w.site.tier, w.site.pos, w.site.y, w.site.hide);
             }
+            for (i, s) in self.core.shrines.iter().enumerate() {
+                info!("swarm shrine {i}: {:?} at local {:?} y {:.0}", s.site.kind, s.site.pos, s.site.y);
+            }
+            info!("swarm pots: {}", self.core.pots.len());
         }
         if let Ok(v) = std::env::var("JUMPMAN_SWARM_TP") {
             let mut at: Option<([f32; 2], f32, f64)> = None;
@@ -634,6 +639,15 @@ impl StarSwarmExperiment {
                 let d = it.next().and_then(|n| n.parse::<f32>().ok()).unwrap_or(450.0);
                 if let Some(w) = self.core.wchests.get(i) {
                     at = Some(([w.site.pos[0], w.site.pos[1] - d], w.site.y, 0.0));
+                }
+            } else if let Some(rest) = v.strip_prefix("shrine:").or_else(|| v.strip_prefix("pot:")) {
+                // `shrine:<n>[:<dist>]` / `pot:<n>[:<dist>]`, like a chest.
+                let mut it = rest.split(':');
+                let i = it.next().and_then(|n| n.parse::<usize>().ok()).unwrap_or(0);
+                let d = it.next().and_then(|n| n.parse::<f32>().ok()).unwrap_or(450.0);
+                let site = if v.starts_with("pot:") { self.core.pots.get(i).map(|p| (p.site.pos, p.site.y)) } else { self.core.shrines.get(i).map(|s| (s.site.pos, s.site.y)) };
+                if let Some((pos, y)) = site {
+                    at = Some(([pos[0], pos[1] - d], y, 0.0));
                 }
             } else if let Some((x, z)) = v.split_once(',') {
                 if let (Ok(x), Ok(z)) = (x.parse::<f32>(), z.parse::<f32>()) {
@@ -743,6 +757,38 @@ impl StarSwarmExperiment {
         // A heavy body stops a run: the hero loses the speed that carried him into it.
         let m = &mut host.sim.mario;
         m.forward_vel = m.forward_vel.min(12.0);
+    }
+
+    /// Toasts, sounds and a burst for what a shrine did this tick.
+    fn shrine_feedback(&mut self, host: &mut Host, e: super::swarm_shrines::ShrineEvent, mario_pos: [f64; 3]) {
+        use super::swarm_shrines::{ShrineKind as K, ShrineWhat as W};
+        let at = [self.center[0] + e.at[0] as f64, self.ground([e.at[0] as f32, e.at[1] as f32]) as f64 + 200.0, self.center[2] + e.at[1] as f64];
+        let text = match (e.kind, e.what) {
+            (K::Charge, W::Started) => "CHARGE SHRINE: STAY IN THE CIRCLE!".to_string(),
+            (K::Charge, W::Done) => format!("SHRINE CHARGED! {}", e.boost.map_or("", |b| b.label())),
+            (K::Challenge, W::Started) => "CHALLENGE SHRINE: SURVIVE 25 SECONDS!".to_string(),
+            (K::Challenge, W::Done) => "CHALLENGE BEATEN! TWO REWARDS".to_string(),
+            (K::Challenge, W::Failed) => "YOU FLED THE CHALLENGE".to_string(),
+            (K::Greed, _) => "GREED SHRINE: GOLD AND XP... THE SWARM GROWS STRONGER".to_string(),
+            (K::Altar, W::Done) => "BOSS ALTAR: A BOSS IS SUMMONED!".to_string(),
+            (K::Altar, _) => "THE ALTAR IS SILENT".to_string(),
+            (K::Duplicator, W::Done) => format!("DUPLICATED: {}", e.copied.map_or("", |u| u.info().name).to_uppercase()),
+            (K::Duplicator, W::NeedGold(c)) => format!("DUPLICATOR: {c} GOLD (YOU HAVE {})", self.core.gold),
+            (K::Duplicator, _) => "NOTHING TO DUPLICATE YET".to_string(),
+            _ => return,
+        };
+        host.toast(&text, 2.2);
+        let color = super::swarm_icons::shrine_rgb(e.kind as u8);
+        let hex = ((color[0] * 255.0) as u32) << 16 | ((color[1] * 255.0) as u32) << 8 | (color[2] * 255.0) as u32;
+        match e.what {
+            W::Done => {
+                host.fx("star_sound", mario_pos);
+                self.shake.add(0.3);
+                host.particles.burst(at, crate::fx::particles::BurstOptions { color: hex, count: 24, speed: 520.0, life: 0.8, gravity: -300.0, size: 60.0, upward: 420.0, spread: 1.0, ..Default::default() });
+            }
+            W::Started => host.fx("teleport", mario_pos),
+            _ => host.fx("bonk", mario_pos),
+        }
     }
 
     fn core_seed(&self) -> u64 {
@@ -993,6 +1039,7 @@ impl StarSwarmExperiment {
                     RingKind::Blast => 6,
                     RingKind::Arc => 7,
                     RingKind::Frost => 8,
+                    RingKind::Meteor => 9,
                 };
                 // An arc is a pie slice: its yaw turns the slice (pointing along -Z when flat) onto the swing direction.
                 let yaw = if r.kind == RingKind::Arc { (-r.dir.cos()).atan2(-r.dir.sin()) } else { 0.0 };
@@ -1057,6 +1104,36 @@ impl StarSwarmExperiment {
                 let right = d[0] * cs - d[1] * sn;
                 let ahead = -d[0] * sn - d[1] * cs;
                 pts.push((d2, CompassPt { right, ahead, tier: w.site.tier as u8 }));
+            }
+        }
+        // Shrines (drawn within sight range, on the compass once seen while they still have something to give) and pots.
+        b.world.shrines.clear();
+        b.world.pots.clear();
+        b.world.charge = 0.0;
+        for sh in &core.shrines {
+            let d = [sh.site.pos[0] - me[0], sh.site.pos[1] - me[1]];
+            let d2 = d[0] * d[0] + d[1] * d[1];
+            let active = sh.state == super::swarm_shrines::ShrineState::Active;
+            if active {
+                match sh.site.kind {
+                    super::swarm_shrines::ShrineKind::Charge => b.world.charge = sh.charge.max(0.01),
+                    _ => b.world.fight = b.world.fight.max((super::swarm_shrines::SHRINE_FIGHT_TICKS - sh.ticks.min(super::swarm_shrines::SHRINE_FIGHT_TICKS)) as f32 / TICKS_PER_SEC as f32),
+                }
+            }
+            if d2 < DRAW_RANGE * DRAW_RANGE && b.world.shrines.len() < super::swarm_shrine_view::SHRINES_DRAWN {
+                let pos = to_bevy([self.center[0] + sh.site.pos[0] as f64, sh.site.y as f64, self.center[2] + sh.site.pos[1] as f64]);
+                b.world.shrines.push(super::swarm_shrine_view::ShrineItem { pos, kind: sh.site.kind as u8, live: sh.live(), active, charge: sh.charge, near: d2 < REVEAL_R * REVEAL_R });
+            }
+            if sh.revealed && sh.live() {
+                let right = d[0] * cs - d[1] * sn;
+                let ahead = -d[0] * sn - d[1] * cs;
+                pts.push((d2, CompassPt { right, ahead, tier: 3 + sh.site.kind as u8 }));
+            }
+        }
+        for pot in core.pots.iter().filter(|p| !p.broken) {
+            let d2 = (pot.site.pos[0] - me[0]).powi(2) + (pot.site.pos[1] - me[1]).powi(2);
+            if d2 < 2600.0 * 2600.0 && b.world.pots.len() < super::swarm_shrine_view::POTS_DRAWN {
+                b.world.pots.push(to_bevy([self.center[0] + pot.site.pos[0] as f64, pot.site.y as f64, self.center[2] + pot.site.pos[1] as f64]));
             }
         }
         pts.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -1371,6 +1448,15 @@ impl Experiment for StarSwarmExperiment {
         } else if ev.boss_spawned {
             host.toast(if self.core.bosses % 2 == 1 { "A KING APPROACHES!" } else { "A CHOMP BREAKS LOOSE!" }, 2.2);
         }
+        if ev.tyrant_phase > 0 {
+            self.shake.add(0.7);
+            host.toast(match ev.tyrant_phase {
+                1 => "THE TYRANT SHIELDS ITSELF AND CALLS ITS GUARD!",
+                2 => "THE TYRANT RAGES - PHASE 3!",
+                _ => "THE TYRANT IS DESPERATE - FINISH IT!",
+            }, 2.4);
+            host.fx("bonk", mario_pos);
+        }
         if ev.boss_killed && !self.core.won {
             host.toast("BOSS DEFEATED!", 2.0);
         }
@@ -1400,6 +1486,14 @@ impl Experiment for StarSwarmExperiment {
                 self.last_count = left;
                 host.toast(&format!("{left}..."), 0.9);
             }
+        }
+        if let Some(e) = ev.shrine {
+            self.shrine_feedback(host, e, mario_pos);
+        }
+        if ev.pots_broken > 0 {
+            host.fx("break_box", fx_at(self, ev.pot_pos));
+            host.fx("coin", mario_pos);
+            host.particles.burst(fx_at(self, ev.pot_pos), crate::fx::particles::BurstOptions { color: 0xc86a3a, count: 10, speed: 300.0, life: 0.5, gravity: -700.0, size: 40.0, upward: 260.0, spread: 1.0, ..Default::default() });
         }
         self.chest_hints(host, mario_pos);
         if ev.vacuum {
@@ -1524,6 +1618,55 @@ mod tests {
             out.push((l, sim));
         }
         out
+    }
+
+    /// `SWARM_PROBE=grave,x0,z0,x1,z1`: floors, ceilings, walls and objects along a segment, as Mario's step sees them.
+    #[test]
+    #[ignore]
+    fn probe_a_segment() {
+        let Ok(v) = std::env::var("SWARM_PROBE") else { return };
+        let parts: Vec<&str> = v.split(',').collect();
+        let n: Vec<f64> = parts[1..].iter().filter_map(|x| x.parse().ok()).collect();
+        for (l, sim) in courses() {
+            if l.key != parts[0] {
+                continue;
+            }
+            let w = &sim.mario.world;
+            if parts.len() > 5 {
+                // A map: '#' a wall within 24 at foot height, 'o' no floor near the reference height, '^' a floor far above.
+                let href = n[4];
+                for zi in 0..=20 {
+                    let z = n[1] + (n[3] - n[1]) * zi as f64 / 20.0;
+                    let mut row = String::new();
+                    for xi in 0..=40 {
+                        let x = n[0] + (n[2] - n[0]) * xi as f64 / 40.0;
+                        let f = w.find_floor(x, href + 100.0, z);
+                        let mut wd = jumpman_sim::collision::WallData { x, y: href, z, offset_y: 30.0, radius: 10.0, walls: vec![] };
+                        let c = if w.find_wall_collisions(&mut wd, false) > 0 { '#' } else if f.surface.is_none() || (f.height - href).abs() > 60.0 { 'o' } else { '.' };
+                        row.push(c);
+                    }
+                    println!("z {z:6.0} {row}");
+                }
+                continue;
+            }
+            for k in 0..=24 {
+                let t = k as f64 / 24.0;
+                let (x, z) = (n[0] + (n[2] - n[0]) * t, n[1] + (n[3] - n[1]) * t);
+                let f = w.find_floor(x, 9000.0, z);
+                let c = w.find_ceil(x, f.height + 80.0, z);
+                let mut wd = jumpman_sim::collision::WallData { x, y: f.height, z, offset_y: 60.0, radius: 50.0, walls: vec![] };
+                let walls = w.find_wall_collisions(&mut wd, false);
+                println!(
+                    "{x:.0},{z:.0}: floor {:.0} kind {:?} obj {:?} | ceil {:.0} obj {:?} | walls {walls} {:?}",
+                    f.height,
+                    f.surface.as_ref().map(|s| (s.kind, (s.normal[1] * 100.0) as i32)),
+                    f.surface.as_ref().map(|s| s.object.is_some()),
+                    c.height,
+                    c.surface.as_ref().map(|s| s.object.is_some()),
+                    wd.walls.iter().map(|s| (s.kind, s.object.is_some(), [s.normal[0] as f32, s.normal[2] as f32], s.lower_y as i32, s.upper_y as i32)).collect::<Vec<_>>()
+                );
+            }
+        }
     }
 
     fn start_y(l: &LevelDef, sim: &GameSim) -> f32 {
@@ -1747,6 +1890,9 @@ mod tests {
                     tried += 1;
                     continue;
                 };
+                if std::env::var("SWARM_BOT_TRACE").as_deref() == Ok("2") {
+                    println!("  {} chest {i} route {:?}", l.key, r.iter().map(|p| [p[0] as i32, p[1] as i32, p[2] as i32]).collect::<Vec<_>>());
+                }
                 let mut nav = Nav::new(r);
                 tried += 1;
                 let mut ok = false;
@@ -1761,7 +1907,12 @@ mod tests {
                         replans += 1;
                         let here = [m.pos[0] as f32, m.pos[1] as f32, m.pos[2] as f32];
                         match route(&probe, here, bounds, [site.pos[0], site.y, site.pos[1]]) {
-                            Some(r) => nav.replan(r),
+                            Some(r) => {
+                                if std::env::var("SWARM_BOT_TRACE").as_deref() == Ok("2") {
+                                    println!("  replan {:?}", r.iter().take(8).map(|p| [p[0] as i32, p[1] as i32, p[2] as i32]).collect::<Vec<_>>());
+                                }
+                                nav.replan(r)
+                            }
                             None => nav.lost = false,
                         }
                     }
@@ -1770,9 +1921,10 @@ mod tests {
                     let (c, cam) = nav.step(m.pos, air);
                     sim.camera_yaw = cam;
                     sim.tick(&c);
-                    if std::env::var_os("SWARM_BOT_TRACE").is_some() && nav_ticks % 45 == 0 {
+                    let every: u32 = std::env::var("SWARM_BOT_EVERY").ok().and_then(|v| v.parse().ok()).unwrap_or(45);
+                    if std::env::var_os("SWARM_BOT_TRACE").is_some() && nav_ticks % every == 0 {
                         let m = &sim.mario;
-                        println!("  {} chest {i}: t{nav_ticks} pos {:?} act {:#x} floor {:?} fh {:.0} vel {:?} idx {}/{} tgt {:?} stick cam {cam}", l.key, [m.pos[0] as i32, m.pos[1] as i32, m.pos[2] as i32], m.action, m.floor.as_ref().map(|f| (f.kind, (f.normal[1] * 100.0) as i32)), m.floor_height, [m.vel[0] as i32, m.vel[1] as i32, m.vel[2] as i32], nav.idx, nav.route.len(), nav.route[(nav.idx + 1).min(nav.route.len() - 1)]);
+                        println!("  {} chest {i}: t{nav_ticks} pos {:?} act {:#x} floor {:?} fh {:.0} vel {:?} idx {}/{} tgt {:?} stick cam {cam} fwd {:.0} wall {:?} face {}", l.key, [m.pos[0] as i32, m.pos[1] as i32, m.pos[2] as i32], m.action, m.floor.as_ref().map(|f| (f.kind, (f.normal[1] * 100.0) as i32)), m.floor_height, [m.vel[0] as i32, m.vel[1] as i32, m.vel[2] as i32], nav.idx, nav.route.len(), nav.route[(nav.idx + 1).min(nav.route.len() - 1)], m.forward_vel, m.wall.as_ref().map(|w| (w.object.is_some(), [w.normal[0] as f32, w.normal[2] as f32], [w.v1[0] as i32, w.v1[1] as i32, w.v1[2] as i32], [w.v2[0] as i32, w.v2[1] as i32, w.v2[2] as i32])), m.face_angle[1] as i32);
                     }
                     nav_ticks += 1;
                     let m = &sim.mario;

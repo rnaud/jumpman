@@ -45,7 +45,9 @@ impl Nav {
         while self.idx + 1 < self.route.len() {
             let p = self.route[self.idx];
             let q = self.route[self.idx + 1];
-            if (hd(&p) < 110.0 && (p[1] as f64 - pos[1]).abs() < 160.0) || (hd(&q) < 100.0 && (q[1] as f64 - pos[1]).abs() < 160.0) {
+            // A waypoint counts as passed close up only (a grid cell is 100 wide): passing it 100 units off cuts the corner
+            // of whatever the route bends round (the Graveyard's fence end stopped the walker dead).
+            if (hd(&p) < 60.0 && (p[1] as f64 - pos[1]).abs() < 160.0) || (hd(&q) < 45.0 && (q[1] as f64 - pos[1]).abs() < 160.0) {
                 self.idx += 1;
             } else {
                 break;
@@ -61,7 +63,7 @@ impl Nav {
         }
         let tgt = self.route[(self.idx + 1).min(n - 1)];
         let aim = self.route[(self.idx + 2).min(n - 1)];
-        let dir = if hd(&tgt) < 60.0 { (aim[0] as f64 - pos[0], aim[2] as f64 - pos[2]) } else { (tgt[0] as f64 - pos[0], tgt[2] as f64 - pos[2]) };
+        let dir = if hd(&tgt) < 40.0 { (aim[0] as f64 - pos[0], aim[2] as f64 - pos[2]) } else { (tgt[0] as f64 - pos[0], tgt[2] as f64 - pos[2]) };
         let rig_yaw = (-dir.0).atan2(-dir.1);
         let cam = ((rig_yaw / std::f64::consts::TAU) * 65536.0).round() as i64 as i16 as i32;
         let moved = if self.last[0].is_nan() { 100.0 } else { (pos[0] - self.last[0]).hypot(pos[2] - self.last[2]) };

@@ -39,6 +39,33 @@ pub const ELITE_PERIOD_SECS: f32 = 50.0;
 pub const ELITE_FIRST_SECS: f32 = 45.0;
 /// The final boss, the Star Tyrant, arrives at 7:00. Killing it wins the run.
 pub const FINAL_SECS: f32 = 420.0;
+/// The Star Tyrant's base health (scaled by the clock and the tier like every foe). Below each of [`TYRANT_GATES`] of its
+/// health it stops, shields itself for [`TYRANT_SHIELD_TICKS`] (damage is mostly turned away), fires a great ring and calls
+/// its guard, and fights harder in the next phase: four phases in all, so the last fight is a fight.
+pub const TYRANT_HP: f32 = 68000.0;
+pub const TYRANT_GATES: [f32; 3] = [0.75, 0.5, 0.25];
+pub const TYRANT_SHIELD_TICKS: u32 = 4 * TICKS_PER_SEC;
+/// Share of the damage that gets through the Tyrant's shield.
+const TYRANT_SHIELD_LEAK: f32 = 0.1;
+/// The Tyrant's meteors (from its second phase): they land where the player is heading, after this long, in this radius.
+pub const METEOR_TICKS: u16 = 36;
+pub const METEOR_R: f32 = 230.0;
+/// Chance of a heart from a foe while the Tyrant stands (0.02 otherwise).
+const TYRANT_HEARTS: f32 = 0.004;
+/// Ticks between meteor volleys in the second phase (20 fewer each phase after).
+const METEOR_EVERY: u16 = 100;
+/// A meteor's hit as a share of the player's health (before armor; at least the Tyrant's touch): the last fight hurts
+/// whatever the build.
+pub const METEOR_HP_SHARE: f32 = 0.6;
+const METEORS: usize = 12;
+
+/// A meteor on its way down.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Meteor {
+    pub pos: [f32; 2],
+    pub ticks: u16,
+    pub dmg: f32,
+}
 /// The dawn: the clock the HUD counts to. A Tyrant still standing then is enraged.
 pub const WIN_SECS: f32 = 480.0;
 const SURGE_PERIOD_TICKS: u32 = 40 * TICKS_PER_SEC;
@@ -219,7 +246,7 @@ pub fn enemy_stats(kind: EnemyKind) -> EnemyStats {
         EnemyKind::Bomber => EnemyStats { hp: 22.0, speed: 12.0, radius: 60.0, height: 100.0, contact: 6.0, xp: 4 },
         EnemyKind::Splitter => EnemyStats { hp: 60.0, speed: 8.5, radius: 90.0, height: 150.0, contact: 10.0, xp: 6 },
         EnemyKind::Chomp => EnemyStats { hp: 1400.0, speed: 8.0, radius: 160.0, height: 260.0, contact: 26.0, xp: 80 },
-        EnemyKind::Tyrant => EnemyStats { hp: 9000.0, speed: 6.5, radius: 260.0, height: 420.0, contact: 30.0, xp: 400 },
+        EnemyKind::Tyrant => EnemyStats { hp: TYRANT_HP, speed: 6.5, radius: 260.0, height: 420.0, contact: 30.0, xp: 400 },
         other => foes::stats(other),
     }
 }
@@ -810,6 +837,8 @@ pub enum RingKind {
     Arc,
     /// The frost ring.
     Frost,
+    /// Where a Tyrant's meteor will land (a fixed circle that brightens until it hits).
+    Meteor,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -828,9 +857,15 @@ pub struct Ring {
 impl Ring {
     pub fn radius(&self) -> f32 {
         let t = (self.age as f32 / self.life.max(1) as f32).clamp(0.0, 1.0);
+        if self.kind == RingKind::Meteor {
+            return self.max;
+        }
         self.max * (1.0 - (1.0 - t) * (1.0 - t))
     }
     pub fn fade(&self) -> f32 {
+        if self.kind == RingKind::Meteor {
+            return 0.3 + 0.7 * (self.age as f32 / self.life.max(1) as f32).clamp(0.0, 1.0);
+        }
         1.0 - (self.age as f32 / self.life.max(1) as f32).clamp(0.0, 1.0)
     }
 }
@@ -913,8 +948,14 @@ pub struct Events {
     pub challenge_started: bool,
     pub challenge_won: bool,
     pub challenge_lost: bool,
+    /// Shrines and pots (`swarm_shrines.rs`): what happened at one this tick.
+    pub shrine: Option<super::swarm_shrines::ShrineEvent>,
+    pub pots_broken: u8,
+    pub pot_pos: [f32; 2],
     pub split: bool,
     pub crit: bool,
+    /// The Tyrant passed a phase gate this tick (the new phase, 1..=3) and shields itself.
+    pub tyrant_phase: u8,
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1134,6 +1175,10 @@ pub struct Swarm {
     pub player_floor_y: f32,
     pub challenge: Option<Challenge>,
     challenge_cooldown: u32,
+    /// The level's shrines and pots (`swarm_shrines.rs`), and the greed shrines taken (each makes the swarm tougher).
+    pub shrines: Vec<super::swarm_shrines::Shrine>,
+    pub pots: Vec<super::swarm_shrines::Pot>,
+    pub curses: u32,
     pub rng: Rng,
     pub tick: u32,
     pub player: PlayerState,
@@ -1195,6 +1240,15 @@ pub struct Swarm {
     volley_n: u32,
     echo: (u8, [f32; 2], f32, f32),
     tyrant_dead: bool,
+    /// Phases the Tyrant has passed (0..=3), ticks of its shield left, and a gate burst waiting for its next move.
+    pub tyrant_gate: u8,
+    pub tyrant_shield: u32,
+    tyrant_burst: bool,
+    pub meteors: [Meteor; METEORS],
+    /// Meteors that hit the player (balance sweeps).
+    pub meteor_hits: u32,
+    /// The player's step last tick (meteors lead him).
+    player_vel: [f32; 2],
     orbit_angle: f32,
     alive_idx: Vec<u16>,
     grid: Grid,
@@ -1249,6 +1303,9 @@ impl Swarm {
             player_floor_y: 0.0,
             challenge: None,
             challenge_cooldown: 0,
+            shrines: vec![],
+            pots: vec![],
+            curses: 0,
             rng: Rng::new(seed),
             tick: 0,
             player: PlayerState { pos: [0.0; 2], height: 0.0, hp: stats.max_hp, max_hp: stats.max_hp, iframes: 0, xp: 0, level: 1, revived: false },
@@ -1303,6 +1360,12 @@ impl Swarm {
             volley_n: 0,
             echo: (0, [0.0; 2], 0.0, 0.0),
             tyrant_dead: false,
+            tyrant_gate: 0,
+            tyrant_shield: 0,
+            tyrant_burst: false,
+            meteors: [Meteor::default(); METEORS],
+            meteor_hits: 0,
+            player_vel: [0.0; 2],
             orbit_angle: 0.0,
             alive_idx: Vec::with_capacity(ENEMY_SLOTS),
             grid: Grid::new(),
@@ -1372,7 +1435,7 @@ impl Swarm {
     }
 
     /// Roll the next card set when a level-up or a chest is waiting (chests first).
-    fn offer(&mut self) {
+    pub(super) fn offer(&mut self) {
         while (self.pending_levels > 0 || self.pending_chests > 0) && self.choices.is_none() {
             let chest = self.pending_chests > 0;
             let c = roll_choices_ex(&mut self.rng, &self.up, self.player.level, chest);
@@ -1412,12 +1475,16 @@ impl Swarm {
         // Where the player stood last tick: his path this tick is swept against the foes' bodies (no tunnelling).
         let prev_pos = if self.tick == 0 { f.pos } else { self.player.pos };
         self.player_push = [0.0; 2];
+        let step = [f.pos[0] - prev_pos[0], f.pos[1] - prev_pos[1]];
+        // A teleport (a fall, a warp) is not a velocity.
+        self.player_vel = if step[0].abs() + step[1].abs() < 120.0 { step } else { [0.0; 2] };
         self.player.pos = f.pos;
         self.player.height = f.height;
         self.player_floor_y = f.y;
         self.tick += 1;
         let secs = self.secs();
         self.player.iframes = self.player.iframes.saturating_sub(1);
+        self.tyrant_shield = self.tyrant_shield.saturating_sub(1);
         if self.stats.regen_per_tick > 0.0 {
             self.heal(self.stats.regen_per_tick);
         }
@@ -1455,10 +1522,14 @@ impl Swarm {
         }
         self.update_echo();
         self.update_orbs();
+        self.update_meteors();
         self.contact(secs);
         self.update_gems();
         if !self.wchests.is_empty() {
             self.update_world_chests();
+        }
+        if !self.shrines.is_empty() || !self.pots.is_empty() {
+            self.update_shrines();
         }
         self.update_rings();
         self.update_boss_bar();
@@ -1552,7 +1623,10 @@ impl Swarm {
             EnemyKind::King | EnemyKind::Chomp => 1.0 + 0.4 * self.bosses as f32,
             _ => 1.0,
         };
-        let hp = s.hp * hp_mult(secs) * boss_scale * self.tier.hp;
+        let hp = s.hp * hp_mult(secs) * boss_scale * self.tier.hp * super::swarm_shrines::curse_hp(self.curses);
+        // Balance sweeps: `SWARM_TYRANT_HP=<base>` replaces the Tyrant's base health (tests only).
+        #[cfg(test)]
+        let hp = if kind == EnemyKind::Tyrant { std::env::var("SWARM_TYRANT_HP").ok().and_then(|v| v.parse::<f32>().ok()).map_or(hp, |h| hp / TYRANT_HP * h) } else { hp };
         let mut seed = 0;
         let timer = match kind {
             EnemyKind::Wisp => 40 + self.rng.below(30) as i16,
@@ -1698,7 +1772,7 @@ impl Swarm {
                 }
             }
         }
-        let want = target_live_at(secs, self.cap, self.tier.spawn);
+        let want = target_live_at(secs, self.cap, self.tier.spawn * super::swarm_shrines::curse_spawn(self.curses));
         let deficit = want.saturating_sub(self.alive_enemies);
         let mut budget = 3 + (deficit / 14).min(5);
         while self.alive_enemies < want && budget > 0 {
@@ -1837,7 +1911,7 @@ impl Swarm {
         self.offer();
     }
 
-    fn pick_kind(&mut self, secs: f32) -> EnemyKind {
+    pub(super) fn pick_kind(&mut self, secs: f32) -> EnemyKind {
         let w = kind_weights(secs);
         let sw = special_weights(secs);
         let pw = foes::weights(secs);
@@ -1880,6 +1954,7 @@ impl Swarm {
             let mut fire: Option<(f32, usize)> = None; // (dmg, ring size or 0 = aimed)
             let mut blast = false;
             let mut summon = 0usize;
+            let mut meteors = 0usize;
             let mut extra_aimed = false;
             if self.freeze {
                 continue;
@@ -1999,11 +2074,30 @@ impl Swarm {
                     }
                 },
                 EnemyKind::Tyrant => {
-                    let f = e.hp / e.max_hp.max(1.0);
-                    let phase = if f > 0.66 { 0 } else if f > 0.33 { 1 } else { 2 };
-                    let rage = if secs >= WIN_SECS { 1.5 } else { 1.0 };
+                    // Phase by the gates passed (0..=3); shielded, it stands and gathers itself.
+                    let gate = self.tyrant_gate as i32;
+                    let phase = gate.min(2);
+                    let rage = if secs >= WIN_SECS { 1.5 } else { 1.0 } * if gate >= 3 { 1.2 } else { 1.0 };
                     e.aux = e.aux.wrapping_add(1);
-                    match e.state {
+                    if self.tyrant_burst {
+                        self.tyrant_burst = false;
+                        fire = Some((11.0, 18 + 6 * gate as usize));
+                        extra_aimed = true;
+                        summon = 6 + 2 * gate as usize;
+                        e.state = 0;
+                        e.timer = 60;
+                    }
+                    // From the second phase: meteors where the player is heading (more, and more often, each phase).
+                    // After the dawn it is enraged: volleys twice as often, two meteors more.
+                    let dawned = secs >= WIN_SECS;
+                    let every = (METEOR_EVERY - 20 * gate as u16) / if dawned { 2 } else { 1 };
+                    let cast = gate >= 1 && self.tyrant_shield == 0 && e.aux % every == 0;
+                    if cast {
+                        meteors = 3 + gate as usize + 2 * dawned as usize;
+                    }
+                    if self.tyrant_shield > 0 {
+                        e.state = 0;
+                    } else { match e.state {
                         0 => {
                             step = [dir[0] * e.speed * (1.0 + 0.2 * phase as f32) * rage, dir[1] * e.speed * (1.0 + 0.2 * phase as f32) * rage];
                             e.timer -= 1;
@@ -2015,7 +2109,7 @@ impl Swarm {
                             if phase >= 1 && e.aux % 160 == 0 {
                                 summon = 5;
                             }
-                            if phase >= 2 && e.aux % 210 == 0 {
+                            if phase >= 2 && e.aux % if gate >= 3 { 140 } else { 210 } == 0 {
                                 e.state = 1;
                                 e.timer = 26;
                             }
@@ -2037,7 +2131,7 @@ impl Swarm {
                                 fire = Some((11.0, 16));
                             }
                         }
-                    }
+                    } }
                 }
                 _ => {
                     let (st, f) = foes::step(e, dir, d, self.tick);
@@ -2082,11 +2176,32 @@ impl Swarm {
                     }
                 }
             }
+            #[cfg(test)]
+            let share = std::env::var("SWARM_METEOR").ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(METEOR_HP_SHARE);
+            #[cfg(not(test))]
+            let share = METEOR_HP_SHARE;
+            for k in 0..meteors {
+                // Where he will be when it lands, give or take (a straight runner is the easy target).
+                let lead = METEOR_TICKS as f32 * self.rng.range(0.7, 1.1);
+                let (r, a) = (if k == 0 { 0.0 } else { self.rng.range(200.0, 520.0) }, self.rng.range(0.0, std::f32::consts::TAU));
+                let at = [p[0] + self.player_vel[0] * lead + a.cos() * r, p[1] + self.player_vel[1] * lead + a.sin() * r];
+                if let Some(m) = self.meteors.iter_mut().find(|m| m.ticks == 0) {
+                    *m = Meteor { pos: at, ticks: METEOR_TICKS, dmg: (contact * 0.9).max(self.player.max_hp * share) };
+                    self.add_ring(RingKind::Meteor, at, METEOR_R, METEOR_TICKS);
+                }
+            }
+            let guard = self.enemies[i].kind == EnemyKind::Tyrant && summon > 5;
             for k in 0..summon {
                 let a = k as f32 / summon as f32 * std::f32::consts::TAU;
                 let q = [origin[0] + a.cos() * (radius + 120.0), origin[1] + a.sin() * (radius + 120.0)];
                 if self.walkable(q) {
-                    self.spawn_enemy_force(EnemyKind::Skitter, q, secs);
+                    // A gate's guard: the swarm's own kinds, and an elite from the second gate on.
+                    let kind = if guard { self.pick_kind(secs) } else { EnemyKind::Skitter };
+                    if guard && k == 0 && self.tyrant_gate >= 2 {
+                        self.spawn_elite(EnemyKind::Brute, q, secs);
+                    } else {
+                        self.spawn_enemy_force(kind, q, secs);
+                    }
                 }
             }
             if blast {
@@ -2710,9 +2825,29 @@ impl Swarm {
         if !e.alive {
             return;
         }
+        let tyrant = e.kind == EnemyKind::Tyrant;
+        let dmg = if tyrant && self.tyrant_shield > 0 { dmg * TYRANT_SHIELD_LEAK } else { dmg };
         e.hp -= dmg * if e.freeze > 0 { arms::SHATTER } else { 1.0 };
-        if e.hp <= 0.0 {
+        if tyrant {
+            self.tyrant_gates(i);
+        }
+        if self.enemies[i].hp <= 0.0 {
             self.kill(i);
+        }
+    }
+
+    /// The Tyrant's phase gates: crossing one (it cannot be skipped by a big hit) shields it, and its next move is a burst.
+    fn tyrant_gates(&mut self, i: usize) {
+        let e = &mut self.enemies[i];
+        let gate = self.tyrant_gate as usize;
+        if gate < TYRANT_GATES.len() && e.hp < e.max_hp * TYRANT_GATES[gate] {
+            e.hp = e.max_hp * TYRANT_GATES[gate];
+            self.tyrant_gate += 1;
+            self.tyrant_shield = TYRANT_SHIELD_TICKS;
+            self.tyrant_burst = true;
+            self.ev.tyrant_phase = self.tyrant_gate;
+            let at = e.pos;
+            self.add_ring(RingKind::Blast, at, 900.0, 24);
         }
     }
 
@@ -2723,10 +2858,15 @@ impl Swarm {
         }
         // Shatter: frozen foes take extra damage from everything.
         let dmg = if e.freeze > 0 { dmg * arms::SHATTER } else { dmg };
+        let tyrant = e.kind == EnemyKind::Tyrant;
+        let dmg = if tyrant && self.tyrant_shield > 0 { dmg * TYRANT_SHIELD_LEAK } else { dmg };
         e.hp -= dmg;
         e.flash = 4;
         let at = e.pos;
-        let dead = e.hp <= 0.0;
+        if tyrant {
+            self.tyrant_gates(i);
+        }
+        let dead = self.enemies[i].hp <= 0.0;
         if crit {
             self.ev.crit = true;
         }
@@ -2781,11 +2921,13 @@ impl Swarm {
             _ => {
                 self.drop_gem(GemKind::Xp, pos, xp);
                 let r = self.rng.f32();
-                if r < 0.02 {
+                // While the Star Tyrant stands, hearts are scarce (its dark): the last fight cannot be out-healed.
+                let heart = if self.final_spawned && !self.tyrant_dead { TYRANT_HEARTS } else { 0.02 };
+                if r < heart {
                     self.drop_special(GemKind::Heart, [pos[0] + 40.0, pos[1]]);
-                } else if r < 0.026 {
+                } else if (0.02..0.026).contains(&r) {
                     self.drop_special(GemKind::Magnet, [pos[0], pos[1] + 40.0]);
-                } else if r < 0.031 {
+                } else if (0.026..0.031).contains(&r) {
                     self.drop_special(GemKind::Bomb, [pos[0] - 40.0, pos[1]]);
                 }
             }
@@ -2826,6 +2968,27 @@ impl Swarm {
         }
         if hit > 0.0 {
             self.hurt_player(hit);
+        }
+    }
+
+    /// Meteors land: a blast, and a hit if the player stands in one (a jump clears it).
+    fn update_meteors(&mut self) {
+        let p = self.player.pos;
+        for k in 0..METEORS {
+            let m = self.meteors[k];
+            if m.ticks == 0 {
+                continue;
+            }
+            self.meteors[k].ticks -= 1;
+            if m.ticks == 1 {
+                self.add_ring(RingKind::Blast, m.pos, METEOR_R * 1.2, 10);
+                self.ev.blast = true;
+                self.ev.blast_pos = m.pos;
+                let reach = METEOR_R + PLAYER_RADIUS * 0.5;
+                if self.player.height < 160.0 && dist2(p, m.pos) < reach * reach && self.hurt_player(m.dmg) {
+                    self.meteor_hits += 1;
+                }
+            }
         }
     }
 
@@ -2879,7 +3042,7 @@ impl Swarm {
 
     /// A chest, heart, magnet or bomb: these must not be lost when the field is full of gems, so
     /// the farthest XP gem is merged into another one to make room.
-    fn drop_special(&mut self, kind: GemKind, pos: [f32; 2]) {
+    pub(super) fn drop_special(&mut self, kind: GemKind, pos: [f32; 2]) {
         if !self.gems.iter().any(|g| !g.alive) {
             let p = self.player.pos;
             let mut far = (0.0f32, usize::MAX);
@@ -2989,7 +3152,7 @@ impl EnemyKind {
     }
 }
 
-fn dist2(a: [f32; 2], b: [f32; 2]) -> f32 {
+pub(super) fn dist2(a: [f32; 2], b: [f32; 2]) -> f32 {
     let (dx, dz) = (a[0] - b[0], a[1] - b[1]);
     dx * dx + dz * dz
 }
@@ -3651,6 +3814,58 @@ mod tests {
         }
     }
 
+    /// The cost of the hero-vs-foe bodies (`body_block`) at the desktop cap: the crowd is filled to 300 (late in a run,
+    /// a weaving hero) and the sweep is timed on its own against the whole tick. `cargo test --release -p jumpman
+    /// body_block_cost_at_the_cap -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn body_block_cost_at_the_cap() {
+        let mut s = Swarm::with_cap(7, 300);
+        s.tick = 400 * TICKS_PER_SEC;
+        s.bosses = 3;
+        s.stats = derive_stats(&s.up);
+        let frame = |t: u32| {
+            let a = t as f32 * 0.02;
+            PlayerFrame { pos: [a.cos() * 900.0, a.sin() * 900.0], ..Default::default() }
+        };
+        // Fill the field: no weapons firing (the stars only), the hero immortal.
+        let mut t = 0;
+        while s.alive_enemies < 300 && t < 3000 {
+            s.player.hp = 1e9;
+            s.player.max_hp = 1e9;
+            s.tick(&frame(t));
+            while s.choices.is_some() {
+                s.pick(0);
+            }
+            t += 1;
+        }
+        let (mut whole, mut bodies, mut sep, mut n, mut live) = (0.0f64, 0.0f64, 0.0f64, 0u32, 0usize);
+        for k in 0..900 {
+            s.player.hp = 1e9;
+            let prev = s.player.pos;
+            let t0 = std::time::Instant::now();
+            s.tick(&frame(t + k));
+            whole += t0.elapsed().as_secs_f64();
+            while s.choices.is_some() {
+                s.pick(0);
+            }
+            // The same sweep again, over the step just taken, timed alone.
+            let saved = s.player.pos;
+            let t1 = std::time::Instant::now();
+            s.body_block(prev);
+            bodies += t1.elapsed().as_secs_f64();
+            s.player.pos = saved;
+            let t2 = std::time::Instant::now();
+            s.separate();
+            sep += t2.elapsed().as_secs_f64();
+            live += s.alive_enemies;
+            n += 1;
+        }
+        let us = |x: f64| x * 1e6 / n as f64;
+        eprintln!("BODIES at the cap: {:.0} foes on average, whole tick {:.0} us, body_block {:.1} us ({:.1}% of the tick), foe separation {:.1} us", live as f64 / n as f64, us(whole), us(bodies), 100.0 * bodies / whole, us(sep));
+        assert!(live / n as usize >= 280);
+    }
+
     /// A scripted human stand-in: kites away from the crowd (strongest push from the nearest foes,
     /// a pull toward the middle so it never pins itself on a wall), jumps the odd skitter, ground
     /// pounds now and then, and always takes the most useful card. Returns the finished core.
@@ -3822,14 +4037,28 @@ mod tests {
             assert!(s.boss_bar.is_some() || { s.tick(&frame_at(0.0, 0.0)); s.boss_bar.is_some() }, "the boss bar shows it");
             (s, t)
         };
+        // Through all four phases (a big hit stops at each gate; the shield is waited out).
+        let fell = |s: &mut Swarm, t: usize| {
+            for _ in 0..4 {
+                s.tyrant_shield = 0;
+                s.damage_enemy(t, 1e9);
+            }
+        };
         let (mut s, t) = tyrant_run();
         s.damage_enemy(t, 1e9);
+        assert!(s.enemies[t].alive && (s.enemies[t].hp / s.enemies[t].max_hp - 0.75).abs() < 1e-3, "the first gate holds");
+        assert!(s.tyrant_gate == 1 && s.tyrant_shield == TYRANT_SHIELD_TICKS && s.ev.tyrant_phase == 1);
+        let hp = s.enemies[t].hp;
+        s.damage_enemy(t, 1000.0);
+        assert!((hp - s.enemies[t].hp - 1000.0 * TYRANT_SHIELD_LEAK).abs() < 1e-2, "the shield turns most damage away");
+        fell(&mut s, t);
+        assert_eq!(s.tyrant_gate, 3);
         s.tick(&frame_at(0.0, 0.0));
         assert!(s.over && s.won && s.ev.won && !s.ev.died);
         s.tick(&frame_at(0.0, 0.0));
         assert!(!s.ev.won, "the win event fires once");
         let (mut d, t) = tyrant_run();
-        d.damage_enemy(t, 1e9);
+        fell(&mut d, t);
         d.player.hp = 0.0;
         d.tick(&frame_at(0.0, 0.0));
         assert!(d.over && !d.won && d.ev.died);
@@ -4025,23 +4254,42 @@ mod tests {
         let v: Vec<f32> = std::env::var("SWARM_TUNE").unwrap_or_default().split(',').filter_map(|x| x.trim().parse().ok()).collect();
         let t = if v.len() == 5 { super::super::swarm_meta::Tier { hp: v[0], speed: v[1], spawn: v[2], damage: v[3], xp: v[4], ..base } } else { base };
         let seeds: u64 = std::env::var("SWARM_TUNE_SEEDS").ok().and_then(|v| v.parse().ok()).unwrap_or(8);
+        // Seconds of the Tyrant fight allowed after it arrives (`SWARM_TUNE_FIGHT`, default 240: the dawn and a bit).
+        let fight: f32 = std::env::var("SWARM_TUNE_FIGHT").ok().and_then(|v| v.parse().ok()).unwrap_or(240.0);
         for (label, k) in [("skilled", 1.0f32), ("casual", 0.5)] {
             for hero in [Hero::Mario, Hero::Link, Hero::Banjo] {
                 let (mut reached, mut secs, mut k120, mut lvl, mut won) = (0, 0.0, 0u32, 0u32, 0);
+                let (mut fight_secs, mut gates, mut hits, mut hp_left) = (0.0f32, 0u32, 0u32, 0.0f32);
                 for seed in 1..=seeds {
                     let s = Swarm::start(seed, 300, hero, t, Perks { damage: 1.0, max_hp: 0.0, xp: 1.0 });
                     let s = kite_skill(s, 120.0, false, k);
                     k120 += s.kills;
-                    let s = kite_skill(s, FINAL_SECS - 120.0 + 60.0, false, k);
+                    let s = kite_skill(s, FINAL_SECS - 120.0 + fight, false, k);
                     secs += s.secs();
                     lvl += s.player.level;
                     won += s.won as u32;
                     if s.won || s.final_spawned && s.secs() >= FINAL_SECS {
                         reached += 1;
+                        fight_secs += s.secs() - FINAL_SECS;
+                        gates += s.tyrant_gate as u32;
+                        hits += s.meteor_hits;
+                        hp_left += (s.player.hp / s.player.max_hp).max(0.0);
                     }
                 }
                 let n = seeds as f32;
-                eprintln!("TUNE {:?} {hero:?} [{label}]: reached Tyrant {reached}/{seeds}, won {won}, mean survival {:.0}s, kills@2:00 {:.0}, level {:.1}", t.name, secs / n, k120 as f32 / n, lvl as f32 / n);
+                let r = reached.max(1) as f32;
+                eprintln!(
+                    "TUNE {:?} {hero:?} [{label}]: reached Tyrant {reached}/{seeds}, won {won} ({:.0}% of those who reached it), fight {:.0}s, gates {:.1}, meteor hits {:.1}, hp left {:.0}%, mean survival {:.0}s, kills@2:00 {:.0}, level {:.1}",
+                    t.name,
+                    100.0 * won as f32 / r,
+                    fight_secs / r,
+                    gates as f32 / r,
+                    hits as f32 / r,
+                    100.0 * hp_left / r,
+                    secs / n,
+                    k120 as f32 / n,
+                    lvl as f32 / n
+                );
             }
         }
     }
