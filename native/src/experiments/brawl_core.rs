@@ -13,6 +13,9 @@ pub use super::brawl_ai::{Brain, Diff};
 
 #[path = "brawl_foes.rs"]
 mod foes;
+#[path = "brawl_hazard.rs"]
+mod hazard;
+pub use hazard::{build_hazards, Hazard, HazardDef, HzKind, HzState, Look, Spec, Zone, HAZARD_GRACE, MAXH};
 pub use foes::{roster, visual_radius, Mon, Monsters, MAXM, MON_RESPAWN};
 
 
@@ -35,6 +38,10 @@ pub const GAUNTLET_STAGES: usize = 6;
 pub const GAUNTLET_LIVES: u8 = 3;
 pub const NOVA_COST: f32 = 2.5;
 pub const BEAM_COST: f32 = 1.6;
+/// Ticks after a blow during which a hazard / fall still credits the knock-out to whoever landed it (4 s).
+pub const CREDIT_TICKS: u32 = 120;
+/// Quicksand depth (2 per tick standing still, -1 per tick running) at which it spits a fighter out: 1.5 s of standing.
+pub const SINK_TICKS: u16 = 90;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -316,6 +323,10 @@ pub struct Fighter {
     /// Boots (speed) and bubble (damage cut) pickups, in ticks.
     pub haste: u16,
     pub shield: u16,
+    /// Tick of the last blow a fighter landed on this one (a hazard or a fall soon after still credits them).
+    pub hit_tick: u32,
+    /// Ticks stood in quicksand (the course's own surfaces) since the last time it spat this fighter out.
+    pub sink: u16,
 }
 
 impl Fighter {
@@ -366,6 +377,8 @@ impl Fighter {
             splat: 0,
             haste: 0,
             shield: 0,
+            hit_tick: 0,
+            sink: 0,
         }
     }
     /// Kind's stats with the hero's style laid over them (the player's fighter).
@@ -461,6 +474,8 @@ pub enum Ev {
     MonHit { pos: [f32; 3], big: bool },
     MonKo { pos: [f32; 3] },
     MonSpawn([f32; 3]),
+    /// A course hazard starts its telegraph (`strike` false) or strikes (`strike` true) at `pos`.
+    Hazard { look: Look, pos: [f32; 3], strike: bool },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -923,7 +938,7 @@ impl Brawl {
             }
         }
         let powered = self.f[i].powered();
-        let speed_mult = st.speed * if powered { 1.3 } else { 1.0 } * if self.f[i].haste > 0 { 1.32 } else { 1.0 } * if self.f[i].held >= 0 { 0.88 } else { 1.0 };
+        let speed_mult = st.speed * if powered { 1.3 } else { 1.0 } * if self.f[i].haste > 0 { 1.32 } else { 1.0 } * if self.f[i].held >= 0 { 0.88 } else { 1.0 } * if self.f[i].sink > 30 { 0.75 } else { 1.0 };
         // Frozen during the countdown / after the bell.
         let can_act = !matches!(self.phase, Phase::Intro | Phase::RoundEnd | Phase::MatchEnd);
         if !can_act {
@@ -1311,9 +1326,62 @@ impl Brawl {
             }
             self.ev.push(Ev::Lava(i));
         }
+        // The course's own floor: quicksand swallows and spits out, lava burns.
+        if self.f[i].grounded && self.arena.ground.is_some() {
+            self.floor_effects(i);
+        } else if self.f[i].sink > 0 && self.f[i].grounded {
+            self.f[i].sink = 0;
+        }
         // The void.
-        if self.f[i].pos[1] < self.arena.void_y {
+        if self.f[i].alive && self.f[i].pos[1] < self.arena.void_y {
             self.fall_out(i);
+        }
+    }
+
+    /// Quicksand (from the course's surfaces) slows a fighter and, after two seconds, spits them out hurt; lava burns and bounces.
+    fn floor_effects(&mut self, i: usize) {
+        let Some(g) = self.arena.ground.clone() else { return };
+        let p = self.f[i].pos;
+        match g.floor_effect(p[0], p[2], p[1]) {
+            FloorFx::Sink => {
+                // Keep moving or go under: standing (or fighting) in place sinks, running drains it.
+                let f = &mut self.f[i];
+                let moving = f.speed2() > 220.0 && matches!(f.act, Act::Idle | Act::Air);
+                f.sink = if moving { f.sink.saturating_sub(1) } else { f.sink.saturating_add(2) };
+                if f.sink >= SINK_TICKS {
+                    f.sink = 0;
+                    f.hp -= 8.0;
+                    f.vel = [0.0, 950.0, 0.0];
+                    f.grounded = false;
+                    f.inv = f.inv.max(15);
+                    f.act = Act::Hurt;
+                    f.act_t = 0;
+                    f.stun = 10;
+                    let size = f.size;
+                    self.ev.push(Ev::Hit { pos: [p[0], p[1] + 70.0 * size, p[2]], big: true, victim: i });
+                    if self.f[i].hp <= 0.0 {
+                        let by = if self.tick.saturating_sub(self.f[i].hit_tick) < CREDIT_TICKS { self.f[i].last_hit_by } else { -1 };
+                        self.ko(i, by);
+                    }
+                }
+            }
+            FloorFx::Burn => {
+                let f = &mut self.f[i];
+                f.sink = 0;
+                f.burn = 8;
+                f.vel[1] = f.vel[1].max(820.0);
+                f.grounded = false;
+                f.hp -= 6.0;
+                self.ev.push(Ev::Lava(i));
+                if self.f[i].hp <= 0.0 {
+                    let by = if self.tick.saturating_sub(self.f[i].hit_tick) < CREDIT_TICKS { self.f[i].last_hit_by } else { -1 };
+                    self.ko(i, by);
+                }
+            }
+            FloorFx::None => {
+                let f = &mut self.f[i];
+                f.sink = f.sink.saturating_sub(3);
+            }
         }
     }
 
@@ -1715,10 +1783,15 @@ impl Brawl {
         let upv = if kb > 0.0 { (up * ratio / weight.sqrt()).max(if kbv > 300.0 { 180.0 } else { 0.0 }) } else { 0.0 };
         let heavy = kbv >= 560.0;
         let pos = victim.pos;
+        // A blow with no attacker (a hazard, a monster, a shell) keeps the credit of whoever hit this fighter in the last few seconds.
+        let credit = if a >= 0 { a } else if self.tick.saturating_sub(victim.hit_tick) < CREDIT_TICKS { victim.last_hit_by } else { -1 };
         {
             let f = &mut self.f[v];
             f.hp -= dmg;
-            f.last_hit_by = a;
+            f.last_hit_by = credit;
+            if a >= 0 && a as usize != v {
+                f.hit_tick = self.tick;
+            }
             f.vel = [dir[0] * kbv, if upv > 0.0 { upv } else { f.vel[1].min(0.0) }, dir[1] * kbv];
             if upv > 0.0 {
                 f.grounded = false;
@@ -1751,7 +1824,7 @@ impl Brawl {
             self.drop_held(v);
         }
         if self.f[v].hp <= 0.0 {
-            self.ko(v, a);
+            self.ko(v, credit);
             return true;
         }
         let boss_tough = weight >= 2.0 && kbv < 900.0;
@@ -2399,6 +2472,10 @@ impl Brawl {
                 }
             }
         }
+        // The region's own set pieces (Chomp, Whomps, rollers, drifters ...).
+        if !self.arena.hazards.is_empty() {
+            self.step_course_hazards();
+        }
         // Real-world regions: shells rain on the fighters after the first moments of a round, faster in sudden death.
         if self.arena.barrage > 0 && self.round_t < ROUND_SECS - 12.0 {
             self.arena.barrage_cd -= 1;
@@ -2603,6 +2680,7 @@ impl Brawl {
         }
         mix(self.round_t);
         self.mons_digest(&mut mix);
+        self.hazards_digest(&mut mix);
         h
     }
 

@@ -8,6 +8,9 @@ use super::brawl_region::*;
 use jumpman_sim::collision::{CollisionWorld, SurfaceOptions};
 use std::sync::Arc;
 
+#[path = "brawl_hazard_tests.rs"]
+mod hazard_tests;
+
 fn idle() -> [Input; MAXF] {
     [Input::default(); MAXF]
 }
@@ -62,6 +65,8 @@ fn fixture_region() -> Region {
         void_y: -300.0,
         pits: &[],
         barrage: 0,
+        hazards: &[],
+        gusts: false,
         spawns: [[-300.0, -500.0], [300.0, 500.0], [300.0, -500.0], [-300.0, 500.0]],
         gems: &[[-300.0, 0.0], [300.0, 0.0], [0.0, 300.0], [0.0, -300.0], [-100.0, 100.0], [100.0, -100.0]],
         items: &[[-350.0, -100.0], [350.0, 100.0], [0.0, 400.0], [0.0, -400.0], [-250.0, 250.0], [250.0, -250.0]],

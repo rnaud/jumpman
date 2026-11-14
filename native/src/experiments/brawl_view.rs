@@ -221,6 +221,8 @@ pub struct BrawlBridge {
     /// Tide glow and wind streaks for the arena set pieces (0 none).
     pub wind: Vec3,
     pub wind_strength: f32,
+    /// Render-space centre of the arena the wind streaks blow across (a real-world region sits away from the origin).
+    pub wind_origin: Vec3,
 }
 
 impl Default for BrawlBridge {
@@ -252,6 +254,7 @@ impl Default for BrawlBridge {
             insets: [0.0; 4],
             wind: Vec3::ZERO,
             wind_strength: 0.0,
+            wind_origin: Vec3::ZERO,
         }
     }
 }
@@ -905,7 +908,7 @@ fn sync_render(
         let h = 0.6 + ((i * 5) % 7) as f32 * 0.45;
         let dir = bridge.wind;
         let side = Vec3::new(-dir.z, 0.0, dir.x);
-        let pos = dir * (ph * 20.0 - 10.0) + side * across + Vec3::Y * h;
+        let pos = bridge.wind_origin + dir * (ph * 20.0 - 10.0) + side * across + Vec3::Y * h;
         let rot = Quat::from_rotation_arc(Vec3::Z, dir.normalize_or(Vec3::Z));
         place(&mut q, *e, true, pos, rot, Vec3::new(0.03, 0.03, 1.4 * w));
     }
