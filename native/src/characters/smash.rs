@@ -445,6 +445,25 @@ pub fn parse_index(text: &str) -> Result<HashMap<String, FighterData>, String> {
     Ok(out)
 }
 
+/// The import's motion event scripts (hitboxes per motion, `jumpman_sim::smash_hitbox`), next to the index.
+pub const MOTION_EVENTS: &str = "../public/models/ssb64/motion-events.json";
+
+/// Load the motion event scripts and hand them to the sim (`smash_hitbox::register`): the specials and normal attacks then
+/// use the ROM's hitboxes. An import from before the scripts were exported has no file: the sim keeps its approximations.
+pub fn register_motion_events(root: &Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(root.join(MOTION_EVENTS)) else { return false };
+    match jumpman_sim::smash_hitbox::MotionEvents::from_json(&text) {
+        Ok(ev) => {
+            jumpman_sim::smash_hitbox::register(Arc::new(ev));
+            true
+        }
+        Err(e) => {
+            warn!("Smash fighters: {e}");
+            false
+        }
+    }
+}
+
 pub fn load_index(root: &Path) -> Result<HashMap<String, FighterData>, String> {
     let text = std::fs::read_to_string(root.join(INDEX)).map_err(|e| format!("{INDEX}: {e}"))?;
     parse_index(&text)
@@ -830,7 +849,10 @@ impl IndexCache {
     pub fn get(&mut self, root: &Path) -> Option<Arc<HashMap<String, FighterData>>> {
         if self.index.is_none() && !self.failed {
             match load_index(root) {
-                Ok(i) => self.index = Some(Arc::new(i)),
+                Ok(i) => {
+                    self.index = Some(Arc::new(i));
+                    register_motion_events(root);
+                }
                 Err(e) => {
                     warn!("Smash fighters: {e}");
                     self.failed = true;

@@ -24,6 +24,7 @@ export-sm64-castle.py
 export-sm64-g1-actors.py
 export-sm64-solids.py
 export-sm64.py
+export-ssb64-motions.py
 export-ssb64-sounds.py
 export-ssb64.py
 export_sm64_g2.py

@@ -18,6 +18,7 @@ pub mod png;
 pub mod rom;
 pub mod sm64;
 pub mod ssb64;
+pub mod ssb64_motions;
 pub mod ssb64_sounds;
 pub mod sm64_import;
 pub mod sound;

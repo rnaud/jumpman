@@ -985,3 +985,148 @@ fn every_special_starts_ends_and_names_its_motions() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Motion event scripts (`smash_hitbox`): the ROM's hitboxes
+// ---------------------------------------------------------------------------------------------
+
+use jumpman_sim::smash_hitbox::MotionEvents;
+
+/// A hand-written table in the import's `motion-events.json` format (no ROM data): Falcon Punch with the decomp's numbers
+/// (dCaptainMainMotion_FalconPunchGround: 24 / 25% on frames 42-46, 361 degrees, growth 120, base 30) and a first jab
+/// (dMarioMainMotion_Jab1: 2% on frames 2-3).
+const SCRIPTS: &str = r#"{"fps":60,"game":"ssb64","fighters":{
+  "captain":{"size":1.05,"motions":{"203":{"motion":"SpecialN","end":55,"loops":[],"root_motion":true,"script":0,"events":[],
+    "hitboxes":[
+     {"id":0,"set":0,"from":42,"to":47,"group":0,"joint":16,"offset":[100,0,0],"size":250,"scaled":false,"damage":24,"angle":361,
+      "knockback_scale":120,"knockback_weight":0,"knockback_base":30,"element":0,"shield_damage":0,"hit_ground":true,"hit_air":true,
+      "can_rebound":true,"fgm_kind":1,"fgm_level":2,"positions":[[0,250,700],[0,250,720],[0,250,730],[0,250,730],[0,250,730]],"on_joint":true},
+     {"id":1,"set":0,"from":42,"to":47,"group":0,"joint":14,"offset":[60,0,0],"size":200,"scaled":false,"damage":25,"angle":361,
+      "knockback_scale":120,"knockback_weight":0,"knockback_base":30,"element":0,"shield_damage":0,"hit_ground":true,"hit_air":true,
+      "can_rebound":true,"fgm_kind":1,"fgm_level":2,"positions":[[0,260,440],[0,260,450],[0,260,450],[0,260,450],[0,260,450]],"on_joint":true}]}}},
+  "mario":{"size":1.12,"motions":{"165":{"motion":"Attack11","end":10,"loops":[],"root_motion":false,"script":0,"events":[],
+    "hitboxes":[{"id":0,"set":0,"from":2,"to":4,"group":0,"joint":10,"offset":[0,0,0],"size":160,"scaled":false,"damage":2,"angle":361,
+      "knockback_scale":50,"knockback_weight":0,"knockback_base":8,"element":0,"shield_damage":0,"hit_ground":true,"hit_air":true,
+      "can_rebound":true,"fgm_kind":0,"fgm_level":0,"positions":[[0,300,400],[0,300,400]],"on_joint":true}]}}}}}"#;
+
+fn with_scripts(f: SmashFighter) -> MarioRuntime {
+    let mut m = fighter(f);
+    m.smash.scripts = Some(Arc::new(MotionEvents::from_json(SCRIPTS).unwrap()));
+    m
+}
+
+/// With the scripts, Falcon Punch's hitbox is on exactly on ticks 21-23 (frames 42-46), with the script's damage and
+/// knockback, and the move's own approximate volume is gone.
+#[test]
+fn scripted_falcon_punch_hits_only_on_its_frames() {
+    let mut m = with_scripts(SmashFighter::Captain);
+    let mut t = Mock::at([0.0, 0.0, 160.0]);
+    step(&mut m, &mut t, 0.0, 0.0, 0, R_TRIG);
+    let mut on = vec![];
+    if !m.smash.hitboxes.is_empty() {
+        on.push(0);
+    }
+    for n in 1..46 {
+        step(&mut m, &mut t, 0.0, 0.0, 0, 0);
+        if !m.smash.hitboxes.is_empty() {
+            assert!(m.smash.hitboxes.iter().all(|h| h.knockback.is_some() && !h.normal && h.motion == Some(203)), "only scripted volumes");
+            on.push(n);
+        }
+    }
+    assert_eq!(on, vec![21, 22, 23], "frames 42-46 of the motion");
+    let hit = t.d[0].last.expect("the punch lands");
+    assert_eq!(t.d[0].hits, 1, "one hit per hit-record set");
+    assert!(t.damage() == 24.0 || t.damage() == 25.0, "{}", t.damage());
+    let kb = hit.knockback.unwrap();
+    assert_eq!((kb.angle, kb.growth, kb.base, kb.fixed), (361, 120, 30, 0));
+    assert_eq!(hit.mv, Some(SpecialMove::FalconPunch));
+    assert_eq!(hit.motion, Some(203));
+}
+
+/// Mario's punch played by Smash Mario uses the jab's scripted hitbox (frames 2-3 at the view's 1.15x rate) as a normal
+/// attack: `mv` is None, and only on the jab's first tick or two.
+#[test]
+fn normal_attacks_use_the_scripted_jab() {
+    let mut m = with_scripts(SmashFighter::Mario);
+    let mut t = Mock::at([0.0, 0.0, 130.0]);
+    step(&mut m, &mut t, 0.0, 0.0, B_BUTTON, B_BUTTON);
+    let mut on = vec![];
+    for n in 0..12 {
+        if !m.smash.hitboxes.is_empty() {
+            assert!(m.smash.hitboxes.iter().all(|h| h.normal && h.damage == 2.0 && h.knockback.unwrap().base == 8));
+            on.push(n);
+        }
+        step(&mut m, &mut t, 0.0, 0.0, B_BUTTON, 0);
+    }
+    assert!(!on.is_empty() && on.len() <= 2 && on[0] <= 1, "the jab's frames 2-3: ticks {on:?}");
+    let hit = t.d[0].last.expect("the jab lands");
+    assert_eq!((hit.mv, hit.damage, hit.motion), (None, 2.0, Some(165)));
+    assert_eq!(t.d[0].hits, 1, "one hit per set");
+    // without scripts nothing is added to Mario's own punch
+    let mut m = fighter(SmashFighter::Mario);
+    step(&mut m, &mut Mock::default(), 0.0, 0.0, B_BUTTON, B_BUTTON);
+    for _ in 0..6 {
+        assert!(m.smash.hitboxes.is_empty());
+        step(&mut m, &mut Mock::default(), 0.0, 0.0, B_BUTTON, 0);
+    }
+}
+
+/// The user's real import (`motion-events.json` from scripts/export-ssb64-motions.py; skipped without one): set
+/// JUMPMAN_SMASH_MOTION_EVENTS to the file, or JUMPMAN_SMASH_TEST_ASSETS to an asset root next to `public/models/ssb64`.
+fn real_scripts() -> Option<Arc<MotionEvents>> {
+    let path = std::env::var_os("JUMPMAN_SMASH_MOTION_EVENTS").map(std::path::PathBuf::from).or_else(|| {
+        std::env::var_os("JUMPMAN_SMASH_TEST_ASSETS").map(|a| std::path::PathBuf::from(a).join("../public/models/ssb64/motion-events.json"))
+    })?;
+    let text = std::fs::read_to_string(path).ok()?;
+    Some(Arc::new(MotionEvents::from_json(&text).unwrap()))
+}
+
+/// Every special's scripted hitboxes belong to the motion the view plays at that moment; the real Falcon Punch comes out
+/// on tick 21 (frame 42) with 24-26%.
+#[test]
+fn real_scripts_drive_the_specials() {
+    let Some(ev) = real_scripts() else {
+        eprintln!("skipped: no motion-events.json (JUMPMAN_SMASH_MOTION_EVENTS / JUMPMAN_SMASH_TEST_ASSETS)");
+        return;
+    };
+    let fp = ev.fighter("Captain").unwrap().by_name("SpecialN").unwrap();
+    assert_eq!(fp.active_span(), Some((42, Some(47))));
+    let mut scripted = 0;
+    let mut moves = std::collections::HashSet::new();
+    for f in SmashFighter::ALL {
+        for (slot, sy) in [(SpecialSlot::Neutral, 0.0), (SpecialSlot::Up, 64.0), (SpecialSlot::Down, -64.0)] {
+            let mut m = fighter(f);
+            m.smash.scripts = Some(ev.clone());
+            let mut t = Mock::default();
+            step(&mut m, &mut t, 0.0, sy, 0, R_TRIG);
+            for k in 0..300 {
+                let Some(sp) = m.smash.special else { break };
+                let (names, _, _) = m.smash.motion().unwrap();
+                let body = if sp.copied.is_some() { SmashFighter::Kirby } else { f };
+                for h in m.smash.hitboxes.iter().filter(|h| h.knockback.is_some()) {
+                    let motion = ev.fighter(body.decomp_name()).unwrap().by_id(h.motion.unwrap()).unwrap();
+                    assert!(names.contains(&motion.name), "{f:?} {slot:?}: hitbox of {} while playing {names:?}", motion.name);
+                    scripted += 1;
+                    moves.insert(sp.mv);
+                }
+                let p = if k == 20 || k == 200 { R_TRIG } else { 0 };
+                step(&mut m, &mut t, 0.0, 0.0, 0, p);
+            }
+        }
+    }
+    eprintln!("specials with scripted hitboxes: {} {moves:?}", moves.len());
+    assert!(scripted > 50 && moves.len() >= 12, "scripted hitboxes seen: {scripted} in {moves:?}");
+    let mut m = fighter(SmashFighter::Captain);
+    m.smash.scripts = Some(ev.clone());
+    let mut t = Mock::at([0.0, 0.0, 160.0]);
+    step(&mut m, &mut t, 0.0, 0.0, 0, R_TRIG);
+    let mut first = None;
+    for n in 1..46 {
+        step(&mut m, &mut t, 0.0, 0.0, 0, 0);
+        if first.is_none() && m.smash.hitboxes.iter().any(|h| h.knockback.is_some()) {
+            first = Some(n);
+        }
+    }
+    assert_eq!(first, Some(21));
+    assert!((24.0..=26.0).contains(&t.damage()), "{}", t.damage());
+}

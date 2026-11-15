@@ -44,6 +44,10 @@ impl SmashTargets for GateTargets<'_> {
     }
 
     fn hit(&mut self, i: usize, hit: &SmashHit) -> HitOutcome {
+        // normal attacks (`mv: None`) are Mario's punches and kicks, which the mode already scores (`HeroFrame`)
+        if hit.mv.is_none() {
+            return HitOutcome::Miss;
+        }
         let k = self.idx[i];
         let boss = self.core.enemies[k].kind.is_boss();
         let (dmg, stun) = match hit.kind {
@@ -96,7 +100,8 @@ impl SmashTargets for SwarmTargets<'_> {
     fn hit(&mut self, i: usize, hit: &SmashHit) -> HitOutcome {
         let k = self.idx[i];
         let e = &self.core.enemies[k];
-        if !e.alive {
+        // normal attacks are Mario's own punches, which the swarm already takes
+        if !e.alive || hit.mv.is_none() {
             return HitOutcome::Miss;
         }
         let tough = e.kind.is_boss() || e.elite;
@@ -156,7 +161,7 @@ pub(crate) mod tests {
     }
 
     fn hit(kind: HitKind, damage: f32) -> SmashHit {
-        SmashHit { damage, kind, dir: [0.0, 1.0, 0.0], knock: 10.0, pos: [0.0; 3], fighter: SmashFighter::Mario, mv: SpecialMove::Fireball }
+        SmashHit { damage, kind, dir: [0.0, 1.0, 0.0], knock: 10.0, pos: [0.0; 3], fighter: SmashFighter::Mario, mv: Some(SpecialMove::Fireball), knockback: None, motion: None }
     }
 
     #[test]

@@ -131,6 +131,90 @@ kick, punches (Mario's `MARIO_PUNCH_*` grunts answered by name) and kicks, hurt,
 | Captain Falcon | - / voice | "FALCON..." + flame, "...PUNCH!" + blast | Falcon Dive voice + effect | Falcon Kick voice |
 | Ness | jump effect / - | "PK Fire!" + PSI | "PK Thunder!", thunder loop | PSI Magnet |
 
+## Motion event scripts (hitboxes)
+
+Every fighter motion has an event script in the fighter's `*MainMotion` file: when each hitbox comes on and off and with
+what damage / angle / knockback, when sounds and voices play, effects, hurtbox state (intangible / invincible), throws,
+flags the status code reads. `scripts/export-ssb64-motions.py` (reference) and its byte-identical port
+`native/byor-rs/src/ssb64_motions.rs` (run by `ssb64::run`, so `byor-rs --ssb64 ROM` and the pipeline write it with the
+fighters) decode them for the 13 fighters into `public/models/ssb64/motion-events.json` (about 2.5 MB; Python 1.5 s).
+
+| What | Where in the decomp | Format |
+|---|---|---|
+| Script per motion | `FTMotionDesc.offset` (`src/ft/ftdata.c`), symbolic offsets from `include/ft/motiondesc_offsets.h`; `0x80000000` = none; `FTANIM_FLAG_SUBMOTION_SCRIPT` = in the SubMotion file (no exported fighter uses it) | byte offset into the fighter's MainMotion file (Mario 202, Captain 235...) |
+| Events | `enum FTMotionEvent` (`src/ft/ftdef.h`, 52 opcodes), layouts `FTMotionEvent*` (`src/ft/fttypes.h`, MSB-first bit fields), builder macros `ftMotionCommand*` (`ftdef.h`), the decompiled scripts in `src/relocData/*MainMotion.c` | 32-bit words, `opcode:6` on top. `MakeAttackColl` (5 words): `id:3 group:3 joint:7s damage:8 can_rebound:1 element:4`, `size:16 off_x:16s`, `off_y:16s off_z:16s`, `angle:10s knockback_scale:10 knockback_weight:10 hit_ground:1 hit_air:1`, `shield_damage:8s fgm_level:3 fgm_kind:4 knockback_base:10`. Pointers (subroutine, goto, parallel script, throw descriptor) go through the file's relocation chains. |
+| Interpreter | `ftMainParseMotionEvent` / `ftMainUpdateMotionEventsAll` (`src/ft/ftmain.c`), started by `ftMainSetStatus` with `script_wait = 1` and run once per 60 Hz frame | `SyncWait n` adds n frames, `AsyncWait n` waits for animation frame n, loops / subroutines share one 5-slot stack, `Goto` back = a repeating script, `SetParallelScript` starts a second thread, `PauseScript` stops it. |
+| Hitbox placement | `ftMainUpdateAttackStatFighter` (`ftmain.c`), `gmCollisionGetFighterPartsWorldPosition` | centre = joint world matrix x offset; TopN is scaled by `FTAttributes.size`, `MakeAttackCollScaled` divides the offset by it; radius = `size / 2`. Joint id 0 = TopN (feet), `4 + n` = `DObjDesc` n (the glb's `joint_NN`), -2 = the light-item hand. |
+
+The exporter runs the interpreter offline exactly as the game schedules it (frame 0 = the frame the motion starts, so
+Mario's first jab hits on frames 2-3, Falcon Punch on 42-46) and writes per fighter (`size`) and motion id:
+`motion` (decomp name), `script` (offset), `end` (frame of `End`, null when the script loops or pauses), `loops`
+(`[{thread, from, period}]`: a goto back into code that already ran; the events from `from` repeat every `period` frames
+and the simulation stops there), `root_motion`, `events` and `hitboxes`:
+
+- `events`: every event in firing order with its `frame` and `op` (the decomp's `nFTMotionEvent*` name) and its decoded
+  fields: hitboxes (above), `SetAttackColl{Offset,Damage,Size,SoundLevel}`, `ClearAttackColl{ID,All}`,
+  `RefreshAttackCollID`, sounds (`PlayFGM`, `PlayVoiceStoreInfo`, `PlayFGMStoreInfo`, `PlayLoop*`, `fgm` id + `name` from
+  `gmFGMVoiceID`: the exported clip is `assets/audio/voices/ssb64/<name>_0.wav` when it is in the sound export),
+  `PlaySmashVoice` (a random `Smash1-3` grunt), `Effect` (joint, effect id, offset, scatter), hurtboxes
+  (`SetHitStatusAll` / `PartAll` / `PartID`: 0 none, 1 normal, 2 invincible, 3 intangible; `SetDamageCollPartID`),
+  `SetThrow` (the `FTThrowHitDesc`: status, damage, angle, knockback scale / weight / base, element), flags 0-3, model /
+  texture part swaps, colour animations, rumble, after-images, slope contour. `thread: 1` marks the parallel script.
+- `hitboxes`: the attack collisions (`fp->attack_colls[4]`) replayed into windows of constant values: `id`, `from`, `to`
+  (exclusive; null = on until the motion ends), `set` (hit records: a target is hit at most once per set; a new hitbox
+  shares the records of an active one of its group, `RefreshAttackCollID` starts new ones), `group`, `joint`, `offset`,
+  `size` (diameter), `scaled`, `damage`, `angle` (361 = Sakurai angle), `knockback_scale` (growth), `knockback_weight`
+  (fixed / set knockback), `knockback_base`, `element` (0 normal, 1 fire, 2 electric, 3 slash, 4 coin, 5 freezing,
+  6 sleep), `shield_damage`, `hit_ground`, `hit_air`, `can_rebound`, `fgm_kind` / `fgm_level` (hit sound), and
+  `positions`: the centre on every frame of the window, **on the animated skeleton** (the motion's figatree pose of the
+  joint at that frame, the same interpreter as the glb clips), in fighter space: SSB64 units from the feet, +Z forward,
+  +Y up. Root-motion clips (those whose `joint_00` starts at the origin, the view's `root_motion_clips` rule; in the game
+  TransN is unlinked from the body and its translation drives the fighter) hold `joint_00` at the origin, as the view
+  draws them. `on_joint: false` when the joint is not in the model (Yoshi's tongue joint 31, items): the offset from the
+  feet is used.
+
+Counts: 30-236 scripts per fighter, 2030 hitbox events in all (Mario 250, Samus 246, Donkey Kong 198...). A check
+against the decompiled scripts in `src/relocData/*MainMotion.c` (every `ftMotionCommandMakeAttackColl` of 1887 script
+arrays, walked linearly) matches all of them; the two "differences" are angles the C source spells unsigned (954 = -70).
+
+### On the sim (`native/sim/src/smash_hitbox.rs`, engine-free)
+
+`MotionEvents::from_json(text)` loads the file; the app does it once (`characters::smash::register_motion_events`, when
+the fighter index loads) and `smash_hitbox::register`s it; `SmashExt::scripts` overrides it per runtime (tests). API:
+
+- `ev.fighter("Captain")?.by_name("SpecialN")` / `.by_id(203)` / `.first(&names)` -> `Motion`.
+- `Motion::active(frame60)` -> `Vec<ActiveHit>` (the window, the frame, the centre in fighter space);
+  `active_in_tick(t)` = frames `2t` and `2t + 1` (the sim is 30 Hz, SSB64 60 Hz); `active_in_frames(a, b)`;
+  `active_span()`; `script_frame(f)` (repeating scripts wrap); `sounds_between(a, b)`; `hit_status_at(f)`.
+- `ActiveHit::world(feet, yaw, K)` / `smash_hitbox::to_world`: fighter space -> world (SM64 s16 yaw, `smash::K` = 0.348 SM64
+  units per SSB64 unit); `HitWindow::radius()` (SSB64 units).
+- **Knockback descriptor** (`smash_hitbox::Knockback`, on every scripted `Hitbox` and on the `SmashHit` a target receives):
+  `angle` (degrees, 361 = Sakurai), `growth` (`knockback_scale`), `fixed` (`knockback_weight`, 0 = none), `base`
+  (`knockback_base`), `element` (`Element`), `damage` (percent, before staling), `shield_damage`, `hit_ground`, `hit_air`,
+  `can_rebound`, `sfx_kind`, `sfx_level`. `SmashHit` also has `motion` (the SSB64 motion id) and `mv: Option<SpecialMove>`
+  (`None` for a normal attack). This is the input for SSB64's knockback (`ftParamGetCommonKnockback` family in
+  `src/ft/ftparam.c`) and the percent layer, which are not implemented yet.
+
+Use in the moves (`native/sim/src/smash.rs`):
+
+- **Specials**: each tick, when the motion the view plays (`SmashExt::motion`: names, seconds) has scripted hitboxes, the
+  special's own damaging volumes (normal / fire / electric / explosion) are replaced by the script's for frames `2t`,
+  `2t + 1` of that motion: damage, timing, size, element, angle, knockback and the centre on the animated joint, turned to
+  the fighter's facing around Mario's feet. Capture / grab / sleep volumes and projectiles stay the move's. Catch moves
+  (`ftParamSetCatchParams`: Falcon Dive, Kirby's inhale, Yoshi's egg lay) are left alone: their attack collisions are grab
+  detectors. With the user's import, 17 specials take the script's hitboxes: Super Jump Punch, Mario / Luigi Tornado,
+  Giant Punch, Spinning Kong, Hand Slap, Spin Attack, Screw Attack, Final Cutter, Stone, Fire Fox, Reflector, Thunder,
+  Pound, Sing, Rest, Falcon Punch, Falcon Kick (the projectile specials have no melee hitbox in their scripts: fireball,
+  Charge Shot, boomerang, bombs, eggs, blaster, Thunder Jolt, PK Fire / Thunder keep the weapon numbers).
+- **Normal attacks**: while no special runs, Mario's punch sequence (`Attack11` / `Attack12` / `Attack13`, else
+  `AttackS3`, at the view's 1.15x), jump kick (`AttackAirN`), dive (`AttackAirF`), slide kick (`AttackDash`) and ground
+  pound (`AttackAirLw` at 1.2x, `LandingAirLw`) put out that motion's scripted hitboxes at the clip's time
+  (`smash::normal_attack_motion`), as `Hitbox { normal: true }` / `SmashHit { mv: None }`. The course's SM64 objects and
+  the modes that already score Mario's own punches (Hold the Gate, Star Swarm) ignore them (SM64 hits those); the walking
+  goombas take them. They are the data the fighter-vs-fighter knockback / percent layer reads.
+- Sounds still follow `SfxPhase` cues (`smash_fx::special_cues`): the script's sound timing is exported
+  (`sounds_between`) but not yet played from it.
+
 ## Checks
 
 - `python3 -m unittest byor/test_ssb64.py` (from `native/`): vpk0, relocation chains, figatree interpreter, combiner, tile
@@ -145,7 +229,17 @@ kick, punches (Mario's `MARIO_PUNCH_*` grunts answered by name) and kicks, hurt,
 - `cargo test -p jumpman smash_audio` (`native/src/characters/smash_audio.rs`): the table covers every fighter, names only
   exported clips, equals the `ssb_*` sets of `character-sounds.json`; with the clips in `assets/audio/voices/ssb64` they
   decode and are audible (skipped without them).
-- `byor/check-manifest.py --trace --ssb64 ROM --strict-unused`: the import reads exactly the 17 manifest files.
+- `python3 -m unittest byor/test_ssb64_motions.py`: the motion script decoder (hand-assembled `ftMotionCommand*` words),
+  interpreter (waits, loops, subroutines, goto loops), hitbox windows and hit-record sets, the decomp tables.
+- `cargo test -p byor-rs --test ssb64_rom ssb64_motion_events`: with `BYOR_TEST_SSB64_ROM`, Mario's jab and Falcon Punch
+  have the decomp's numbers and frames; with `BYOR_TEST_SSB64_MOTIONS_REF` (a `scripts/export-ssb64-motions.py --out <dir>`
+  folder) `motion-events.json` is byte-identical (it is). `src/ssb64_motions.rs` unit tests cover the decoder and windows.
+- `cargo test -p jumpman-sim smash_hitbox` and `--test smash_specials` (`scripted_*`, `normal_attacks_use_the_scripted_jab`):
+  windows, 30 Hz ticks, wrap, Falcon Punch active only on ticks 21-23 with the script's knockback; with
+  `JUMPMAN_SMASH_MOTION_EVENTS=<motion-events.json>` (`real_scripts_drive_the_specials`) every special's scripted hitbox
+  belongs to the motion the view plays and the real Falcon Punch comes out on tick 21 with 24-26%.
+- `byor/check-manifest.py --trace --ssb64 ROM --strict-unused`: the import reads exactly the manifest files (18 with
+  `include/ft/motiondesc_offsets.h`).
 
 ## Playable fighters
 
@@ -204,9 +298,9 @@ units; app side `native/src/characters/smash.rs` (clips, input), `smash_fx.rs` (
   accelerations. Moves that SSB64 drives by root motion (TRANSN clips: Super Jump Punch, Falcon Punch / Dive / Kick,
   Final Cutter, Pound) follow their clip's root travel (peak height / distance / frame measured once from the import);
   the view holds `joint_00` still in those clips (`root_motion_clips`) so the model does not travel twice. Damage comes
-  from the weapon tables where the decomp has them (Charge Shot 3-26%, boomerang return 8%, Kirby's spit 10%) and is
-  otherwise an approximate SSB64 value: the per-frame hitboxes live in the `*MainMotion` event scripts, which the import
-  does not read yet.
+  from the weapon tables where the decomp has them (Charge Shot 3-26%, boomerang return 8%, Kirby's spit 10%); melee
+  hitboxes come from the motion event scripts when the import has them ("Motion event scripts" above: damage, frames,
+  size, angle, knockback, placed on the animated joint) and are otherwise the approximate values below.
 - **Animation**: each phase names its decomp motions (`SmashExt::motion`, e.g. Giant Punch `SpecialNStart` /
   `SpecialNLoop` / `SpecialNEnd` / `SpecialNFull`, `SpecialAir*` in the air, Kirby's copies `Copy<Name>SpecialN`); the
   import already has every one of them (a test checks them all against `fighters.json`).
@@ -234,14 +328,16 @@ units; app side `native/src/characters/smash.rs` (clips, input), `smash_fx.rs` (
 | Captain Falcon | Falcon Punch: wind-up, lunge 129 (root motion), 25% fire on frames 53-60 | Falcon Dive: +561 / 141 forward (root motion), grabs a body on the way up, 10% blast and a jump off, helpless (0.72) | Falcon Kick: ground dash of 988 (root motion), 15% then 9%; from the air a dive forward and down to the floor and `LandingDownSpecial` |
 | Ness | PK Fire: spark (73 / 95, -3.6 / -38 degrees) that becomes a pillar of fire (multi-hit) on a body or the floor | PK Thunder: steered ball (6 degrees a frame: stick left / right turns, up / down pitches; 160 frames, 8%); steered into Ness: PK Thunder 2 launches him along its heading (25%), helpless | PSI Magnet: held while special is held (30 frames min), absorbs enemy energy shots and heals |
 
-Not done: the ROM's weapon / effect models (fireball, Charge Shot, PK Thunder... are particles), hitbox timing and damage
-from the motion event scripts, knockback and percent on the fighters themselves, shields, the specials in Gem Clash, a
+The table's damage numbers are the fallback when the import has no `motion-events.json`.
+
+Not done: the ROM's weapon / effect models (fireball, Charge Shot, PK Thunder... are particles), knockback and percent on
+the fighters themselves (the scripts' knockback inputs are on every hit), shields, the specials in Gem Clash, a
 touch special button.
 
 ## Not done yet
 
 - Costumes other than 0, face (texture part) swaps, hand model parts (open / closed fists), low-poly models, the polygon /
-  metal / giant variants (NMario, MMario, GDonkey), accessories (Pikachu's hat, Jigglypuff's bow), hitboxes and the
-  motion event scripts (when each sound plays, effects, hitbox timing in `*MainMotion` files); music, stage / item / menu
+  metal / giant variants (NMario, MMario, GDonkey), accessories (Pikachu's hat, Jigglypuff's bow), playing the motion scripts' effects and sound timing (exported, not
+  used yet), the throw / damage-thrown scripts and hurtbox events on the sim; music, stage / item / menu
   sounds and the announcer, item and weapon models, stages.
 - The `TraI` spline track is ignored (no exported motion uses it visibly).

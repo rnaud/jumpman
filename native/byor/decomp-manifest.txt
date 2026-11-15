@@ -7573,6 +7573,7 @@ sm64/tools/util/generate_armips_cpp.py
 sm64/tools/util/generate_audiofile_cpp.py
 sm64/undefined_syms.txt
 sm64/util.mk
+ssb64/include/ft/motiondesc_offsets.h
 ssb64/src/ft/ftchar/ftboss/ftboss.h
 ssb64/src/ft/ftchar/ftcaptain/ftcaptain.h
 ssb64/src/ft/ftchar/ftdonkey/ftdonkey.h

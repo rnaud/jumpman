@@ -332,9 +332,9 @@ pub fn fighter_tables(decomp: &Path, names: &HashMap<String, usize>) -> R<HashMa
 
 // ------------------------------------------------------------------------------------------------ math
 
-type M4 = [[f64; 4]; 4];
+pub(crate) type M4 = [[f64; 4]; 4];
 
-fn mat_trs(t: [f64; 3], r: [f64; 3], s: [f64; 3]) -> M4 {
+pub(crate) fn mat_trs(t: [f64; 3], r: [f64; 3], s: [f64; 3]) -> M4 {
     let (cr, sr) = (libm::cos_(r[0]), libm::sin_(r[0]));
     let (cp, sp) = (libm::cos_(r[1]), libm::sin_(r[1]));
     let (cy, sy) = (libm::cos_(r[2]), libm::sin_(r[2]));
@@ -351,7 +351,7 @@ fn mat_trs(t: [f64; 3], r: [f64; 3], s: [f64; 3]) -> M4 {
     ]
 }
 
-fn mat_mul(a: &M4, b: &M4) -> M4 {
+pub(crate) fn mat_mul(a: &M4, b: &M4) -> M4 {
     let mut o = [[0.0; 4]; 4];
     for i in 0..4 {
         for j in 0..4 {
@@ -373,7 +373,7 @@ fn mat_inv(m: &M4) -> M4 {
     [[inv[0][0], inv[0][1], inv[0][2], t[0]], [inv[1][0], inv[1][1], inv[1][2], t[1]], [inv[2][0], inv[2][1], inv[2][2], t[2]], [0.0, 0.0, 0.0, 1.0]]
 }
 
-fn apply(m: &M4, v: [f64; 3], w: f64) -> [f64; 3] {
+pub(crate) fn apply(m: &M4, v: [f64; 3], w: f64) -> [f64; 3] {
     let f = |i: usize| m[i][0] * v[0] + m[i][1] * v[1] + m[i][2] * v[2] + m[i][3] * w;
     [f(0), f(1), f(2)]
 }
@@ -1221,27 +1221,27 @@ fn costume(files: &Files, m: &mut MObj, script: Option<Ref>) -> R<()> {
     Ok(())
 }
 
-struct Joint {
-    index: usize,
-    parent: Option<usize>,
+pub(crate) struct Joint {
+    pub(crate) index: usize,
+    pub(crate) parent: Option<usize>,
     dl: Option<Ref>,
-    t: [f64; 3],
-    r: [f64; 3],
-    s: [f64; 3],
+    pub(crate) t: [f64; 3],
+    pub(crate) r: [f64; 3],
+    pub(crate) s: [f64; 3],
     world: M4,
 }
 
-struct Fighter<'f, 'a> {
+pub(crate) struct Fighter<'f, 'a> {
     files: &'f Files<'a>,
-    size: f64,
+    pub(crate) size: f64,
     mobj_table: Option<Ref>,
     costume_table: Option<Ref>,
     split: bool,
-    joints: Vec<Joint>,
+    pub(crate) joints: Vec<Joint>,
 }
 
 impl<'f, 'a> Fighter<'f, 'a> {
-    fn new(files: &'f Files<'a>, table: &Table) -> R<Self> {
+    pub(crate) fn new(files: &'f Files<'a>, table: &Table) -> R<Self> {
         let attr = Some((table.main, table.attr));
         let size = bef32(&files.get(table.main)?.data, table.attr)?;
         let cpc = files.ptr(attr, ATTR_COMMONPARTS)?.ok_or("no commonparts")?;
@@ -1322,7 +1322,7 @@ impl<'f, 'a> Fighter<'f, 'a> {
     }
 
     /// Per joint: the sampled (t, r, s) of every frame, and the clip length in frames.
-    fn animation(&self, fid: usize) -> R<(Vec<Option<Vec<Pose>>>, usize)> {
+    pub(crate) fn animation(&self, fid: usize) -> R<(Vec<Option<Vec<Pose>>>, usize)> {
         let f = self.files.get(fid)?;
         let mut tracks = vec![];
         let mut length = 0;
@@ -1340,7 +1340,7 @@ impl<'f, 'a> Fighter<'f, 'a> {
     }
 }
 
-type Pose = ([f64; 3], [f64; 3], [f64; 3]);
+pub(crate) type Pose = ([f64; 3], [f64; 3], [f64; 3]);
 
 #[derive(Clone, Copy, Default)]
 struct AObj {
@@ -1930,6 +1930,7 @@ pub fn export(source: &Path, z64: &[u8], public: &Path, progress: &mut dyn FnMut
 
 pub fn run(source: &Path, stage: &Path, z64: &[u8], progress: &mut dyn FnMut(u32, &str)) -> R<()> {
     export(source, z64, &stage.join("public"), progress)?;
+    crate::ssb64_motions::export(source, z64, &stage.join("public/models/ssb64"))?;
     progress(97, "Exporting Super Smash Bros. voices");
     crate::ssb64_sounds::export(source, z64, &stage.join("assets/audio/voices/ssb64"))?;
     Ok(())

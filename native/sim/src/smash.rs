@@ -22,7 +22,9 @@ use crate::mario_runtime::MarioRuntime;
 use crate::mario_step::{AIR_GRABBED_LEDGE, AIR_LANDED, GROUND_STEP_LEFT_GROUND_I};
 use crate::math::*;
 use crate::object::*;
+use crate::smash_hitbox::{Element, Knockback, Motion, MotionEvents};
 use crate::state::*;
+use std::sync::Arc;
 
 /// SSB64 world units -> SM64 units (Smash Mario 460 tall -> SM64 Mario 160).
 pub const K: f64 = 0.348;
@@ -249,7 +251,12 @@ pub struct SmashHit {
     /// Where the hit landed.
     pub pos: Vec3,
     pub fighter: SmashFighter,
-    pub mv: SpecialMove,
+    /// The special it came from; `None` for a normal attack (jab, aerial, dash attack... see [`normal_attack_motion`]).
+    pub mv: Option<SpecialMove>,
+    /// The SSB64 knockback inputs of the scripted hitbox that landed (`None`: a projectile or an approximate hitbox).
+    pub knockback: Option<Knockback>,
+    /// The SSB64 motion id that hit (scripted hitboxes only).
+    pub motion: Option<u32>,
 }
 
 /// A body a special can hit: feet position, radius and height (a vertical cylinder), a key stable across ticks.
@@ -405,6 +412,11 @@ pub struct Hitbox {
     pub kind: HitKind,
     pub knock: f64,
     pub rehit: u32,
+    /// From the motion event scripts (`smash_hitbox`): the SSB64 knockback inputs and the motion id.
+    pub knockback: Option<Knockback>,
+    pub motion: Option<u32>,
+    /// A normal attack's hitbox (not a special's).
+    pub normal: bool,
 }
 
 /// The running special.
@@ -466,6 +478,11 @@ pub struct SmashExt {
     pub yaw: f64,
     pub tick: u64,
     next_id: u32,
+    /// The motion event scripts (hitboxes) this runtime uses; `None`: the registered table ([`crate::smash_hitbox::register`]),
+    /// and without one the specials keep their approximate hitboxes.
+    pub scripts: Option<Arc<MotionEvents>>,
+    /// The normal attack playing (its motion and start tick), for its scripted hitboxes.
+    attack: Option<NormalAttack>,
     /// (source, target key, tick of the last hit).
     hit_log: Vec<(u32, u64, u64)>,
     /// Hits of the running special that landed since its last tick: (source, outcome).
@@ -507,8 +524,13 @@ impl SmashExt {
 
     /// Drop everything (the fighter changed, the course reloaded).
     pub fn reset(&mut self) {
-        let fighter = self.fighter;
-        *self = SmashExt { fighter, ..Default::default() };
+        let (fighter, scripts) = (self.fighter, self.scripts.take());
+        *self = SmashExt { fighter, scripts, ..Default::default() };
+    }
+
+    /// The motion event scripts in use: this runtime's own, else the registered table.
+    pub fn motion_events(&self) -> Option<Arc<MotionEvents>> {
+        self.scripts.clone().or_else(crate::smash_hitbox::registered)
     }
 
     /// Clear the per-tick outputs. Events stay until the app drains them (`std::mem::take(&mut smash.events)`), capped so
@@ -850,7 +872,7 @@ fn run(m: &mut MarioRuntime) -> bool {
     // Hits of this special that landed since last tick.
     let landed: Vec<(u32, HitKind, HitOutcome)> = std::mem::take(&mut m.smash.landed);
     for (src, kind, out) in landed {
-        if src >> 4 == sp.instance && out != HitOutcome::Miss {
+        if owned_by(src, sp.instance) && out != HitOutcome::Miss {
             sp.landed = true;
             if let HitOutcome::Captured(f) = out {
                 if matches!(sp.mv, SpecialMove::Inhale) {
@@ -864,6 +886,9 @@ fn run(m: &mut MarioRuntime) -> bool {
     }
     m.face_angle[1] = sp.yaw;
     let flow = tick(m, &mut sp);
+    if matches!(flow, Flow::Continue) {
+        scripted_hitboxes(m, &sp);
+    }
     if !sp.fresh {
         sp.t += 1;
     }
@@ -1080,7 +1105,143 @@ fn to_fall(m: &mut MarioRuntime, sp: &mut Special, drift_mul: f64, lag_frames: f
 
 #[allow(clippy::too_many_arguments)]
 fn hitbox(m: &mut MarioRuntime, sp: &Special, sub: u32, pos: Vec3, radius: f64, damage: f32, kind: HitKind, knock: f64, rehit: u32) {
-    m.smash.hitboxes.push(Hitbox { source: (sp.instance << 4) | (sub & 15), pos, radius, damage, kind, knock, rehit });
+    m.smash.hitboxes.push(Hitbox { source: (sp.instance << 4) | (sub & 15), pos, radius, damage, kind, knock, rehit, knockback: None, motion: None, normal: false });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Scripted hitboxes (the motion event scripts, `smash_hitbox`)
+// ---------------------------------------------------------------------------------------------
+
+/// Hit identities of scripted hitboxes: bit 31 (a special's, the special's instance in bits 12..30) or bit 30 (a normal
+/// attack's), the window's hit-record set in the low 12 bits.
+const SCRIPT_SOURCE: u32 = 1 << 31;
+const NORMAL_SOURCE: u32 = 1 << 30;
+
+/// Whether a hit source belongs to the special with this instance (its own hitboxes or its scripted ones).
+fn owned_by(src: u32, instance: u32) -> bool {
+    if src & SCRIPT_SOURCE != 0 {
+        (src >> 12) & 0x7_FFFF == instance & 0x7_FFFF
+    } else {
+        src & NORMAL_SOURCE == 0 && src >> 4 == instance
+    }
+}
+
+/// The sim's hit kind for an SSB64 element.
+pub fn hit_kind(e: Element) -> HitKind {
+    match e {
+        Element::Fire => HitKind::Fire,
+        Element::Electric => HitKind::Electric,
+        Element::Sleep => HitKind::Sleep,
+        _ => HitKind::Normal,
+    }
+}
+
+/// The motion of `names` (best first) for a fighter in the scripts, if it has hitboxes.
+fn scripted_motion<'a>(ev: &'a MotionEvents, fighter: SmashFighter, names: &[String]) -> Option<&'a Motion> {
+    ev.fighter(fighter.decomp_name())?.first(names).filter(|m| m.has_hitboxes())
+}
+
+/// Push the hitboxes a motion has on in frames `[from, to)` as this tick's attack volumes (centres on the animated
+/// joints, turned to `yaw` around Mario's feet).
+fn push_scripted(m: &mut MarioRuntime, motion: &Motion, from: u32, to: u32, yaw: f64, source_base: u32, normal: bool) {
+    let feet = m.pos;
+    let mut seen: Vec<(u8, u32)> = vec![];
+    // the later frame of the tick first: the one the hit is logged at
+    for hit in motion.active_in_frames(from, to).iter().rev() {
+        let w = hit.window;
+        if seen.contains(&(w.id, hit.frame)) {
+            continue;
+        }
+        seen.push((w.id, hit.frame));
+        let kb = w.knockback;
+        m.smash.hitboxes.push(Hitbox {
+            source: source_base | (w.set & 0xFFF),
+            pos: hit.world(feet, yaw, K),
+            radius: w.radius() * K,
+            damage: kb.damage as f32,
+            kind: hit_kind(kb.element),
+            knock: 10.0 + kb.damage as f64,
+            rehit: 0,
+            knockback: Some(kb),
+            motion: Some(motion.id),
+            normal,
+        });
+    }
+}
+
+/// A running special whose motion has scripted hitboxes takes them instead of its own damaging volumes: damage, timing,
+/// size, angle and knockback from the script, centres on the animated skeleton. The move's capture / grab / sleep volumes
+/// and projectiles stay. The motion time is the view's (`SmashExt::motion`), 60 Hz frames `2t` and `2t + 1` of this tick.
+fn scripted_hitboxes(m: &mut MarioRuntime, sp: &Special) {
+    // Catch moves (`ftParamSetCatchParams`: Falcon Dive, Kirby's inhale, Yoshi's egg lay and Kirby's copy of it) use their
+    // attack collisions as grab detectors, not as hits: the move's own capture / grab volume stays the only one.
+    if matches!(sp.mv, SpecialMove::FalconDive | SpecialMove::Inhale | SpecialMove::EggLay) {
+        return;
+    }
+    let Some(ev) = m.smash.motion_events() else { return };
+    let (names, secs, _) = special_motion(sp);
+    let body = sp.copied.map(|_| SmashFighter::Kirby).unwrap_or(sp.fighter);
+    let Some(motion) = scripted_motion(&ev, body, &names) else { return };
+    let inst = sp.instance;
+    m.smash.hitboxes.retain(|h| {
+        !(h.source & (SCRIPT_SOURCE | NORMAL_SOURCE) == 0 && h.source >> 4 == inst && matches!(h.kind, HitKind::Normal | HitKind::Fire | HitKind::Electric | HitKind::Explosion))
+    });
+    let frame = (secs as f64 * 60.0).round() as u32;
+    push_scripted(m, motion, frame, frame + 2, sp.yaw, SCRIPT_SOURCE | ((inst & 0x7_FFFF) << 12), false);
+}
+
+/// The normal attack playing: its first motion name, punch stage, start tick and hit identity.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct NormalAttack {
+    key: (&'static str, u8),
+    start: u64,
+    instance: u32,
+}
+
+/// The SSB64 motions (best first) and playback rate a Smash fighter plays for Mario's attacking actions, as the view maps
+/// them (`characters::smash` `clip_for`: punches 1.15x, ground pound 1.2x), with the punch stage from `actionArg`.
+pub fn normal_attack_motion(action: u32, action_arg: f64) -> Option<(&'static [&'static str], u8, f64)> {
+    Some(match action {
+        ACT_PUNCHING | ACT_MOVE_PUNCHING if action_arg < 3.0 => (&["Attack11"][..], 0, 1.15),
+        ACT_PUNCHING | ACT_MOVE_PUNCHING if action_arg < 6.0 => (&["Attack12", "Attack11"][..], 1, 1.15),
+        ACT_PUNCHING | ACT_MOVE_PUNCHING => (&["Attack13", "AttackS3"][..], 2, 1.15),
+        ACT_JUMP_KICK => (&["AttackAirN"][..], 0, 1.0),
+        ACT_DIVE => (&["AttackAirF"][..], 0, 1.0),
+        ACT_SLIDE_KICK | ACT_SLIDE_KICK_SLIDE => (&["AttackDash"][..], 0, 1.0),
+        ACT_GROUND_POUND => (&["AttackAirLw"][..], 0, 1.2),
+        ACT_GROUND_POUND_LAND => (&["LandingAirLw"][..], 0, 1.0),
+        _ => return None,
+    })
+}
+
+/// Mario's punches, kicks, dive, slide kick and ground pound as the fighter's SSB64 normal attacks: the motion's scripted
+/// hitboxes at the clip's time (frames since the move started x 2 x rate), resolved like the specials' (`normal` set: the
+/// course's SM64 objects and the modes that score Mario's own punches ignore them, SM64 already handles those).
+fn normal_attacks(m: &mut MarioRuntime) {
+    let Some(fighter) = m.smash.fighter else { return };
+    let current = if m.smash.special.is_some() { None } else { normal_attack_motion(m.action, m.action_arg) };
+    let Some((names, stage, rate)) = current else {
+        m.smash.attack = None;
+        return;
+    };
+    let key = (names[0], stage);
+    let now = m.smash.tick;
+    let attack = match m.smash.attack {
+        Some(a) if a.key == key => a,
+        _ => {
+            let instance = m.smash.new_id();
+            let a = NormalAttack { key, start: now, instance };
+            m.smash.attack = Some(a);
+            a
+        }
+    };
+    let Some(ev) = m.smash.motion_events() else { return };
+    let names: Vec<String> = names.iter().map(|n| n.to_string()).collect();
+    let Some(motion) = scripted_motion(&ev, fighter, &names) else { return };
+    let t = (now - attack.start) as f64;
+    let (from, to) = ((t * 2.0 * rate).floor() as u32, ((t + 1.0) * 2.0 * rate).floor() as u32);
+    let yaw = m.face_angle[1];
+    push_scripted(m, motion, from, to, yaw, NORMAL_SOURCE | ((attack.instance & 0x3_FFFF) << 12), true);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2670,6 +2831,7 @@ pub fn after_step(m: &mut MarioRuntime) {
     m.smash.center = [m.pos[0], m.pos[1] + 70.0, m.pos[2]];
     m.smash.yaw = m.face_angle[1];
     step_projectiles(m);
+    normal_attacks(m);
     let mut ext = std::mem::take(&mut m.smash);
     resolve(&mut ext, &mut Sm64Objects { objects: &mut m.objects });
     ext.projectiles.retain(|p| !p.dead);
@@ -2987,29 +3149,33 @@ pub fn resolve(ext: &mut SmashExt, t: &mut dyn SmashTargets) {
         }
     };
     let mut gone: Vec<bool> = vec![false; targets.len()];
-    // Hitboxes of the special.
+    // Hitboxes of the special and of the normal attack.
     let hitboxes = ext.hitboxes.clone();
-    if let Some(mv) = mv {
-        for hb in &hitboxes {
-            for (i, tg) in targets.iter().enumerate() {
-                if gone[i] || !touches(hb.pos, hb.radius, tg) || !can_hit(&log, hb.source, tg.key, hb.rehit) {
-                    continue;
-                }
-                let hit = SmashHit { damage: hb.damage, kind: hb.kind, dir: dir_from(center, tg.pos), knock: hb.knock, pos: hb.pos, fighter, mv };
-                let out = t.hit(i, &hit);
-                log.push((hb.source, tg.key, now));
-                if out != HitOutcome::Miss {
+    for hb in &hitboxes {
+        let hit_mv = if hb.normal { None } else { mv };
+        if !hb.normal && mv.is_none() {
+            continue;
+        }
+        for (i, tg) in targets.iter().enumerate() {
+            if gone[i] || !touches(hb.pos, hb.radius, tg) || !can_hit(&log, hb.source, tg.key, hb.rehit) {
+                continue;
+            }
+            let hit = SmashHit { damage: hb.damage, kind: hb.kind, dir: dir_from(center, tg.pos), knock: hb.knock, pos: hb.pos, fighter, mv: hit_mv, knockback: hb.knockback, motion: hb.motion };
+            let out = t.hit(i, &hit);
+            log.push((hb.source, tg.key, now));
+            if out != HitOutcome::Miss {
+                if !hb.normal {
                     ext.landed.push((hb.source, hb.kind, out));
-                    if hb.kind != HitKind::Sleep && hb.kind != HitKind::Capture && hb.kind != HitKind::Grab {
-                        ext.events.push(SmashEvent::Hit { pos: [tg.pos[0], tg.pos[1] + tg.height * 0.5, tg.pos[2]], kind: hb.kind, damage: hb.damage });
-                    }
-                    if matches!(out, HitOutcome::Killed | HitOutcome::Captured(_)) {
-                        gone[i] = true;
-                    }
-                    if let Some(sp) = ext.special {
-                        if hb.kind != HitKind::Sleep {
-                            ext.events.push(SmashEvent::Sfx(SmashSfx { fighter: sp.copied.unwrap_or(sp.fighter), mv: sp.mv, slot: sp.slot, phase: SfxPhase::Hit }));
-                        }
+                }
+                if hb.kind != HitKind::Sleep && hb.kind != HitKind::Capture && hb.kind != HitKind::Grab {
+                    ext.events.push(SmashEvent::Hit { pos: [tg.pos[0], tg.pos[1] + tg.height * 0.5, tg.pos[2]], kind: hb.kind, damage: hb.damage });
+                }
+                if matches!(out, HitOutcome::Killed | HitOutcome::Captured(_)) {
+                    gone[i] = true;
+                }
+                if let (Some(sp), false) = (ext.special, hb.normal) {
+                    if hb.kind != HitKind::Sleep {
+                        ext.events.push(SmashEvent::Sfx(SmashSfx { fighter: sp.copied.unwrap_or(sp.fighter), mv: sp.mv, slot: sp.slot, phase: SfxPhase::Hit }));
                     }
                 }
             }
@@ -3027,7 +3193,7 @@ pub fn resolve(ext: &mut SmashExt, t: &mut dyn SmashTargets) {
             if p.dead || gone[i] || !touches(p.pos, p.radius, tg) || !can_hit(&log, src, tg.key, p.rehit) {
                 continue;
             }
-            let hit = SmashHit { damage: p.damage, kind: p.hit, dir: dir_from(p.pos, tg.pos), knock: 10.0 + p.damage as f64, pos: p.pos, fighter: p.fighter, mv: p.mv };
+            let hit = SmashHit { damage: p.damage, kind: p.hit, dir: dir_from(p.pos, tg.pos), knock: 10.0 + p.damage as f64, pos: p.pos, fighter: p.fighter, mv: Some(p.mv), knockback: None, motion: None };
             let out = t.hit(i, &hit);
             log.push((src, tg.key, now));
             if out == HitOutcome::Miss {
@@ -3096,7 +3262,8 @@ impl SmashTargets for Sm64Objects<'_> {
     }
 
     fn hit(&mut self, i: usize, hit: &SmashHit) -> HitOutcome {
-        if hit.kind == HitKind::Sleep || (hit.damage <= 0.0 && hit.kind != HitKind::Capture) {
+        // a normal attack is Mario's own punch / kick on the SM64 side, which already hits these objects
+        if hit.mv.is_none() || hit.kind == HitKind::Sleep || (hit.damage <= 0.0 && hit.kind != HitKind::Capture) {
             return HitOutcome::Miss;
         }
         // `targets()` order: walk it again to find the object.

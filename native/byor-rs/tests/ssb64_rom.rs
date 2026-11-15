@@ -158,3 +158,42 @@ fn ssb64_sounds_match_python() {
     assert!(n > 200);
     let _ = std::fs::remove_dir_all(&out);
 }
+
+/// The motion event scripts (native/SSB64.md "Motion event scripts"): decomp-known hitboxes, and with
+/// BYOR_TEST_SSB64_MOTIONS_REF (a `python3 scripts/export-ssb64-motions.py --out <dir>` folder) the same bytes as the Python.
+#[test]
+fn ssb64_motion_events() {
+    let Some(z64) = rom() else {
+        eprintln!("skipped: BYOR_TEST_SSB64_ROM not set");
+        return;
+    };
+    let out = std::env::temp_dir().join(format!("byor-ssb64-motions-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&out);
+    let index = byor_rs::ssb64_motions::export(&source(), &z64, &out).unwrap();
+    let hits = |f: &str, mid: &str| index["fighters"][f]["motions"][mid]["hitboxes"].as_array().unwrap().clone();
+    // Mario's first jab (dMarioMainMotion_Jab1): WaitAsync(2), two 2% hitboxes on joints 10 / 9, 361 degrees, scale 50, base 8
+    let jab = hits("mario", "165");
+    assert_eq!(jab.len(), 2);
+    for (w, joint) in jab.iter().zip([10, 9]) {
+        assert_eq!((w["from"].as_i64(), w["to"].as_i64(), w["joint"].as_i64()), (Some(2), Some(4), Some(joint)));
+        assert_eq!((w["damage"].as_i64(), w["angle"].as_i64(), w["knockback_scale"].as_i64(), w["knockback_base"].as_i64()), (Some(2), Some(361), Some(50), Some(8)));
+        assert_eq!(w["positions"].as_array().unwrap().len(), 2);
+    }
+    // Falcon Punch (dCaptainMainMotion_FalconPunchGround): 24 / 25 / 26% on frames 42-46, 361 degrees, scale 120, base 30
+    let punch = hits("captain", "203");
+    assert_eq!(punch.iter().map(|w| w["damage"].as_i64().unwrap()).collect::<Vec<_>>(), vec![24, 25, 26]);
+    for w in &punch {
+        assert_eq!((w["from"].as_i64(), w["to"].as_i64(), w["angle"].as_i64()), (Some(42), Some(47), Some(361)));
+        assert_eq!((w["knockback_scale"].as_i64(), w["knockback_base"].as_i64(), w["element"].as_i64()), (Some(120), Some(30), Some(0)));
+    }
+    assert_eq!(index["fighters"]["captain"]["motions"]["203"]["motion"], "SpecialN");
+    let sounds: Vec<&str> = index["fighters"]["captain"]["motions"]["203"]["events"].as_array().unwrap().iter().filter_map(|e| e["name"].as_str()).collect();
+    assert!(sounds.contains(&"VoiceCaptainSpecialNPunch"), "{sounds:?}");
+    if let Some(reference) = std::env::var_os("BYOR_TEST_SSB64_MOTIONS_REF") {
+        let want = std::fs::read(PathBuf::from(reference).join("motion-events.json")).unwrap();
+        assert!(std::fs::read(out.join("motion-events.json")).unwrap() == want, "motion-events.json differs from the Python output");
+    } else {
+        eprintln!("parity skipped: BYOR_TEST_SSB64_MOTIONS_REF not set");
+    }
+    let _ = std::fs::remove_dir_all(&out);
+}
