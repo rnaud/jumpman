@@ -5,7 +5,7 @@
       static (no ROMs, runs anywhere; --reference DIR picks the trees): every manifest line exists in reference/ (trees that are not checked
       out are reported and skipped unless --strict), the list is sorted and unique, and every scripts/*.py
       that pipeline.py runs is in scripts-manifest.txt and exists.
-  check-manifest.py --trace --sm64 ROM [--mk64 ROM] [--oot ROM] [--bk ROM] [--reference DIR] [--in-place]
+  check-manifest.py --trace --sm64 ROM [--mk64 ROM] [--oot ROM] [--bk ROM] [--ssb64 ROM] [--reference DIR] [--in-place]
       dynamic: runs the real pipeline (byor/trace_reads.py) over a scratch copy of the decomp trees and FAILS if it
       read a reference file that is not in the manifest.  Manifest entries that were not read are listed as
       unused (a failure with --strict-unused).  Only the games whose ROM is given are traced, so unused entries
@@ -19,8 +19,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-TREES = ('sm64', 'mk64', 'oot', 'banjo-kazooie')
-GAME_TREE = {'sm64': 'sm64', 'mk64': 'mk64', 'oot': 'oot', 'bk': 'banjo-kazooie'}
+TREES = ('sm64', 'mk64', 'oot', 'banjo-kazooie', 'ssb64')
+GAME_TREE = {'sm64': 'sm64', 'mk64': 'mk64', 'oot': 'oot', 'bk': 'banjo-kazooie', 'ssb64': 'ssb64'}
 
 
 def load(path):

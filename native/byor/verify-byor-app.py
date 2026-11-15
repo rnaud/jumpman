@@ -35,7 +35,7 @@ DENY = ['*/assets/actors/*', '*/assets/levels/*', '*/assets/extracted/*', '*/ass
         '*/assets/oot-dialogue/*', '*/assets/oot-icons/*', '*/assets/animations.json', '*/assets/layouts.json', '*/assets/export-report.json',
         '*/assets/audio/music/*', '*/assets/audio/manifest.json', '*/assets/audio/sfx_*', '*/assets/audio/instruments/*',
         '*/assets/audio/bowser_organ/*', '*/assets/audio/course_start/*', '*/assets/audio/piranha_music_box/*',
-        '*/public/models/oot/*', '*/public/models/bk/*', '*/public/mk64/gLR*', '*/public/mk64/hud-*',
+        '*/public/models/oot/*', '*/public/models/bk/*', '*/public/models/ssb64/*', '*/public/mk64/gLR*', '*/public/mk64/hud-*',
         '*/public/mk64/lakitu-*', '*/public/mk64/*-kart.png', '*/public/mk64/mk64-*', '*/public/mk64/luigi-raceway*',
         '*/public/mk64/kart-*']
 BINARY_IN_SOURCE = {'.png', '.jpg', '.jpeg', '.glb', '.gltf', '.wav', '.aiff', '.aifc', '.m64', '.bin', '.tbl', '.ctl',

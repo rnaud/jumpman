@@ -33,11 +33,12 @@ fn picked_pop() -> Option<PathBuf> {
     return crate::android::picked_pop();
 }
 
-pub const GAMES: [(&str, &str); 4] = [
+pub const GAMES: [(&str, &str); 5] = [
     ("sm64", "Super Mario 64 (US)  [required]"),
     ("mk64", "Mario Kart 64 (US)   [kart racing]"),
     ("oot", "Ocarina of Time (US 1.2)  [Zelda courses, Link]"),
     ("bk", "Banjo-Kazooie (US)  [Banjo, BK worlds]"),
+    ("ssb64", "Super Smash Bros. (US)  [fighters]"),
 ];
 
 /// Per-user data dir holding `assets/`, `public/` and `stamps/`. `JUMPMAN_DATA_DIR` overrides.
@@ -164,7 +165,7 @@ pub fn status_line() -> String {
     let dir = data_dir();
     let builtin = !using_data_dir() && crate::asset_root_path().join("courses").is_dir();
     let part = |g: &str, name: &str| format!("{name}: {}", status_label(stamp_state(&dir, g, bundled_hash(g).as_deref()), builtin));
-    format!("{}   {}   {}   {}", part("sm64", "SM64"), part("mk64", "MK64"), part("oot", "OOT"), part("bk", "BK"))
+    format!("{}   {}   {}   {}   {}", part("sm64", "SM64"), part("mk64", "MK64"), part("oot", "OOT"), part("bk", "BK"), part("ssb64", "SSB64"))
 }
 
 /// Assets in the data dir were produced by an older pipeline (e.g. before music was added): run setup again.
@@ -897,7 +898,7 @@ struct ViewCtx {
     pad_prompts: bool,
     /// The game can start from the data that is installed.
     playable: bool,
-    installed: [bool; 4],
+    installed: [bool; 5],
     data_dir: String,
     /// Seconds since the import started (or took, once done).
     elapsed: u64,
@@ -1044,7 +1045,7 @@ fn view_ctx(s: &State, overlay: bool) -> ViewCtx {
         android: cfg!(target_os = "android"),
         pad_prompts: crate::hints::pad_active(),
         playable: can_play(),
-        installed: [0, 1, 2, 3].map(|i| installed_in(&have, GAMES[i].0)),
+        installed: GAMES.map(|(g, _)| installed_in(&have, g)),
         data_dir: have.display().to_string(),
         elapsed: if s.phase == Phase::Running { s.started.map_or(0, |t| t.elapsed().as_secs()) } else { s.took.map_or(0, |d| d.as_secs()) },
         quiet: s.last_progress.map_or(0, |t| t.elapsed().as_secs()),
@@ -1914,7 +1915,7 @@ mod tests {
     #[test]
     fn the_update_screen_names_the_games_and_both_choices() {
         let s = State { update_prompt: true, stale: vec!["oot".into(), "bk".into()], roms: vec![("oot".into(), PathBuf::from("oot.z64"))], ..State::default() };
-        let ctx = |mobile| ViewCtx { overlay: false, mobile, ios: false, android: false, pad_prompts: false, playable: true, installed: [true; 4], data_dir: String::new(), elapsed: 0, quiet: 0 };
+        let ctx = |mobile| ViewCtx { overlay: false, mobile, ios: false, android: false, pad_prompts: false, playable: true, installed: [true; 5], data_dir: String::new(), elapsed: 0, quiet: 0 };
         let v = build_view(&s, &ctx(false));
         assert!(v.head.contains("UPDATE AVAILABLE") && v.head.contains("re-import needed for OOT, BK"), "{}", v.head);
         assert!(v.head.contains("SKIP, PLAY ANYWAY") && v.foot.contains("SKIP, PLAY ANYWAY") && v.foot.contains("Enter"));
@@ -2027,7 +2028,7 @@ mod tests {
     }
 
     fn ctx(android: bool) -> ViewCtx {
-        ViewCtx { overlay: false, mobile: android, ios: false, android, pad_prompts: false, playable: true, installed: [true; 4], data_dir: "/data".into(), elapsed: 0, quiet: 0 }
+        ViewCtx { overlay: false, mobile: android, ios: false, android, pad_prompts: false, playable: true, installed: [true; 5], data_dir: "/data".into(), elapsed: 0, quiet: 0 }
     }
 
     fn queued(s: &mut State) {
@@ -2043,8 +2044,9 @@ mod tests {
         assert_eq!(v.screen, SetupScreen::Select);
         assert!(v.head.contains("RE-IMPORT ROMS") && v.head.contains("Step 1 of 3") && v.head.contains("tap IMPORT"), "{}", v.head);
         assert_eq!(v.rows.len(), GAMES.len() + 1);
-        assert!(v.rows[..4].iter().all(|r| r.0 == "ROM ready"));
-        assert_eq!(v.rows[4].0, "4 ROMs queued");
+        let n = GAMES.len();
+        assert!(v.rows[..n].iter().all(|r| r.0 == "ROM ready"));
+        assert_eq!(v.rows[n].0, format!("{n} ROMs queued"));
         // import starts: a worker reports progress
         {
             let mut s = shared.0.lock().unwrap();
@@ -2058,11 +2060,11 @@ mod tests {
         while !worker.is_finished() {
             let s = shared.0.lock().unwrap();
             let v = build_view(&s, &ctx(true));
-            if s.progress.len() == 4 {
+            if s.progress.len() == n {
                 assert_eq!(v.screen, SetupScreen::Importing);
-                assert!(v.rows[4].1 >= last_overall, "the overall bar only moves forward");
-                last_overall = v.rows[4].1;
-                if v.rows[4].1 > 0.1 && v.rows[4].1 < 0.9 {
+                assert!(v.rows[n].1 >= last_overall, "the overall bar only moves forward");
+                last_overall = v.rows[n].1;
+                if v.rows[n].1 > 0.1 && v.rows[n].1 < 0.9 {
                     seen_mid = true;
                     assert!(v.head.contains("Step 2 of 3"), "{}", v.head);
                     assert!(v.foot.contains("Importing") && v.foot.contains("Now: "), "{}", v.foot);
@@ -2096,7 +2098,7 @@ mod tests {
         let oot = GAMES.iter().position(|(g, _)| *g == "oot").unwrap();
         assert!(v.rows[oot].0.starts_with("FAILED") && v.rows[oot].2 == Bar::Failed);
         assert_eq!(v.rows[0].2, Bar::Done, "the other games still finished");
-        assert_eq!(v.rows[4].2, Bar::Failed);
+        assert_eq!(v.rows[GAMES.len()].2, Bar::Failed, "the overall row");
         // `finish` returns the screen to idle so IMPORT can be pressed again; the failure stays visible
         s.phase = Phase::Idle;
         assert_eq!(screen_of(&s), SetupScreen::Failed);
@@ -2161,12 +2163,12 @@ mod tests {
         std::io::Read::read_to_string(&mut run.out, &mut text).unwrap();
         assert_eq!(text.trim(), "unknown");
         assert!(!run.finish(), "an unknown ROM exits non-zero, like pipeline.py --identify");
-        // --status lists the four games, all missing in a fresh dir
+        // --status lists every game, all missing in a fresh dir
         let args = ["--source-root", ".", "--data-dir"].map(OsString::from).into_iter().chain([d.as_os_str().to_owned(), "--status".into()]).collect();
         let mut run = run_rust(args);
         let mut text = String::new();
         std::io::Read::read_to_string(&mut run.out, &mut text).unwrap();
-        assert_eq!(text.lines().filter(|l| l.starts_with("@@STATUS ") && l.ends_with(" missing")).count(), 4, "{text}");
+        assert_eq!(text.lines().filter(|l| l.starts_with("@@STATUS ") && l.ends_with(" missing")).count(), GAMES.len(), "{text}");
         assert!(run.finish());
         std::fs::remove_dir_all(&d).unwrap();
     }
@@ -2182,7 +2184,7 @@ mod tests {
             roms.insert(g.into(), serde_json::json!({"path": d.join("inbox").join(format!("{g}.z64"))}));
         }
         std::fs::write(d.join("roms.json"), serde_json::Value::Object(roms).to_string()).unwrap();
-        assert_eq!(games_with_missing_rom(&d).len(), 4);
+        assert_eq!(games_with_missing_rom(&d).len(), GAMES.len());
         let msg = missing_roms_message(&d).expect("a message");
         assert!(msg.contains("ROM files are gone") && msg.contains("oot"), "{msg}");
         let mut s = State::default();

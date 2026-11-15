@@ -10,3 +10,6 @@
 [submodule "reference/sm64"]
 	path = reference/sm64
 	url = https://github.com/n64decomp/sm64.git
+[submodule "reference/ssb64"]
+	path = reference/ssb64
+	url = https://github.com/VetriTheRetri/ssb-decomp-re
