@@ -20,7 +20,7 @@ SCRIPT_LIST = ['scripts/music/sm64-us-template.wasm', 'scripts/music/sm64-us-tem
                'scripts/music/mk64-template.wasm', 'scripts/music/mk64-template.json',
                'scripts/data/bk-catalogue.json']
 # decomp trees (first path component in decomp-manifest.txt) of the games the pure-Rust importer has ported
-PORTED_TREES = ('sm64/', 'mk64/', 'oot/', 'banjo-kazooie/')
+PORTED_TREES = ('sm64/', 'mk64/', 'oot/', 'banjo-kazooie/', 'ssb64/')
 
 
 def members(repo: Path):

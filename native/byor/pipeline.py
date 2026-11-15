@@ -5,7 +5,7 @@ Runs the repo's exporters against user-supplied ROMs and installs the results in
 (`<data>/assets`, `<data>/public`).  Only the Python standard library and the Xcode Command Line
 Tools (make + a C compiler, for the decomp's tools/sm64tools) are needed.
 
-  pipeline.py --source-root <repo-or-bundle> --data-dir <dir> [--sm64 ROM] [--mk64 ROM] [--oot ROM] [--bk ROM]
+  pipeline.py --source-root <repo-or-bundle> --data-dir <dir> [--sm64 ROM] [--mk64 ROM] [--oot ROM] [--bk ROM] [--ssb64 ROM]
 
 Progress goes to stdout as `@@PROGRESS <game> <percent> <message>` and `@@DONE <game>` /
 `@@FAIL <game> <message>` lines, which the Bevy setup screen parses.  Each game that succeeds
@@ -21,13 +21,14 @@ ROMS = {
     'mk64': ('Mario Kart 64 (US 1.0)', 'sha1', {'579c48e211ae952530ffc8738709f078d5dd215e'}),
     'oot': ('Ocarina of Time (US 1.2)', 'md5', {'57a9719ad547c516342e1a15d5c28c3d'}),
     'bk': ('Banjo-Kazooie (US 1.0)', 'md5', {'b29599651a13f681c9923d69354bf4a3'}),
+    'ssb64': ('Super Smash Bros. (US)', 'sha1', {'e2929e10fccc0aa84e5776227e798abc07cedabf'}),
 }
 # Original (non-Nintendo) assets copied from the source root into every data dir.
 ORIGINAL = ['assets/ui', 'assets/audio/kart-voices.json', 'assets/audio/character-sounds.json',
             'public/models/quaternius', 'public/manifest.webmanifest']
 ORIGINAL_GLOBS = ['public/mk64/item-*.png', 'public/icon-*', 'public/favicon.*']
 # Reference trees the exporters read.  sm64 is copied (the extractor writes into it); the rest are linked.
-LINKED = {'mk64': 'reference/mk64', 'oot': 'reference/oot', 'bk': 'reference/banjo-kazooie'}
+LINKED = {'mk64': 'reference/mk64', 'oot': 'reference/oot', 'bk': 'reference/banjo-kazooie', 'ssb64': 'reference/ssb64'}
 
 
 # Exporter scripts (relative to scripts/) each game's step runs, directly or via import/runpy.  check-manifest.py
@@ -41,8 +42,9 @@ GAME_SCRIPTS = {
             'oot-residents.py', 'oot-scenery.py', 'export-character-voices.py', 'export-oot-sfx.py'],
     'bk': ['bk-maps.py', 'data/bk-catalogue.json', 'export-bk-banjo.py', 'export-bk-levels.py', 'export-bk-enemies.py', 'export-bk-setup.py',
            'export-character-voices.py', 'export-bk-sfx.py'],
+    'ssb64': ['export-ssb64.py'],
 }
-GAME_TREE = {'sm64': 'sm64', 'mk64': 'mk64', 'oot': 'oot', 'bk': 'banjo-kazooie'}
+GAME_TREE = {'sm64': 'sm64', 'mk64': 'mk64', 'oot': 'oot', 'bk': 'banjo-kazooie', 'ssb64': 'ssb64'}
 
 
 def say(*a):
@@ -297,7 +299,14 @@ def do_bk(stg, rom, game='bk'):
     prog(game, 99, 'Exporting Banjo-Kazooie sound effects'); run([sys.executable, 'scripts/export-bk-sfx.py'], stg, game, 99, 100)
 
 
-DO = {'sm64': do_sm64, 'mk64': do_mk64, 'oot': do_oot, 'bk': do_bk}
+def do_ssb64(stg, rom, game='ssb64'):
+    # the fighters (skinned glTF + every motion) and fighters.json; names come from reference/ssb64 (native/SSB64.md)
+    (stg / 'reference/roms/ssb64-us.z64').write_bytes(rom)
+    prog(game, 5, 'Exporting Super Smash Bros. fighters')
+    run([sys.executable, 'scripts/export-ssb64.py'], stg, game, 5, 100)
+
+
+DO = {'sm64': do_sm64, 'mk64': do_mk64, 'oot': do_oot, 'bk': do_bk, 'ssb64': do_ssb64}
 
 
 def rel_files(stg: Path):

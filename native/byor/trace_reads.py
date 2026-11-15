@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """trace_reads.py: run the real BYOR pipeline and record every file it reads under `reference/`.
 
-  trace_reads.py --reference DIR --data-dir DIR [--sm64 ROM] [--mk64 ROM] [--oot ROM] [--bk ROM] [--out FILE]
+  trace_reads.py --reference DIR --data-dir DIR [--sm64 ROM] [--mk64 ROM] [--oot ROM] [--bk ROM] [--ssb64 ROM] [--out FILE]
 
 DIR holds full copies of the decomp trees (`sm64 mk64 oot banjo-kazooie`, as in the repo's `reference/`).
 It is traced IN PLACE, so give it a scratch copy: every file's atime is first reset to year 2000, the pipeline is
@@ -18,7 +18,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
-TREES = ('sm64', 'mk64', 'oot', 'banjo-kazooie')
+TREES = ('sm64', 'mk64', 'oot', 'banjo-kazooie', 'ssb64')
 OLD = 946684800 * 10**9  # 2000-01-01
 
 

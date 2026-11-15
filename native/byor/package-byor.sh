@@ -37,7 +37,7 @@ python3 byor/verify-byor-app.py target/Jumpman-BYOR.app
 kb() { du -sk "$@" | awk '{t+=$1} END {printf "%7.1f MB", t/1024}'; }
 echo "size report for target/Jumpman-BYOR.app:"
 echo "  binary           $(kb "$app/MacOS")"
-for g in sm64 mk64 oot banjo-kazooie; do printf '  decomp %-16s %s\n' "$g" "$(kb "$src/reference/$g")"; done
+for g in sm64 mk64 oot banjo-kazooie ssb64; do printf '  decomp %-16s %s\n' "$g" "$(kb "$src/reference/$g")"; done
 echo "  scripts          $(kb "$src/scripts" "$src/byor")"
 echo "  original assets  $(kb "$src/assets" "$src/public")"
 echo "  total            $(kb target/Jumpman-BYOR.app)"

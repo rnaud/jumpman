@@ -22,6 +22,7 @@ out of scope: `byor.rs` compiles there, but only macOS, iOS and Android are pack
    | Mario Kart 64 (US 1.0) | Mario Kart mode (Luigi Raceway, karts, HUD) |
    | Ocarina of Time (US 1.2) | Zelda courses, Link and Young Link |
    | Banjo-Kazooie (US 1.0) | Banjo-Kazooie character |
+   | Super Smash Bros. (US) | the 12 fighters and Master Hand as rigged, animated glTF (`public/models/ssb64`, see `SSB64.md`; not playable yet) |
 
 3. Press Enter. `byor/pipeline.py` extracts into the per-user data dir (`~/Library/Application Support/Jumpman`;
    `$XDG_DATA_HOME/jumpman`, `%APPDATA%\Jumpman`; override with `JUMPMAN_DATA_DIR`). SM64 takes a few minutes.
@@ -58,7 +59,7 @@ Same data model as macOS (`<Application Support>/Jumpman`, `stamps/`, atomic per
 
 ## The importer (pure Rust; Python is the test oracle only)
 
-All four games are imported by `byor-rs` (`native/byor-rs`, `ANDROID_IMPORT.md`), in process, on every platform (macOS, iOS,
+All five games are imported by `byor-rs` (`native/byor-rs`, `ANDROID_IMPORT.md`), in process, on every platform (macOS, iOS,
 Android): the setup screen (`src/byor.rs`) calls `byor_rs::cli::run`, which speaks the `@@PROGRESS/@@DONE/@@FAIL/@@STATUS`
 protocol and keeps the `stamps/<game>.json` format and the atomic stage-and-swap install. No python3, Xcode Command Line
 Tools, C compiler or embedded interpreter is needed or bundled; the apps carry `byor-src` with the decomp files of
@@ -98,6 +99,7 @@ bundled are the ones the pipeline runs (`byor/scripts-manifest.txt`), the audio 
 | decomp mk64 | 61.9 MB | 19.5 MB (98 files) |
 | decomp oot | 35.9 MB | 11.9 MB (564 files) |
 | decomp banjo-kazooie | 7.9 MB | 0.3 MB (12 files) |
+| decomp ssb64 (2026-11-15) | 68 MB | 0.8 MB (16 files: `src/ft/ftdata.c`, `src/ft/ftdef.h`, the 13 `src/ft/ftchar/ft*/ft*.h`, `tools/relocFileDescriptions.us.txt`) |
 | scripts + pipeline | 2.8 MB | 0.4 MB |
 | original assets (ui, Quaternius, item sprites, icons) | 8.7 MB | 8.7 MB (all of it is loaded at run time) |
 | **.app total (du)** | **275.9 MB** | **187.7 MB** |
@@ -154,7 +156,7 @@ Ships (original): `assets/ui/*` (menu backdrop, quilt tile, fonts; the backdrop 
 decomp CODE compiled to wasm with its four sound blobs zero-filled), and the decomp source trees (below).
 
 Extracted from the ROMs (not in the bundle): `assets/{actors,levels,extracted,courses,oot-dialogue,oot-icons,audio/*}`,
-`animations.json`, `layouts.json`, `public/models/{oot,bk}`, and all other `public/mk64` files (course geometry,
+`animations.json`, `layouts.json`, `public/models/{oot,bk,ssb64}`, and all other `public/mk64` files (course geometry,
 `gLR*` course textures, `hud-*` item/minimap/portrait/rank textures, `lakitu-*`, `*-kart.png`, `mk64-*`).
 
 ## Audio
@@ -195,6 +197,8 @@ PNGs, models, courses). Only `public/models/README.md` and `public/models/local/
    that copies the ROM into the stage and runs the script(s) with `run([...], stg, game, lo, hi)`, and register it in `DO`.
    If it reads a decomp tree, add it to `LINKED` and `package-byor.sh`.
 3. Add the game to `GAMES` in `src/byor.rs`, bump `VERSION` (pipeline.py) and `PIPELINE_VERSION` (byor.rs) together.
+   (Super Smash Bros. was added without the bump: a new game has no stamp, so it reads as *missing* and nothing else goes
+   stale; bump only when every existing install must re-import.)
 4. Add a probe to `Game::probes` in `src/content.rs` and gate the menu entries that need it.
 5. Add its output paths to `DENY` in `byor/verify-byor-app.py`, re-run the packager, and byte-diff the pipeline output
    against the repo (`diff -r` on `assets/` and `public/`).
@@ -203,6 +207,8 @@ PNGs, models, courses). Only `public/models/README.md` and `public/models/local/
 
 - Bundling the decompilation source subsets (`byor-src/reference`: n64decomp/sm64, n64decomp/mk64,
   zeldaret/oot, n64decomp/banjo-kazooie) is acceptable. They contain code and text, no ROM data.
+- **Pending owner confirmation (2026-11-15):** the SSB64 subset (VetriTheRetri/ssb-decomp-re, 16 C / header / text files, no
+  ROM data) is bundled the same way. That repository has no LICENSE file.
 - `menu-backdrop.png` is original artwork and ships.
 
 **Verified (2026-11-09, iOS simulator, iPhone 18 Pro):** `JumpmanBYOR.app` built with `xcodebuild -scheme JumpmanBYOR -sdk iphonesimulator` (no Python in the bundle: 22 files, 227 MB, `verify-byor-app.py` OK), launched with `JUMPMAN_IOS_IMPORT_ROMS=<dir with the OoT ROM>`: the setup screen imported OoT with `byor-rs` (`@@DONE oot`) and the 533 files in the app's data dir are byte-identical to the Python pipeline's output. Not run on a real device; SM64 / MK64 / BK were not re-imported in the simulator in this session (their byte parity is the Mac CLI tests'). `BYOR_ALLOW_MISSING_DECOMP=1` lets `stage-byor-src.sh` bundle a checkout whose submodules are incomplete (testing only).

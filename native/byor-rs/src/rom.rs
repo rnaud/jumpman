@@ -15,12 +15,13 @@ pub struct GameRom {
     pub digest: &'static str,
 }
 
-/// Same four ROMs and digests as `ROMS` in pipeline.py.
-pub const ROMS: [GameRom; 4] = [
+/// Same ROMs and digests as `ROMS` in pipeline.py.
+pub const ROMS: [GameRom; 5] = [
     GameRom { id: "sm64", label: "Super Mario 64 (US)", algo: Algo::Sha1, digest: "9bef1128717f958171a4afac3ed78ee2bb4e86ce" },
     GameRom { id: "mk64", label: "Mario Kart 64 (US 1.0)", algo: Algo::Sha1, digest: "579c48e211ae952530ffc8738709f078d5dd215e" },
     GameRom { id: "oot", label: "Ocarina of Time (US 1.2)", algo: Algo::Md5, digest: "57a9719ad547c516342e1a15d5c28c3d" },
     GameRom { id: "bk", label: "Banjo-Kazooie (US 1.0)", algo: Algo::Md5, digest: "b29599651a13f681c9923d69354bf4a3" },
+    GameRom { id: "ssb64", label: "Super Smash Bros. (US)", algo: Algo::Sha1, digest: crate::ssb64::SHA1 },
 ];
 
 /// Accepts big-endian (.z64), byte-swapped (.v64) and little-endian (.n64) dumps; anything else is returned unchanged.

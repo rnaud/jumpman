@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """trace_reads_rs.py: run the pure-Rust importer (byor-rs) over full copies of the decomp trees and record every file it reads.
 
-  trace_reads_rs.py --byor-rs BIN --work DIR [--sm64 ROM] [--mk64 ROM] [--oot ROM] [--bk ROM] [--update]
+  trace_reads_rs.py --byor-rs BIN --work DIR [--sm64 ROM] [--mk64 ROM] [--oot ROM] [--bk ROM] [--ssb64 ROM] [--update]
 
-Copies reference/{sm64,mk64,oot,banjo-kazooie} to DIR/ref, resets every atime to year 2000, runs the importer with that
+Copies reference/{sm64,mk64,oot,banjo-kazooie,ssb64} (the checked-out ones) to DIR/ref, resets every atime to year 2000, runs the importer with that
 tree as its source root (plus the repo's non-decomp inputs from a freshly built bundle), then lists files whose atime moved.
 With --update the missing files are appended to decomp-manifest.txt. Use it whenever an importer starts reading a new
 decomp file: the on-device bundle only ships the files in the manifest.
@@ -13,7 +13,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
-TREES = ('sm64', 'mk64', 'oot', 'banjo-kazooie')
+TREES = ('sm64', 'mk64', 'oot', 'banjo-kazooie', 'ssb64')
 OLD = 946684800 * 10**9
 
 
@@ -22,7 +22,7 @@ def main():
     ap.add_argument('--byor-rs', type=Path, required=True)
     ap.add_argument('--work', type=Path, required=True)
     ap.add_argument('--update', action='store_true')
-    for g in ('sm64', 'mk64', 'oot', 'bk'):
+    for g in ('sm64', 'mk64', 'oot', 'bk', 'ssb64'):
         ap.add_argument(f'--{g}', type=Path)
     a = ap.parse_args()
     work = a.work
@@ -31,7 +31,8 @@ def main():
         shutil.rmtree(work)
     work.mkdir(parents=True)
     for t in TREES:
-        shutil.copytree(REPO / 'reference' / t, ref / t, symlinks=True, ignore=shutil.ignore_patterns('.git'))
+        if (REPO / 'reference' / t).is_dir() and any((REPO / 'reference' / t).iterdir()):
+            shutil.copytree(REPO / 'reference' / t, ref / t, symlinks=True, ignore=shutil.ignore_patterns('.git'))
     n = 0
     for base, _, names in os.walk(ref):
         for f in names:
@@ -49,7 +50,7 @@ def main():
     (src / 'reference').symlink_to(ref.resolve())
     start = time.time_ns() - 2 * 10**9
     argv = [str(a.byor_rs), '--source-root', str(src), '--data-dir', str(work / 'data')]
-    for g in ('sm64', 'mk64', 'oot', 'bk'):
+    for g in ('sm64', 'mk64', 'oot', 'bk', 'ssb64'):
         if getattr(a, g):
             argv += [f'--{g}', str(getattr(a, g))]
     rc = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)

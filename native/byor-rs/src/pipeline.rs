@@ -10,9 +10,9 @@ pub const VERSION: u64 = 3;
 /// Games whose complete exporter chain exists in Rust. Bump the revision when a ported exporter's output changes
 /// (it is the stamp hash, the Rust counterpart of the Python per-game exporter hash).
 ///
-/// All four games are complete (every exporter of `do_<game>` is ported and verified byte for byte, see
-/// native/ANDROID_IMPORT.md).
-pub const PORTED: [(&str, &str); 4] = [("sm64", "1"), ("mk64", "1"), ("oot", "2"), ("bk", "1")];
+/// All games are complete (every exporter of `do_<game>` is ported and verified byte for byte, see
+/// native/ANDROID_IMPORT.md; Super Smash Bros. against scripts/export-ssb64.py, native/SSB64.md).
+pub const PORTED: [(&str, &str); 5] = [("sm64", "1"), ("mk64", "1"), ("oot", "2"), ("bk", "1"), ("ssb64", "1")];
 
 pub fn exporter_hash(game: &str) -> Option<String> {
     PORTED.iter().find(|(g, _)| *g == game).map(|(g, rev)| format!("rust-{g}-{rev}"))
@@ -176,6 +176,7 @@ pub fn run(source: &Path, data: &Path, roms: &[(String, PathBuf)], out: &mut dyn
                     "mk64" => crate::mk64::run(source, &stage, &z64, &mut prog)?,
                     "bk" => crate::bk::run(source, &stage, &z64, &mut prog)?,
                     "oot" => crate::oot::run(source, &stage, &z64, &mut prog)?,
+                    "ssb64" => crate::ssb64::run(source, &stage, &z64, &mut prog)?,
                     _ => return Err("not ported".into()),
                 }
             }
