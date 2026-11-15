@@ -138,10 +138,19 @@ pub enum Character {
     AdultLink,
     YoungLink,
     Banjo,
+    Bowser,
 }
 
 impl Character {
-    pub const ALL: [Character; 4] = [Character::Mario, Character::AdultLink, Character::YoungLink, Character::Banjo];
+    pub const ALL: [Character; 5] = [Character::Mario, Character::AdultLink, Character::YoungLink, Character::Banjo, Character::Bowser];
+    /// Number of playable characters (the select lineup's slots).
+    pub const COUNT: usize = Self::ALL.len();
+
+    /// Left out of the lineup (not shown locked) when the installed data lacks the model: Bowser's comes with the required
+    /// SM64 import, so a missing one is a broken install, not a game left to import.
+    pub fn hidden_when_missing(self) -> bool {
+        self == Character::Bowser
+    }
 
     pub fn id(self) -> &'static str {
         match self {
@@ -149,6 +158,7 @@ impl Character {
             Character::AdultLink => "link",
             Character::YoungLink => "young-link",
             Character::Banjo => "banjo",
+            Character::Bowser => "bowser",
         }
     }
 
@@ -159,6 +169,7 @@ impl Character {
             Character::AdultLink => "LINK",
             Character::YoungLink => "YOUNG LINK",
             Character::Banjo => "BANJO",
+            Character::Bowser => "BOWSER",
         }
     }
 
@@ -168,6 +179,7 @@ impl Character {
             Character::AdultLink => "Adult Link",
             Character::YoungLink => "Young Link",
             Character::Banjo => "Banjo-Kazooie",
+            Character::Bowser => "Bowser",
         }
     }
 
@@ -182,6 +194,7 @@ impl Character {
             Character::AdultLink => characters::Character::Link,
             Character::YoungLink => characters::Character::YoungLink,
             Character::Banjo => characters::Character::Banjo,
+            Character::Bowser => characters::Character::Bowser,
         }
     }
 
@@ -191,6 +204,7 @@ impl Character {
             characters::Character::Link => Character::AdultLink,
             characters::Character::YoungLink => Character::YoungLink,
             characters::Character::Banjo => Character::Banjo,
+            characters::Character::Bowser => Character::Bowser,
         }
     }
 }

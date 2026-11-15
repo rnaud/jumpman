@@ -1,6 +1,6 @@
 //! The character select (fighting-game style): the playable characters stand in a lineup on a checkered
 //! stage, the highlighted one steps forward, turns on its pedestal under a spotlight and plays its idle
-//! loop; READY makes it hop. The models are the real ones (Mario's glb, Link / Young Link and Banjo from
+//! loop; READY makes it hop. The models are the real ones (Mario's and Bowser's glbs, Link / Young Link and Banjo from
 //! the user's imported data, posed through the same animators the game uses) and exist only while this
 //! screen is open: [`manage_stage`] spawns them when the page opens and despawns everything when it closes.
 //!
@@ -25,6 +25,10 @@ use std::f32::consts::{PI, TAU};
 use std::sync::Arc;
 
 const GOLD: Rgba = rgb(0xffd23a);
+/// Slots of the lineup (one per playable character; hidden ones are skipped, see `Ctx::shown`).
+const N: usize = Character::COUNT;
+/// Bowser's glb on the stage: about as tall as the others.
+const BOWSER_STAGE_SCALE: f32 = 0.3;
 const WHITE: Rgba = rgb(0xf6f6ee);
 
 // ------------------------------------------------------------------------------------------
@@ -35,39 +39,46 @@ const WHITE: Rgba = rgb(0xf6f6ee);
 #[derive(Clone, Copy, Debug)]
 pub struct Layout {
     pub portrait: bool,
-    /// Columns of the lineup: 4 abreast on wide screens, a 2 x 2 grid on tall ones.
+    /// Columns of the lineup: all abreast on wide screens, a grid of 2 (up to four) or 3 columns on tall ones.
     pub cols: usize,
-    /// Where each character's feet appear (framebuffer px).
-    pub feet: [(f32, f32); 4],
+    /// Where each character's feet appear (framebuffer px; off screen for a slot that is not shown).
+    pub feet: [(f32, f32); N],
     /// Horizontal distance between neighbours in px.
     pub pitch: f32,
     pub panel: IRect,
     pub plate_y: i32,
 }
 
-pub fn layout(w: i32, h: i32, sa: Insets) -> Layout {
+/// The lineup for the slots `shown` (`Ctx::shown_slots`): the shown ones are laid out in order, as if the others did not exist.
+pub fn layout(w: i32, h: i32, sa: Insets, shown: &[bool; N]) -> Layout {
     let (wf, hf) = (w as f32, h as f32);
     let portrait = w < h;
-    let mut feet = [(0.0, 0.0); 4];
+    let order: Vec<usize> = (0..N).filter(|i| shown[*i]).collect();
+    let n = order.len().max(1);
+    let mut feet = [(-1000.0, -1000.0); N];
     if portrait {
-        // 2 x 2 grid in the upper part, the info panel below.
+        // A grid in the upper part (2 x 2 for four, 3 + 2 for five), the info panel below.
+        let cols = if n <= 4 { 2 } else { 3 };
         let (l, r) = (sa.l as f32 + 0.06 * wf, wf - sa.r as f32 - 0.06 * wf);
-        let pitch = (r - l) / 2.0;
+        let pitch = (r - l) / cols as f32;
         let top = hf * 0.24 + sa.t as f32 * 0.5;
         let rows = [top + hf * 0.12, top + hf * 0.12 + hf * 0.20];
-        for (i, f) in feet.iter_mut().enumerate() {
-            *f = (l + (i % 2) as f32 * pitch + pitch / 2.0, rows[i / 2]);
+        for (k, &i) in order.iter().enumerate() {
+            let row = k / cols;
+            // A short last row is centred.
+            let in_row = (n - row * cols).min(cols);
+            feet[i] = (l + ((k % cols) as f32 + 0.5 + (cols - in_row) as f32 * 0.5) * pitch, rows[row.min(1)]);
         }
         let ptop = (hf * 0.66) as i32 + 10;
-        Layout { portrait, cols: 2, feet, pitch, panel: IRect::new(8 + sa.l, ptop, w - 16 - sa.l - sa.r, h - ptop - 24 - sa.b), plate_y: 24 + sa.t }
+        Layout { portrait, cols, feet, pitch, panel: IRect::new(8 + sa.l, ptop, w - 16 - sa.l - sa.r, h - ptop - 24 - sa.b), plate_y: 24 + sa.t }
     } else {
         let (l, r) = (sa.l as f32 + 0.04 * wf, 0.61 * wf);
-        let pitch = (r - l) / 4.0;
-        for (i, f) in feet.iter_mut().enumerate() {
-            *f = (l + (i as f32 + 0.5) * pitch, hf * 0.64);
+        let pitch = (r - l) / n as f32;
+        for (k, &i) in order.iter().enumerate() {
+            feet[i] = (l + (k as f32 + 0.5) * pitch, hf * 0.64);
         }
         let px = (0.63 * wf) as i32;
-        Layout { portrait, cols: 4, feet, pitch, panel: IRect::new(px, 38 + sa.t, w - px - 8 - sa.r, h - 38 - sa.t - 24 - sa.b), plate_y: 5 + sa.t }
+        Layout { portrait, cols: n, feet, pitch, panel: IRect::new(px, 38 + sa.t, w - px - 8 - sa.r, h - 38 - sa.t - 24 - sa.b), plate_y: 5 + sa.t }
     }
 }
 
@@ -97,8 +108,8 @@ pub fn floor_point(cam: &CamState, px: f32, py: f32, w: f32, h: f32) -> Option<V
     (t > 0.0).then(|| a + d * t)
 }
 
-/// World positions of the four slots for the current layout.
-pub fn slot_positions(l: &Layout, cam: &CamState, w: i32, h: i32) -> [Vec3; 4] {
+/// World positions of the slots for the current layout.
+pub fn slot_positions(l: &Layout, cam: &CamState, w: i32, h: i32) -> [Vec3; N] {
     std::array::from_fn(|i| floor_point(cam, l.feet[i].0, l.feet[i].1, w as f32, h as f32).unwrap_or(Vec3::new(i as f32 * 1.5 - 2.25, 0.0, 0.0)))
 }
 
@@ -131,6 +142,8 @@ pub struct PreviewAnimator;
 enum Body {
     Mario { player: Box<crate::game::sm64_animation::Sm64AnimationPlayer>, nodes: Vec<AnimationNodeIndex> },
     Rig(Rig),
+    /// Bowser's glb on the object views' clip driver (`characters::bowser`).
+    Bowser { body: Entity, clock: characters::bowser::ClipClock },
 }
 
 struct Slot {
@@ -152,12 +165,12 @@ struct Slot {
 #[derive(Resource, Default)]
 pub struct Stage {
     root: Option<Entity>,
-    slots: [Option<Slot>; 4],
+    slots: [Option<Slot>; N],
     last_sel: Option<usize>,
     /// Slots whose model could not be shown (locked data or a load error): the highlighted one falls back to the fox.
-    pub missing: [bool; 4],
+    pub missing: [bool; N],
     /// World position of the stage floor slots (kept for the hero fallback and tests).
-    pub spots: [Vec3; 4],
+    pub spots: [Vec3; N],
     pub fallback_at: Option<Vec3>,
     log_done: bool,
 }
@@ -255,7 +268,7 @@ fn spawn_stage(
     });
     // Pedestals and the spotlight.
     let ped = meshes.add(pedestal_mesh(0.62, 0.07));
-    for i in 0..4 {
+    for i in (0..N).filter(|i| ctx.shown(*i)) {
         let mat = mats.add(StandardMaterial { base_color: Color::srgb(0.35, 0.38, 0.6), perceptual_roughness: 1.0, reflectance: 0.0, opaque_render_method: bevy::material::OpaqueRendererMethod::Forward, ..default() });
         commands.entity(stage_root).with_children(|p| {
             p.spawn((Pedestal(i), Mesh3d(ped.clone()), MeshMaterial3d(mat), Transform::default(), layer.clone()));
@@ -276,6 +289,7 @@ fn spawn_stage(
         let Some(asset_root) = root else { continue };
         let built = match who {
             Character::Mario => spawn_mario(commands, assets, asset_root, graphs, &layer),
+            Character::Bowser => spawn_bowser(commands, assets, asset_root, &layer),
             other => {
                 let which = match other {
                     Character::AdultLink => characters::Character::Link,
@@ -314,6 +328,25 @@ fn spawn_stage(
     stage.root = Some(stage_root);
     stage.last_sel = None;
     stage.log_done = false;
+}
+
+/// Bowser: his glb under a root that carries the stage transform (the body keeps the model's own scale).
+fn spawn_bowser(commands: &mut Commands, assets: &AssetServer, root: &AssetRoot, layer: &RenderLayers) -> Result<(Entity, Body), String> {
+    use characters::bowser;
+    if !bowser::installed(&root.0) {
+        return Err(format!("{} missing", bowser::MODEL));
+    }
+    let layer_c = layer.clone();
+    let body = crate::render::object_view::spawn_model(commands, assets, root, bowser::MODEL, false)
+        .insert(layer.clone())
+        .observe(move |trigger: On<WorldInstanceReady>, mut commands: Commands, children: Query<&Children>| {
+            for child in children.iter_descendants(trigger.event_target()) {
+                commands.entity(child).insert(layer_c.clone());
+            }
+        })
+        .id();
+    let e = commands.spawn((Transform::default(), Visibility::Inherited, layer.clone())).add_child(body).id();
+    Ok((e, Body::Bowser { body, clock: Default::default() }))
 }
 
 fn spawn_mario(commands: &mut Commands, assets: &AssetServer, root: &AssetRoot, graphs: &mut Assets<AnimationGraph>, layer: &RenderLayers) -> Result<(Entity, Body), String> {
@@ -392,13 +425,14 @@ pub fn pose_stage(
     mut players: Query<&mut AnimationPlayer, With<PreviewAnimator>>,
     mat_q: Query<&MeshMaterial3d<StandardMaterial>>,
     mut hero: Query<(&mut Transform, &mut Visibility), (With<super::scene::Hero>, Without<Pedestal>, Without<SpotLight>)>,
+    mut anim_rigs: Query<&mut crate::render::object_view::AnimRig>,
 ) {
     if !active.0 || menu.0.page != Page::Select || !stage.is_spawned() {
         return;
     }
     let (t, dt) = (time.elapsed_secs(), time.delta_secs().min(0.1));
     let m = &menu.0;
-    let lay = layout(low.w, low.h, Insets::default());
+    let lay = layout(low.w, low.h, Insets::default(), &ctx.0.shown_slots());
     let cam = cam_for(low.w, low.h);
     let spots = slot_positions(&lay, &cam, low.w, low.h);
     stage.spots = spots;
@@ -424,7 +458,7 @@ pub fn pose_stage(
     let step = 1.0 - (-10.0 * dt).exp();
     let mut fallback = None;
     let missing = stage.missing;
-    for i in 0..4 {
+    for i in 0..N {
         let pos = spots[i];
         let is_sel = i == sel;
         let Some(slot) = stage.slots[i].as_mut() else {
@@ -494,6 +528,19 @@ pub fn pose_stage(
                     *tf = Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw)).with_scale(Vec3::splat(scale));
                 }
             }
+            Body::Bowser { body, clock } => {
+                use characters::bowser;
+                // Idle on the pedestal, the jump pose in the hop.
+                let clip = bowser::clip_for(slot.m.action, 0.0, 0.0);
+                let sample = clock.step(&clip, slot.m.action, dt);
+                if let Ok(mut rig) = anim_rigs.get_mut(*body) {
+                    rig.want = bowser::glb_clip(clip.anim);
+                    rig.seek = Some(sample);
+                }
+                if let Ok(mut tf) = tfs.get_mut(root_e) {
+                    *tf = Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw)).with_scale(Vec3::splat(BOWSER_STAGE_SCALE * scale));
+                }
+            }
             Body::Rig(rig) => {
                 let base = match &rig.kind {
                     RigKind::Link { .. } => 0.044 * SCALE,
@@ -549,8 +596,8 @@ pub fn place_props(stage: Res<Stage>, menu: Res<MenuRes>, low: Res<LowRes>, mut 
         *tf = Transform::from_translation(stand(s, pop, &cam)).with_scale(Vec3::splat(0.86 + 0.14 * pop));
     }
     if let Ok(mut tf) = spot.single_mut() {
-        let s = stage.spots[menu.0.sel.min(3)];
-        let pop = stage.slots[menu.0.sel.min(3)].as_ref().map_or(1.0, |sl| sl.pop);
+        let s = stage.spots[menu.0.sel.min(N - 1)];
+        let pop = stage.slots[menu.0.sel.min(N - 1)].as_ref().map_or(1.0, |sl| sl.pop);
         let cam = cam_for(low.w, low.h);
         *tf = Transform::from_translation(stand(s, pop, &cam));
     }
@@ -642,16 +689,16 @@ fn hint(pad: bool) -> &'static str {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn draw_select(f: &mut Fb, menu: &Menu, ctx: &Ctx, cam: &CamState, stage_spots: &[Vec3; 4], pops: [f32; 4], hits: &mut Hits, anim: &mut Anim, t: f32, sa: Insets, pad: bool) {
+pub fn draw_select(f: &mut Fb, menu: &Menu, ctx: &Ctx, cam: &CamState, stage_spots: &[Vec3; N], pops: [f32; N], hits: &mut Hits, anim: &mut Anim, t: f32, sa: Insets, pad: bool) {
     let _ = anim;
     let (w, h) = (f.w, f.h);
-    let lay = layout(w, h, sa);
-    let sel = menu.sel.min(3);
+    let lay = layout(w, h, sa, &ctx.shown_slots());
+    let sel = menu.sel.min(N - 1);
     let who = Character::ALL[sel];
     let info = char_info(who);
 
     // Model hit areas first (tabs and READY are pushed after, so they win).
-    for i in 0..4 {
+    for i in (0..N).filter(|i| ctx.shown(*i)) {
         let p = stand(stage_spots[i], pops[i], cam);
         if let (Some(foot), Some(head)) = (cam.project(p, w as f32, h as f32), cam.project(p + Vec3::Y * 1.9, w as f32, h as f32)) {
             let half = ((foot.1 - head.1).abs() * 0.34).max(10.0);
@@ -694,7 +741,7 @@ pub fn draw_select(f: &mut Fb, menu: &Menu, ctx: &Ctx, cam: &CamState, stage_spo
 
     // Slot tabs under the models.
     let tab_h = if lay.portrait { 14 } else { 13 };
-    for i in 0..4 {
+    for i in (0..N).filter(|i| ctx.shown(*i)) {
         let c = Character::ALL[i];
         let pop = pops[i];
         let (fx, fy) = lay.feet[i];
@@ -808,7 +855,7 @@ fn draw_lock(f: &mut Fb, cx: i32, y: i32) {
 }
 
 /// Slot pop values for the 2D layer (so tabs and hit boxes follow the models).
-pub fn pops(stage: &Stage) -> [f32; 4] {
+pub fn pops(stage: &Stage) -> [f32; N] {
     std::array::from_fn(|i| stage.slots[i].as_ref().map_or(if stage.missing[i] { 0.0 } else { 0.0 }, |s| s.pop))
 }
 
@@ -818,7 +865,7 @@ mod tests {
     use crate::shell::retro::model::{Ctx, Target};
 
     fn ctx() -> Ctx {
-        let mut c = Ctx::from_registry(Character::Mario, [true, true, false, true], |_| true);
+        let mut c = Ctx::from_registry(Character::Mario, [true, true, false, true, true], |_| true);
         c.target = Target { kind: "COURSE", name: "BOB-OMB BATTLEFIELD".into(), mario_only: false };
         c
     }
@@ -838,10 +885,10 @@ mod tests {
 
     #[test]
     fn lineup_is_in_order_and_inside_the_screen_for_both_orientations() {
-        for (w, h) in [(520, 240), (320, 240), (240, 522)] {
-            let l = layout(w, h, Insets::default());
+        for ((w, h), shown) in [(520, 240), (320, 240), (240, 522)].into_iter().flat_map(|s| [(s, [true; N]), (s, [true, true, true, true, false])]) {
+            let l = layout(w, h, Insets::default(), &shown);
             assert_eq!(l.portrait, w < h);
-            for i in 0..4 {
+            for i in (0..N).filter(|i| shown[*i]) {
                 let (x, y) = l.feet[i];
                 assert!(x > 0.0 && x < w as f32 && y > 0.0 && y < h as f32, "{w}x{h} slot {i} at {x},{y}");
                 // Tabs fit above the panel / hint bar.
@@ -849,23 +896,25 @@ mod tests {
                     assert!(x < l.panel.x as f32, "{w}x{h} slot {i} is left of the panel");
                 }
             }
+            let n = shown.iter().filter(|s| **s).count();
             if !l.portrait {
-                assert!(l.feet.windows(2).all(|p| p[0].0 < p[1].0));
+                assert!(l.feet[..n].windows(2).all(|p| p[0].0 < p[1].0));
             } else {
-                assert!(l.feet[0].0 < l.feet[1].0 && l.feet[0].1 < l.feet[2].1);
-                assert!(l.feet[2].1 + 40.0 < l.panel.y as f32, "tabs stay clear of the panel: {} vs {}", l.feet[2].1, l.panel.y);
+                let last = n - 1;
+                assert!(l.feet[0].0 < l.feet[1].0 && l.feet[0].1 < l.feet[last].1);
+                assert!(l.feet[last].1 + 40.0 < l.panel.y as f32, "tabs stay clear of the panel: {} vs {}", l.feet[last].1, l.panel.y);
             }
             assert!(l.panel.w >= 100 && l.panel.h >= 80, "{w}x{h} panel {:?}", l.panel);
         }
     }
 
     #[test]
-    fn slot_positions_are_four_distinct_floor_points() {
+    fn slot_positions_are_distinct_floor_points() {
         for (w, h) in [(520, 240), (240, 522)] {
-            let l = layout(w, h, Insets::default());
+            let l = layout(w, h, Insets::default(), &[true; N]);
             let cam = cam_for(w, h);
             let p = slot_positions(&l, &cam, w, h);
-            for i in 0..4 {
+            for i in 0..N {
                 assert!(p[i].y.abs() < 1e-3);
                 for j in 0..i {
                     assert!(p[i].distance(p[j]) > 0.8, "{w}x{h}: slots {j} and {i} overlap");
@@ -879,12 +928,12 @@ mod tests {
         menu.open_select(c);
         menu.sel = sel;
         let cam = cam_for(w, h);
-        let l = layout(w, h, Insets::default());
+        let l = layout(w, h, Insets::default(), &c.shown_slots());
         let spots = slot_positions(&l, &cam, w, h);
         let mut f = Fb::new(w, h);
         let mut hits = Hits::default();
         let mut anim = Anim::default();
-        draw_select(&mut f, &menu, c, &cam, &spots, [0.0; 4], &mut hits, &mut anim, 1.0, Insets::default(), false);
+        draw_select(&mut f, &menu, c, &cam, &spots, [0.0; N], &mut hits, &mut anim, 1.0, Insets::default(), false);
         (f, hits)
     }
 
@@ -893,7 +942,7 @@ mod tests {
         let c = ctx();
         for (w, h) in [(520, 240), (240, 522)] {
             let (f, hits) = draw(w, h, 1, &c);
-            for want in [Hit::Back, Hit::Ready, Hit::Slot(0), Hit::Slot(1), Hit::Slot(2), Hit::Slot(3)] {
+            for want in [Hit::Back, Hit::Ready, Hit::Slot(0), Hit::Slot(1), Hit::Slot(2), Hit::Slot(3), Hit::Slot(4)] {
                 assert!(hits.0.iter().any(|(_, x)| *x == want), "{w}x{h} missing {want:?}");
             }
             assert!(f.data.chunks(4).filter(|p| p[3] > 0).count() > 2000);
@@ -912,16 +961,31 @@ mod tests {
         for (w, h) in [(520, 240), (240, 522), (320, 240)] {
             let (_, hits) = draw(w, h, 0, &c);
             let tabs: Vec<IRect> = hits.0.iter().filter(|(r, x)| matches!(x, Hit::Slot(_)) && r.h <= 18).map(|(r, _)| *r).collect();
-            assert_eq!(tabs.len(), 4, "{w}x{h}");
+            assert_eq!(tabs.len(), N, "{w}x{h}");
             for (i, a) in tabs.iter().enumerate() {
                 for b in &tabs[i + 1..] {
                     let overlap = a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
                     assert!(!overlap, "{w}x{h}: tabs {a:?} {b:?}");
                 }
-                let panel = layout(w, h, Insets::default()).panel;
+                let panel = layout(w, h, Insets::default(), &c.shown_slots()).panel;
                 let hit_panel = a.x < panel.x + panel.w && panel.x < a.x + a.w && a.y < panel.y + panel.h && panel.y < a.y + a.h;
                 assert!(!hit_panel, "{w}x{h}: tab {a:?} runs into the panel {panel:?}");
             }
+        }
+    }
+
+    /// Without his glb Bowser has no tab, no hit zone and no place in the layout: the other four spread as before.
+    #[test]
+    fn missing_bowser_leaves_no_slot() {
+        let mut c = ctx();
+        c.hero_ok[4] = false;
+        assert!(!c.shown(4));
+        for (w, h) in [(520, 240), (240, 522)] {
+            let (_, hits) = draw(w, h, 0, &c);
+            assert!(!hits.0.iter().any(|(_, x)| *x == Hit::Slot(4)), "{w}x{h}");
+            let four = layout(w, h, Insets::default(), &c.shown_slots());
+            assert_eq!(four.cols, if w < h { 2 } else { 4 });
+            assert!(four.feet[4].0 < 0.0, "off screen");
         }
     }
 
@@ -938,10 +1002,10 @@ mod tests {
     #[test]
     fn locked_and_mario_only_slots_say_why() {
         let mut c = ctx();
-        c.hero_ok = [true, true, false, true];
+        c.hero_ok = [true, true, false, true, true];
         let (_, _) = draw(520, 240, 2, &c);
         assert_eq!(lock_reason(Character::YoungLink, c.hero_ok[2], c.allowed[2]), Some("IMPORT OCARINA OF TIME"));
-        c.allowed = [true, false, false, false];
+        c.allowed = [true, false, false, false, false];
         c.target.mario_only = true;
         let (_, _) = draw(240, 522, 1, &c);
         assert_eq!(lock_reason(Character::Banjo, c.hero_ok[3], c.allowed[3]), Some("MARIO ONLY"));
@@ -952,7 +1016,7 @@ mod tests {
     fn models_spawn_on_enter_and_despawn_on_exit() {
         use crate::shell::retro::{CtxRes, MenuRes};
         let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets");
-        let have_data = data.join("../public/models/oot/link.json").is_file() && data.join("../public/models/bk/banjo.json").is_file();
+        let have_data = data.join("../public/models/oot/link.json").is_file() && data.join("../public/models/bk/banjo.json").is_file() && characters::bowser::installed(&data);
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, AssetPlugin::default()))
             .init_asset::<Mesh>()
@@ -984,7 +1048,7 @@ mod tests {
             let c = ctx();
             m.0.open_select(&c);
         }
-        app.world_mut().resource_mut::<CtxRes>().0.hero_ok = if have_data { [true, true, true, true] } else { [false; 4] };
+        app.world_mut().resource_mut::<CtxRes>().0.hero_ok = if have_data { [true; N] } else { [false; N] };
         app.update();
         app.update();
         let st = app.world().resource::<Stage>();
@@ -992,7 +1056,7 @@ mod tests {
         let spawned = count(&mut app);
         assert!(spawned >= 7, "floor, backdrop, pedestals and spot: {spawned}");
         if have_data {
-            assert_eq!(app.world().resource::<Stage>().model_count(), 4, "all four real models stand on the stage");
+            assert_eq!(app.world().resource::<Stage>().model_count(), N, "all five real models stand on the stage");
         }
         // Leave: everything is gone, also the models.
         app.world_mut().resource_mut::<MenuRes>().0.close_select();
@@ -1019,7 +1083,7 @@ mod tests {
         let s = Stage::default();
         assert!(!s.is_spawned());
         assert_eq!(s.model_count(), 0);
-        assert_eq!(pops(&s), [0.0; 4]);
+        assert_eq!(pops(&s), [0.0; N]);
     }
 
     #[test]

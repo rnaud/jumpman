@@ -11,6 +11,9 @@
 //! barge, peck and ground pound reuse the punch / jump-kick / ground-pound action ids on purpose, so Swarm, Gate and Last Star
 //! Standing see them as the usual hits. Link has no dive or pound there, and inside a mode he is Link's model on Mario's physics
 //! (the faithful controller is off while an experiment runs, `link::link_active`; A is a jump there, `link::a_jumps`, not the OoT roll); Banjo keeps his own moves.
+//! Bowser is only a model on Mario's controller (`characters::bowser`): every mode that takes Mario's moves takes him, and the
+//! modes map him to their Mario hero (Swarm, Deck, Relic, Gem Clash). He is left out exactly where Mario's own model is not
+//! the player either: the kart (an MK64 racer drives), Party (crowd bodies) and Halls (Mario's ability progression).
 //!
 //! Why the Mario-only modes are Mario-only:
 //! * Kart: the player drives one of the eight MK64 racers; the on-foot part afterwards is Mario's "kart anywhere" world.
@@ -48,7 +51,7 @@ pub fn note(id: ExperimentId) -> &'static str {
     if supported(id).len() == 1 {
         "Mario only"
     } else {
-        "Plays as Mario, Link, Young Link or Banjo"
+        "Plays as Mario, Link, Young Link, Banjo or Bowser"
     }
 }
 
@@ -153,7 +156,7 @@ mod tests {
             assert!(!s.is_empty(), "{id:?}");
             assert_eq!(s[0], Character::Mario, "{id:?}");
             assert!(!note(id).is_empty());
-            for c in [Character::Mario, Character::Link, Character::YoungLink, Character::Banjo] {
+            for c in [Character::Mario, Character::Link, Character::YoungLink, Character::Banjo, Character::Bowser] {
                 assert!(is_supported(id, resolve(id, c)), "{id:?} {c:?}");
             }
         }
@@ -173,6 +176,21 @@ mod tests {
         assert_eq!(mario_only.len(), 3);
         assert_eq!(resolve(ExperimentId::Kart, Character::Banjo), Character::Mario);
         assert_eq!(resolve(ExperimentId::Relic, Character::Banjo), Character::Banjo);
+    }
+
+    /// Bowser is a model on Mario's moves: every mode that takes more than Mario takes him; the Mario-only ones swap him out.
+    #[test]
+    fn bowser_plays_wherever_more_than_mario_does() {
+        for id in EXPERIMENT_IDS {
+            assert_eq!(is_supported(id, Character::Bowser), supported(id).len() > 1, "{id:?}");
+        }
+        for id in [ExperimentId::Brawl, ExperimentId::Swarm, ExperimentId::Relic, ExperimentId::Deck, ExperimentId::Gate, ExperimentId::LastStar] {
+            assert_eq!(resolve(id, Character::Bowser), Character::Bowser, "{id:?}");
+        }
+        for id in [ExperimentId::Kart, ExperimentId::Halls, ExperimentId::Party] {
+            assert_eq!(resolve(id, Character::Bowser), Character::Mario, "{id:?}");
+        }
+        assert!(note(ExperimentId::Brawl).contains("Bowser"));
     }
 
     #[test]

@@ -36,6 +36,7 @@ pub fn kart_scale(who: Character) -> f32 {
         Character::YoungLink => 1.12,
         Character::Banjo => 1.3,
         Character::Link => 1.45,
+        Character::Bowser => 1.6,
     }
 }
 
@@ -410,10 +411,11 @@ pub fn seat_driver(
         Character::YoungLink => YOUNG_SEAT_DROP,
         // Banjo's sitting slide is drawn a little lower than the others: lift him out of the bodywork.
         Character::Banjo => -BANJO_LIFT,
-        Character::Mario => 0.,
+        Character::Mario | Character::Bowser => 0.,
     };
     let driver = match *who {
         Character::Mario => mario.iter_mut().next(),
+        // Bowser's root is a `CharacterRoot` too (`characters::bowser`).
         _ => rigs.iter_mut().find(|(root, _)| root.0 == *who).map(|(_, tf)| tf),
     };
     let Some(mut tf) = driver else { return };

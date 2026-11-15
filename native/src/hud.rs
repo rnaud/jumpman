@@ -199,7 +199,7 @@ fn spawn_hud(mut commands: Commands, sim: Res<GameSim>) {
 /// mode asked for it (`minimal`), in the experiments that draw their own, and for every character but Mario
 /// (Link and Banjo each bring a HUD of their own).
 pub fn mario_hud_hidden(character: crate::characters::Character, minimal: bool, experiment: Option<crate::experiments::ExperimentId>) -> bool {
-    character != crate::characters::Character::Mario || mode_hud_hidden(minimal, experiment)
+    !character.plays_as_mario() || mode_hud_hidden(minimal, experiment)
 }
 
 /// Whether a running mode wants the course HUDs (Mario's, Banjo's) off the screen because it draws its own.
@@ -427,6 +427,8 @@ mod tests {
         use crate::characters::Character;
         use crate::experiments::ExperimentId;
         assert!(!mario_hud_hidden(Character::Mario, false, None));
+        // Bowser plays Mario's game (power meter, coins).
+        assert!(!mario_hud_hidden(Character::Bowser, false, None));
         for c in [Character::Banjo, Character::Link, Character::YoungLink] {
             assert!(mario_hud_hidden(c, false, None), "{c:?}");
         }

@@ -101,9 +101,9 @@ pub struct Ctx {
     pub doors: [Vec<Door>; 2],
     pub hero: Character,
     /// Which of [`Character::ALL`] the installed data can play (ROM-derived models present).
-    pub hero_ok: [bool; 4],
+    pub hero_ok: [bool; Character::COUNT],
     /// Which of [`Character::ALL`] the chosen mode supports (all of them for a level).
-    pub allowed: [bool; 4],
+    pub allowed: [bool; Character::COUNT],
     /// What the select screen is choosing a character for.
     pub target: Target,
 }
@@ -120,19 +120,43 @@ pub struct Target {
 }
 
 impl Ctx {
-    pub fn from_registry(hero: Character, hero_ok: [bool; 4], available: impl Fn(ExperimentId) -> bool) -> Self {
+    pub fn from_registry(hero: Character, hero_ok: [bool; Character::COUNT], available: impl Fn(ExperimentId) -> bool) -> Self {
         let list = |tab| crate::shell::ExperimentId::for_tab(tab).into_iter().map(|id| Door { id, enabled: available(id) }).collect();
-        Self { doors: [list(crate::shell::Tab::Games), list(crate::shell::Tab::Experiments)], hero, hero_ok, allowed: [true; 4], target: Target::default() }
+        Self { doors: [list(crate::shell::Tab::Games), list(crate::shell::Tab::Experiments)], hero, hero_ok, allowed: [true; Character::COUNT], target: Target::default() }
+    }
+
+    /// Whether slot `i` stands in the lineup: a character whose model is missing is shown locked, except the ones left out
+    /// entirely ([`Character::hidden_when_missing`]: Bowser).
+    pub fn shown(&self, i: usize) -> bool {
+        Character::ALL.get(i).is_some_and(|c| !c.hidden_when_missing() || self.hero_ok[i])
+    }
+
+    /// Which of the [`Character::ALL`] slots stand in the lineup, in order.
+    pub fn shown_slots(&self) -> [bool; Character::COUNT] {
+        std::array::from_fn(|i| self.shown(i))
     }
 
     /// Whether slot `i` of the roster can be confirmed.
     pub fn pickable(&self, i: usize) -> bool {
-        self.hero_ok.get(i).copied().unwrap_or(false) && self.allowed.get(i).copied().unwrap_or(false)
+        self.shown(i) && self.hero_ok.get(i).copied().unwrap_or(false) && self.allowed.get(i).copied().unwrap_or(false)
     }
 
     /// First pickable slot at or after `from` (wrapping); `from` itself when none is.
     pub fn first_pickable(&self, from: usize) -> usize {
         (0..Character::ALL.len()).map(|k| (from + k) % Character::ALL.len()).find(|i| self.pickable(*i)).unwrap_or(from)
+    }
+
+    /// The shown slot `d` steps from `from` along the lineup (wrapping, hidden slots skipped).
+    pub fn step_slot(&self, from: usize, d: i32) -> usize {
+        let n = Character::ALL.len() as i32;
+        let mut i = from as i32;
+        for _ in 0..n {
+            i = (i + d.signum()).rem_euclid(n);
+            if self.shown(i as usize) {
+                return i as usize;
+            }
+        }
+        from
     }
 }
 
@@ -152,6 +176,7 @@ pub fn char_info(c: Character) -> CharInfo {
         Character::AdultLink => CharInfo { name: "LINK", moves: "SWORD COMBO, SHIELD, ITEMS", blurb: "HERO OF TIME: Z-TARGET AND ROLL", collects: "RUPEES" },
         Character::YoungLink => CharInfo { name: "YOUNG LINK", moves: "SWORD, SHIELD, ITEMS", blurb: "THE KID HERO: SMALL BUT QUICK", collects: "RUPEES" },
         Character::Banjo => CharInfo { name: "BANJO", moves: "CLAW, BARGE, PECK", blurb: "BEAR AND BIRD: FLAP FLIP, BEAK BARGE", collects: "NOTES" },
+        Character::Bowser => CharInfo { name: "BOWSER", moves: "FIRE BREATH, KICK, GROUND POUND", blurb: "KING OF THE KOOPAS: MARIO'S MOVES, TWICE THE SIZE", collects: "COINS" },
     }
 }
 
@@ -163,7 +188,7 @@ pub fn lock_reason(c: Character, hero_ok: bool, allowed: bool) -> Option<&'stati
         Some(match c {
             Character::AdultLink | Character::YoungLink => "IMPORT OCARINA OF TIME",
             Character::Banjo => "IMPORT BANJO-KAZOOIE",
-            Character::Mario => "NOT INSTALLED",
+            Character::Mario | Character::Bowser => "NOT INSTALLED",
         })
     } else {
         None
@@ -366,16 +391,16 @@ impl Menu {
                 In::Move(d) => {
                     let step = if d.x != 0 { d.x.signum() } else { d.y.signum() };
                     if step != 0 {
-                        self.set_sel(wrap(self.sel, step, Character::ALL.len()), &mut out);
+                        self.set_sel(ctx.step_slot(self.sel, step), &mut out);
                     }
                 }
                 // The shoulder buttons step the lineup too.
-                In::Wing(d) if d != 0 => self.set_sel(wrap(self.sel, d.signum(), Character::ALL.len()), &mut out),
+                In::Wing(d) if d != 0 => self.set_sel(ctx.step_slot(self.sel, d), &mut out),
                 In::Activate | In::Click(Hit::Ready) => self.confirm_select(ctx, &mut out),
                 In::Back | In::Click(Hit::Back) => out.push(Out::Action(UiAction::Back)),
                 In::Hover(Hit::Slot(i)) => self.set_sel(i, &mut out),
-                In::Click(Hit::Prev) => self.set_sel(wrap(self.sel, -1, Character::ALL.len()), &mut out),
-                In::Click(Hit::Next) => self.set_sel(wrap(self.sel, 1, Character::ALL.len()), &mut out),
+                In::Click(Hit::Prev) => self.set_sel(ctx.step_slot(self.sel, -1), &mut out),
+                In::Click(Hit::Next) => self.set_sel(ctx.step_slot(self.sel, 1), &mut out),
                 In::Click(Hit::Slot(i)) if i < Character::ALL.len() => {
                     // Tap once to look, tap again to confirm.
                     if i == self.sel {
@@ -453,7 +478,7 @@ mod tests {
     use super::*;
 
     fn ctx() -> Ctx {
-        Ctx::from_registry(Character::Mario, [true, true, false, true], |_| true)
+        Ctx::from_registry(Character::Mario, [true, true, false, true, false], |_| true)
     }
 
     #[test]
@@ -493,7 +518,7 @@ mod tests {
 
     fn select_ctx() -> Ctx {
         // Young Link's data is missing (see `ctx`).
-        Ctx { allowed: [true; 4], ..ctx() }
+        Ctx { allowed: [true; Character::COUNT], ..ctx() }
     }
 
     #[test]
@@ -541,6 +566,34 @@ mod tests {
         assert_eq!(m.selected_hero(), Character::AdultLink);
     }
 
+    /// Bowser stands at the end of the lineup when his model is installed and is left out (not locked) when it is not.
+    #[test]
+    fn bowser_joins_the_lineup_only_with_his_model() {
+        let mut c = select_ctx();
+        assert!(!c.shown(4) && !c.pickable(4), "no glb: not in the lineup");
+        let mut m = Menu::default();
+        m.open_select(&c);
+        m.sel = 3;
+        m.input(In::Move(IVec2::new(1, 0)), &c);
+        assert_eq!(m.selected_hero(), Character::Mario, "Banjo wraps to Mario past the hidden slot");
+        c.hero = Character::Bowser;
+        m.open_select(&c);
+        assert_eq!(m.selected_hero(), Character::Mario, "a hidden last pick falls back to the first playable one");
+        // Installed: the fifth slot, reachable both ways, and READY takes him.
+        c.hero_ok[4] = true;
+        assert!(c.shown(4) && c.pickable(4));
+        m.close_select();
+        m.open_select(&c);
+        assert_eq!(m.selected_hero(), Character::Bowser);
+        m.input(In::Move(IVec2::new(1, 0)), &c);
+        assert_eq!(m.selected_hero(), Character::Mario);
+        m.input(In::Move(IVec2::new(-1, 0)), &c);
+        assert_eq!(m.selected_hero(), Character::Bowser);
+        assert_eq!(m.input(In::Activate, &c)[0], Out::Action(UiAction::Character(Character::Bowser)));
+        assert_eq!(char_info(Character::Bowser).name, "BOWSER");
+        assert_eq!(lock_reason(Character::Bowser, true, false), Some("MARIO ONLY"));
+    }
+
     #[test]
     fn ready_sets_the_character_then_fires_ready_after_the_pose() {
         let c = select_ctx();
@@ -574,7 +627,7 @@ mod tests {
     fn mario_only_modes_grey_out_everyone_else() {
         let mut c = select_ctx();
         c.hero = Character::Banjo;
-        c.allowed = [true, false, false, false];
+        c.allowed = [true, false, false, false, false];
         c.target = Target { kind: "MODE", name: "PAINTED HALLS".into(), mario_only: true };
         let mut m = Menu::default();
         m.open_select(&c);

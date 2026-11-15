@@ -254,7 +254,7 @@ fn track_character(character: Res<Character>, mut bridge: ResMut<RelicBridge>) {
 /// Map the app's character to the core's hero.
 pub fn hero_of(c: Character) -> Hero {
     match c {
-        Character::Mario => Hero::Mario,
+        Character::Mario | Character::Bowser => Hero::Mario,
         Character::Link => Hero::Link,
         Character::YoungLink => Hero::YoungLink,
         Character::Banjo => Hero::Banjo,

@@ -1,7 +1,7 @@
 //! Playable characters beyond Mario (`Game.ts` `switchCharacter`, `CharacterView.ts`,
 //! `OotLinkView.ts`, `BanjoView.ts`): adult/young Link and Banjo-Kazooie. The sim already
 //! contains their controllers (`jumpman_sim::characters`); this plugin picks the active
-//! character (V cycles, env `JUMPMAN_CHARACTER=link|young-link|banjo|sm64`), sets
+//! character (V cycles, env `JUMPMAN_CHARACTER=link|young-link|banjo|bowser|sm64`), sets
 //! `GameSim::{as_link, as_banjo}`, draws the CPU-skinned models and the Z-target marker.
 //!
 //! The N64 models are not glTF: they are the pre-extracted JSON assets of the web build, skinned
@@ -9,6 +9,7 @@
 pub mod assets;
 pub mod banjo_pose;
 pub mod banjo_pose_ext;
+pub mod bowser;
 pub mod gltf_view;
 pub mod link_pose;
 
@@ -38,6 +39,8 @@ pub enum Character {
     Link,
     YoungLink,
     Banjo,
+    /// SM64's Bowser: a skin on Mario's controller and physics (`bowser.rs`), drawn from the user's SM64 import.
+    Bowser,
 }
 
 impl Character {
@@ -47,6 +50,7 @@ impl Character {
             "link" => Some(Self::Link),
             "young-link" => Some(Self::YoungLink),
             "banjo" => Some(Self::Banjo),
+            "bowser" => Some(Self::Bowser),
             _ => None,
         }
     }
@@ -58,6 +62,7 @@ impl Character {
             Self::Link => "link",
             Self::YoungLink => "young-link",
             Self::Banjo => "banjo",
+            Self::Bowser => "bowser",
         }
     }
 
@@ -65,7 +70,7 @@ impl Character {
     pub fn theme(self) -> jumpman_sim::collectible_theme::Theme {
         use jumpman_sim::collectible_theme::Theme;
         match self {
-            Self::Mario => Theme::Coin,
+            Self::Mario | Self::Bowser => Theme::Coin,
             Self::Link | Self::YoungLink => Theme::Rupee,
             Self::Banjo => Theme::Note,
         }
@@ -77,6 +82,7 @@ impl Character {
             Self::Link => "ADULT LINK",
             Self::YoungLink => "YOUNG LINK",
             Self::Banjo => "BANJO-KAZOOIE",
+            Self::Bowser => "BOWSER",
         }
     }
 
@@ -85,8 +91,27 @@ impl Character {
             Self::Mario => Self::Link,
             Self::Link => Self::YoungLink,
             Self::YoungLink => Self::Banjo,
-            Self::Banjo => Self::Mario,
+            Self::Banjo => Self::Bowser,
+            Self::Bowser => Self::Mario,
         }
+    }
+
+    /// The next character whose model the installed data has (`bowser_installed`: his glb is in the SM64 import).
+    pub fn next_available(self, bowser_installed: bool) -> Self {
+        match self.next() {
+            Self::Bowser if !bowser_installed => Self::Bowser.next(),
+            other => other,
+        }
+    }
+
+    /// Plays Mario's game: Mario's controller, physics, moves, HUD and voice slots (Bowser is a skin on Mario).
+    pub fn plays_as_mario(self) -> bool {
+        matches!(self, Self::Mario | Self::Bowser)
+    }
+
+    /// Drawn by a CPU-skinned rig of [`Rigs`] (the N64 JSON models of Link and Banjo).
+    pub fn has_cpu_rig(self) -> bool {
+        matches!(self, Self::Link | Self::YoungLink | Self::Banjo)
     }
 
     pub fn is_link(self) -> bool {
@@ -108,6 +133,7 @@ impl Character {
             Self::Link | Self::YoungLink => "L2 LOCK-ON - B SWORD - R1 SHIELD - R2 AIM - D-PAD ITEMS",
             Self::Banjo => "B CLAW - R1 CROUCH - R2 R - D-PAD C BUTTONS",
             Self::Mario => "A = JUMP - HOLD FOR HEIGHT",
+            Self::Bowser => "A = JUMP - B = FIRE BREATH",
         }
     }
 
@@ -116,6 +142,7 @@ impl Character {
             Self::Link | Self::YoungLink => "L LOCK-ON - J SWORD - 1 2 3 ITEMS - TAB MENU",
             Self::Banjo => "J CLAW - K+SPACE FLAP FLIP - K+J BEAK BARGE",
             Self::Mario => "A = JUMP - HOLD FOR HEIGHT",
+            Self::Bowser => "A = JUMP - B = FIRE BREATH",
         }
     }
 }
@@ -129,18 +156,18 @@ impl Plugin for CharactersPlugin {
             .init_resource::<Rigs>()
             .init_resource::<crate::experiments::characters_support::CharacterFallback>()
             .add_systems(Startup, spawn_marker.in_set(crate::progress::PersistentSpawn))
-            .add_plugins(gltf_view::GltfRigPlugin)
+            .add_plugins((gltf_view::GltfRigPlugin, bowser::BowserPlugin))
             .add_systems(Update, (crate::experiments::characters_support::enforce, cycle_character, apply_character, update_rigs, update_marker).chain().before(crate::CameraSet));
     }
 }
 
-fn cycle_character(slot: Res<crate::experiments::ExperimentSlot>, keys: Res<ButtonInput<KeyCode>>, mut current: ResMut<Character>, mut toast: ResMut<Toast>) {
+fn cycle_character(slot: Res<crate::experiments::ExperimentSlot>, keys: Res<ButtonInput<KeyCode>>, root: Option<Res<AssetRoot>>, mut current: ResMut<Character>, mut toast: ResMut<Toast>) {
     // Modes that cannot use the selection (Kart, Party, Halls, ...) are handled by `experiments::characters_support::enforce`.
     if slot.id.is_some_and(|id| !crate::experiments::characters_support::is_supported(id, Character::Link)) {
         return;
     }
     if keys.just_pressed(KeyCode::KeyV) {
-        *current = current.next();
+        *current = current.next_available(root.is_some_and(|r| bowser::installed(&r.0)));
         toast.show(format!("NOW PLAYING - {}", current.label()), 1.6);
     }
 }
@@ -288,6 +315,9 @@ pub(crate) fn spawn_rig(
     root: &AssetRoot,
     which: Character,
 ) -> Result<Rig, String> {
+    if !which.has_cpu_rig() {
+        return Err(format!("{which:?} has no CPU-skinned rig"));
+    }
     let mut batches = Vec::new();
     let mut textures: HashMap<String, Handle<Image>> = HashMap::new();
     let kind;
@@ -314,6 +344,7 @@ pub(crate) fn spawn_rig(
             let parts = asset.batches.iter().map(|b| b.part.clone()).collect();
             kind = RigKind::Banjo { anim: Box::new(BanjoAnimator::new(&asset)), asset, parts };
         }
+        Character::Mario | Character::Bowser => return Err(format!("{which:?} has no CPU-skinned rig")),
         link => {
             let young = link == Character::YoungLink;
             let mut link_asset = assets::load_link(&root.0, if young { "young-link" } else { "link" })?;
@@ -372,7 +403,7 @@ pub fn update_rigs(
     mut link_bones: Option<ResMut<crate::link::combat_fx::LinkBones>>,
 ) {
     let active = *current;
-    if active != Character::Mario && !rigs.rigs.contains_key(&active) && !rigs.failed.contains(&active) {
+    if active.has_cpu_rig() && !rigs.rigs.contains_key(&active) && !rigs.failed.contains(&active) {
         match spawn_rig(&mut commands, &mut meshes, &mut materials, &mut images, &root, active) {
             Ok(rig) => {
                 rigs.rigs.insert(active, rig);
@@ -527,12 +558,20 @@ mod tests {
         assert_eq!(Character::from_name("young-link"), Some(Character::YoungLink));
         assert_eq!(Character::from_name("sm64"), Some(Character::Mario));
         assert_eq!(Character::from_name("nope"), None);
+        assert_eq!(Character::from_name("bowser"), Some(Character::Bowser));
         let mut c = Character::Mario;
-        for _ in 0..4 {
+        let mut seen = vec![];
+        for _ in 0..5 {
             c = c.next();
+            seen.push(c);
         }
         assert_eq!(c, Character::Mario);
-        assert!(Character::Link.is_link() && !Character::Banjo.is_link());
+        assert_eq!(seen, [Character::Link, Character::YoungLink, Character::Banjo, Character::Bowser, Character::Mario]);
+        assert!(Character::Link.is_link() && !Character::Banjo.is_link() && !Character::Bowser.is_link());
+        // Bowser is a skin on Mario: Mario's game, coins, voice id of his own, no CPU rig.
+        assert!(Character::Bowser.plays_as_mario() && !Character::Bowser.has_cpu_rig() && !Character::Banjo.plays_as_mario());
+        assert_eq!(Character::Bowser.theme(), jumpman_sim::collectible_theme::Theme::Coin);
+        assert_eq!((Character::Bowser.label(), Character::Bowser.sound_id()), ("BOWSER", "bowser"));
     }
 
     /// The sim is replaced by every course load; the chosen character must be applied to the new one too (the iOS "sword does
@@ -559,6 +598,11 @@ mod tests {
         app.update();
         let sim = app.world().resource::<GameSim>();
         assert!(sim.as_banjo && !sim.as_link);
+        // Bowser is a skin: the sim plays Mario.
+        *app.world_mut().resource_mut::<Character>() = Character::Bowser;
+        app.update();
+        let sim = app.world().resource::<GameSim>();
+        assert!(!sim.as_banjo && !sim.as_link);
     }
 
     #[test]

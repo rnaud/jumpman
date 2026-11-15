@@ -129,6 +129,34 @@ impl Particles {
         }
     }
 
+    /// One frame of a flame jet (the playable Bowser's fire breath): a few orange puffs shot along `dir` (unit, horizontal).
+    pub fn flame_jet(&mut self, origin: [f64; 3], dir: [f32; 3]) {
+        for k in 0..3 {
+            let i = self.cursor;
+            self.cursor = (self.cursor + 1) % self.pool.len();
+            let r = &mut self.rng;
+            let (a, b, c, l, s) = (r.next() - 0.5, r.next() - 0.5, r.next(), r.next(), r.next());
+            let speed = 900.0 + c * 500.0;
+            let life = 0.22 + l * 0.18;
+            let size = 34.0 + s * 30.0;
+            let color = hex_rgb([0xffd040, 0xff8a20, 0xff4a10][k]);
+            self.pool[i] = Particle {
+                alive: true,
+                pos: [origin[0] as f32, origin[1] as f32, origin[2] as f32],
+                vel: [dir[0] * speed + a * 260.0, b * 160.0 - 40.0, dir[2] * speed - a * 260.0],
+                life,
+                max_life: life,
+                gravity: -120.0,
+                size,
+                spin: (s - 0.5) * 3.0,
+                rotation: c * std::f32::consts::PI,
+                color,
+                opacity: 0.95,
+                scale: size,
+            };
+        }
+    }
+
     pub fn dust(&mut self, pos: [f64; 3], count: usize) {
         self.burst(pos, BurstOptions { color: 0xf0e2c0, count, speed: 90.0, life: 0.55, gravity: 150.0, size: 30.0, upward: 30.0, spread: 1.0 });
     }

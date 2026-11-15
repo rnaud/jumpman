@@ -766,7 +766,7 @@ pub fn apply_actions(
         let action = &resolved;
         let blocked = match action {
             UiAction::Start | UiAction::Launch(Pick::Course) => content.course_missing(&ui.course).is_some(),
-            UiAction::Character(c) => content.character_missing(*c).is_some(),
+            UiAction::Character(c) => !content.character_ok(*c),
             UiAction::SelectCourse(id) => content.course_missing(id).is_some(),
             UiAction::Experiment(e) | UiAction::Launch(Pick::Mode(e)) => content.experiment_missing(*e).is_some(),
             _ => false,
@@ -784,7 +784,7 @@ pub fn apply_actions(
                 // The game is switched off and the user lands on the setup screen (see `byor::begin_reimport`).
                 commands.queue(|world: &mut World| crate::byor::begin_reimport(world));
             }
-            UiAction::Character(c) if content.character_missing(*c).is_some() => {}
+            UiAction::Character(c) if !content.character_ok(*c) => {}
             UiAction::SelectCourse(id) if content.course_missing(id).is_some() => {}
             UiAction::Experiment(e) | UiAction::Launch(Pick::Mode(e)) if content.experiment_missing(*e).is_some() => {}
             // Choosing a level or a mode from the menus goes through the character select; READY then launches it.

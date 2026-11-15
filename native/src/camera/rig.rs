@@ -60,6 +60,8 @@ pub struct CameraRig {
     /// Swing round behind the player while he runs (off for top-down experiment cameras that
     /// compute their own pose from `yaw`).
     pub auto_follow_yaw: bool,
+    /// Follow distance factor for a bigger player model (the playable Bowser); 1 for everyone else.
+    pub size_scale: f64,
 
     focus: DVec3,
     smoothing_distance: f64,
@@ -97,6 +99,7 @@ impl Default for CameraRig {
             distance: 900.0,
             mode: CameraMode::Lakitu,
             auto_follow_yaw: true,
+            size_scale: 1.0,
             focus: DVec3::ZERO,
             smoothing_distance: 900.0,
             manual_timer: 0.0,
@@ -425,6 +428,7 @@ impl CameraRig {
             distance = distance.min(620.0);
             pitch = pitch.min(0.2);
         }
+        distance *= self.size_scale;
         let (cp, sp) = (pitch.cos(), pitch.sin());
         let mut desired = DVec3::new(
             self.focus.x + self.yaw.sin() * cp * distance,

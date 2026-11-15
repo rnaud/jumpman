@@ -163,7 +163,7 @@ pub fn setup(
 
     let hero = character.map_or(Character::Mario, |c| Character::from_theirs(*c));
     let ported: Vec<_> = crate::shell::ExperimentId::ALL.iter().map(|id| (*id, id.available())).collect();
-    let ctx = Ctx::from_registry(hero, [true; 4], |id| ported.iter().any(|(p, ok)| *p == id && *ok));
+    let ctx = Ctx::from_registry(hero, [true; Character::COUNT], |id| ported.iter().any(|(p, ok)| *p == id && *ok));
     let ids: [Vec<crate::shell::ExperimentId>; 2] = [ctx.doors[0].iter().map(|d| d.id).collect(), ctx.doors[1].iter().map(|d| d.id).collect()];
     scene::spawn_scene(&mut commands, &mut meshes, &mut mats, scene_img.clone(), &ids);
 
@@ -244,7 +244,7 @@ pub fn sync_state(
         ctx.0.hero = Character::from_theirs(*c);
     }
     for (i, ch) in Character::ALL.iter().enumerate() {
-        ctx.0.hero_ok[i] = content.character_missing(*ch).is_none();
+        ctx.0.hero_ok[i] = content.character_ok(*ch);
     }
     for wing in 0..2 {
         for d in &mut ctx.0.doors[wing] {
@@ -263,14 +263,14 @@ pub fn sync_state(
 }
 
 /// Which characters the picked level / mode takes (a level takes everyone; Mario-only modes only Mario).
-pub fn select_allowed(pick: Option<super::Pick>) -> [bool; 4] {
+pub fn select_allowed(pick: Option<super::Pick>) -> [bool; Character::COUNT] {
     use crate::experiments::characters_support as support;
     match pick {
         Some(super::Pick::Mode(e)) => match e.theirs() {
             Some(x) => Character::ALL.map(|c| support::is_supported(x, c.theirs())),
-            None => [true; 4],
+            None => [true; Character::COUNT],
         },
-        _ => [true; 4],
+        _ => [true; Character::COUNT],
     }
 }
 
@@ -745,7 +745,7 @@ pub fn draw(
         Page::Title => draw_title(&mut f, m, &ctx.0, &mut hits, &mut anim, t, dt, sa, pad, !cfg!(target_os = "ios")),
         Page::Hub => draw_hub(&mut f, m, &ctx.0, &cam, &mut hits, &mut anim, t, sa, pad),
         Page::Select => {
-            let lay = select::layout(low.w, low.h, sa);
+            let lay = select::layout(low.w, low.h, sa, &ctx.0.shown_slots());
             let cam = select::cam_for(low.w, low.h);
             let spots = select::slot_positions(&lay, &cam, low.w, low.h);
             select::draw_select(&mut f, m, &ctx.0, &cam, &spots, select::pops(&stage), &mut hits, &mut anim, t, sa, pad);
@@ -815,7 +815,7 @@ mod tests {
 
     #[test]
     fn hub_hit_zones_exist_for_every_control() {
-        let ctx = Ctx::from_registry(Character::Mario, [true; 4], |_| true);
+        let ctx = Ctx::from_registry(Character::Mario, [true; Character::COUNT], |_| true);
         let mut menu = Menu::default();
         menu.page = Page::Hub;
         let (eye, target) = scene::hub_camera(Wing::Games, 0.0, 1.0, 0.0);
@@ -834,7 +834,7 @@ mod tests {
 
     #[test]
     fn title_draw_registers_rows_and_paints_pixels() {
-        let ctx = Ctx::from_registry(Character::Mario, [true; 4], |_| true);
+        let ctx = Ctx::from_registry(Character::Mario, [true; Character::COUNT], |_| true);
         let menu = Menu::default();
         let mut f = Fb::new(320, 240);
         let mut hits = Hits::default();

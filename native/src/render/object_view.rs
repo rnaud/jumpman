@@ -350,7 +350,9 @@ fn clip_index(o: &SimObject) -> usize {
     let a = o.var("animation") as usize;
     match o.behavior {
         K::BabyPenguin | K::TuxiesMother | K::RacingPenguin => [3, 0, 1, 2].get(a).copied().unwrap_or(0),
-        K::Bowser | K::SmBowser | K::KoopaTheQuick | K::Koopa => a,
+        // The glb's run clips are in address order, not the table's (`characters::bowser::glb_clip`).
+        K::Bowser | K::SmBowser => crate::characters::bowser::glb_clip(a),
+        K::KoopaTheQuick | K::Koopa => a,
         _ => 0,
     }
 }

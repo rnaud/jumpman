@@ -239,7 +239,7 @@ impl ExperimentId {
         use crate::characters::Character as C;
         match self {
             Self::Kart | Self::Halls => &[C::Mario],
-            _ => &[C::Mario, C::Link, C::YoungLink, C::Banjo],
+            _ => &[C::Mario, C::Link, C::YoungLink, C::Banjo, C::Bowser],
         }
     }
     pub fn parse(s: &str) -> Option<Self> {

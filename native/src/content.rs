@@ -63,6 +63,8 @@ pub struct AvailableContent {
     /// `None` = every course is assumed present (the default, used when nothing was probed).
     courses: Option<HashSet<String>>,
     have: [bool; 3],
+    /// Bowser's model (`characters::bowser::MODEL`) is in the SM64 export.
+    bowser: bool,
 }
 
 impl Default for AvailableContent {
@@ -74,7 +76,7 @@ impl Default for AvailableContent {
 impl AvailableContent {
     /// Everything available (the full build, tests).
     pub fn all() -> Self {
-        Self { courses: None, have: [true; 3] }
+        Self { courses: None, have: [true; 3], bowser: true }
     }
 
     /// Probe an asset root (`<root>/courses/*.json`, `<root>/../public/...`).
@@ -93,7 +95,9 @@ impl AvailableContent {
         let courses = std::fs::read_dir(root.join("courses"))
             .map(|d| d.flatten().filter_map(|e| e.file_name().to_str().and_then(|n| n.strip_suffix(".json")).map(str::to_string)).collect())
             .ok();
-        Self { courses, have }
+        // `JUMPMAN_MISSING_GAMES=bowser` hides him too (menu checks).
+        let bowser = crate::characters::bowser::installed(root) && !std::env::var("JUMPMAN_MISSING_GAMES").is_ok_and(|l| l.split(',').any(|x| x.trim() == "bowser"));
+        Self { courses, have, bowser }
     }
 
     pub fn has(&self, game: Game) -> bool {
@@ -118,7 +122,19 @@ impl AvailableContent {
             Mario => None,
             AdultLink | YoungLink => (!self.has(Game::Oot)).then_some(Game::Oot),
             Banjo => (!self.has(Game::Bk)).then_some(Game::Bk),
+            // Part of the required SM64 import: never "import a game", only present or not (see `bowser_installed`).
+            Bowser => None,
         }
+    }
+
+    /// Whether Bowser's model is installed (the lineup leaves him out otherwise).
+    pub fn bowser_installed(&self) -> bool {
+        self.bowser
+    }
+
+    /// Whether the installed data can draw this character.
+    pub fn character_ok(&self, c: crate::shell::Character) -> bool {
+        self.character_missing(c).is_none() && (c != crate::shell::Character::Bowser || self.bowser)
     }
 
     pub fn experiment_missing(&self, e: crate::shell::ExperimentId) -> Option<Game> {
@@ -183,6 +199,21 @@ mod tests {
         assert!(c.has(Game::Mk64) && c.has(Game::Oot) && !c.has(Game::Bk));
         assert_eq!(c.character_missing(Character::Banjo), Some(Game::Bk));
         assert_eq!(c.character_missing(Character::AdultLink), None);
+        let _ = std::fs::remove_dir_all(root.parent().unwrap());
+    }
+
+    /// Bowser follows his glb: present in the SM64 export, or left out (never "import a game").
+    #[test]
+    fn bowser_follows_his_model() {
+        let root = fake_root("bowser", &["courses/bob.json"]);
+        let c = AvailableContent::probe(&root);
+        assert!(!c.bowser_installed() && !c.character_ok(Character::Bowser));
+        assert_eq!(c.character_missing(Character::Bowser), None);
+        assert!(c.character_ok(Character::Mario));
+        touch(&root, crate::characters::bowser::MODEL);
+        let c = AvailableContent::probe(&root);
+        assert!(c.bowser_installed() && c.character_ok(Character::Bowser));
+        assert!(AvailableContent::all().character_ok(Character::Bowser));
         let _ = std::fs::remove_dir_all(root.parent().unwrap());
     }
 
