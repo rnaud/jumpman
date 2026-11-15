@@ -1607,7 +1607,13 @@ impl Experiment for GemClashExperiment {
             self.menu.mode = 1;
         }
         host.set_player_visible(true);
-        let auto = std::env::var_os("JUMPMAN_BRAWL_MENU").is_none() && ["JUMPMAN_BRAWL_START", "JUMPMAN_BRAWL_ARENA", "JUMPMAN_BRAWL_REGION", "JUMPMAN_BRAWL_STAGE"].iter().any(|k| std::env::var_os(k).is_some());
+        // Chosen on the front end's setup page: those choices, and the match starts at once (no menu over the arena).
+        if host.shell.direct {
+            let [mode, arena, bots, diff, monsters] = super::start_setup::brawl();
+            self.menu = MenuView { mode: mode % 2, arena: arena.min(arena_count().saturating_sub(1) as u8), bots: bots.clamp(1, 3), diff: diff % 3, monsters: monsters % 3, ..self.menu };
+            host.brawl.menu = self.menu;
+        }
+        let auto = host.shell.direct || (std::env::var_os("JUMPMAN_BRAWL_MENU").is_none() && ["JUMPMAN_BRAWL_START", "JUMPMAN_BRAWL_ARENA", "JUMPMAN_BRAWL_REGION", "JUMPMAN_BRAWL_STAGE"].iter().any(|k| std::env::var_os(k).is_some()));
         if auto {
             self.start_match(host);
         } else {

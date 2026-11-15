@@ -6,7 +6,7 @@
 //!
 //! Everything is drawn by the menu's private camera (render layer [`super::scene::LAYER`]) into the small
 //! scene image, the 2D layer (plates, tabs, panel, READY) goes on top through the CPU framebuffer, exactly
-//! like the title and the hub. No course is loaded for this screen.
+//! like the title and the mode grid. No course is loaded for this screen.
 use super::fb::{clean, mix, rgb, Fb, IRect, Rgba};
 use super::model::{char_info, lock_reason, Ctx, Hit, Menu, Page};
 use super::scene::{self, CamState, MeshBuilder, SceneAssets, LAYER};
@@ -136,11 +136,11 @@ pub struct StageRoot;
 pub struct Pedestal(usize);
 #[derive(Component)]
 pub struct SpotLight;
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct PreviewAnimator;
 
 enum Body {
-    Mario { player: Box<crate::game::sm64_animation::Sm64AnimationPlayer>, nodes: Vec<AnimationNodeIndex> },
+    Mario(MarioAnim),
     Rig(Rig),
     /// Bowser's glb on the object views' clip driver (`characters::bowser`).
     Bowser { body: Entity, clock: characters::bowser::ClipClock },
@@ -167,11 +167,10 @@ pub struct Stage {
     root: Option<Entity>,
     slots: [Option<Slot>; N],
     last_sel: Option<usize>,
-    /// Slots whose model could not be shown (locked data or a load error): the highlighted one falls back to the fox.
+    /// Slots whose model could not be shown (locked data or a load error): an empty, greyed pedestal with a padlock.
     pub missing: [bool; N],
-    /// World position of the stage floor slots (kept for the hero fallback and tests).
+    /// World position of the stage floor slots.
     pub spots: [Vec3; N],
-    pub fallback_at: Option<Vec3>,
     log_done: bool,
 }
 
@@ -288,7 +287,7 @@ fn spawn_stage(
         }
         let Some(asset_root) = root else { continue };
         let built = match who {
-            Character::Mario => spawn_mario(commands, assets, asset_root, graphs, &layer),
+            Character::Mario => spawn_mario(commands, assets, asset_root, graphs, &layer, PreviewAnimator),
             Character::Bowser => spawn_bowser(commands, assets, asset_root, &layer),
             other => {
                 let which = match other {
@@ -349,7 +348,9 @@ fn spawn_bowser(commands: &mut Commands, assets: &AssetServer, root: &AssetRoot,
     Ok((e, Body::Bowser { body, clock: Default::default() }))
 }
 
-fn spawn_mario(commands: &mut Commands, assets: &AssetServer, root: &AssetRoot, graphs: &mut Assets<AnimationGraph>, layer: &RenderLayers) -> Result<(Entity, Body), String> {
+/// Spawn the real Mario model (the player's imported `mario_geo.glb`, never bundled) on the menu's render layer, its
+/// animation players tagged with `marker` so a menu system can pose it. Errors when the imported file is missing.
+pub(super) fn spawn_mario_model<M: Component + Clone>(commands: &mut Commands, assets: &AssetServer, root: &AssetRoot, graphs: &mut Assets<AnimationGraph>, layer: &RenderLayers, marker: M) -> Result<(Entity, MarioAnim), String> {
     use crate::game::runner::MARIO_MODEL;
     let glb = std::fs::read(root.0.join(MARIO_MODEL)).map_err(|e| format!("{MARIO_MODEL}: {e}"))?;
     let meta = crate::game::sm64_animation::read_clip_meta(&glb);
@@ -365,7 +366,7 @@ fn spawn_mario(commands: &mut Commands, assets: &AssetServer, root: &AssetRoot, 
             for child in children.iter_descendants(target) {
                 commands.entity(child).insert(layer.clone());
                 if players.contains(child) {
-                    commands.entity(child).insert((PreviewAnimator, AnimationGraphHandle(graph.clone())));
+                    commands.entity(child).insert((marker.clone(), AnimationGraphHandle(graph.clone())));
                 }
                 if let Ok(Some(x)) = extras.get(child) {
                     if x.value.contains(r#""mario_cap_wings""#) {
@@ -375,7 +376,35 @@ fn spawn_mario(commands: &mut Commands, assets: &AssetServer, root: &AssetRoot, 
             }
         })
         .id();
-    Ok((e, Body::Mario { player: Box::new(crate::game::sm64_animation::Sm64AnimationPlayer::new(meta)), nodes }))
+    Ok((e, MarioAnim { player: Box::new(crate::game::sm64_animation::Sm64AnimationPlayer::new(meta)), nodes }))
+}
+
+fn spawn_mario<M: Component + Clone>(commands: &mut Commands, assets: &AssetServer, root: &AssetRoot, graphs: &mut Assets<AnimationGraph>, layer: &RenderLayers, marker: M) -> Result<(Entity, Body), String> {
+    spawn_mario_model(commands, assets, root, graphs, layer, marker).map(|(e, a)| (e, Body::Mario(a)))
+}
+
+/// Mario's SM64 animation driver and the clip nodes of his animation graph.
+pub(super) struct MarioAnim {
+    pub player: Box<crate::game::sm64_animation::Sm64AnimationPlayer>,
+    pub nodes: Vec<AnimationNodeIndex>,
+}
+
+impl MarioAnim {
+    /// Pose every animation player tagged `M` for `input` (the clip the game would pick for that action, at its frame).
+    pub fn pose<M: Component>(&mut self, input: &crate::game::sm64_animation::AnimInput, dt: f64, players: &mut Query<&mut AnimationPlayer, With<M>>) {
+        let pose = self.player.update(input, dt);
+        if let Some(&node) = self.nodes.get(pose.clip as usize) {
+            for mut p in players.iter_mut() {
+                if !p.is_playing_animation(node) {
+                    p.stop_all();
+                    p.play(node).pause();
+                }
+                if let Some(a) = p.animation_mut(node) {
+                    a.seek_to(pose.sample_seconds);
+                }
+            }
+        }
+    }
 }
 
 /// Spawn the stage when the select page opens and take everything down when it closes.
@@ -417,14 +446,13 @@ pub fn pose_stage(
     ctx: Res<super::CtxRes>,
     low: Res<LowRes>,
     mut stage: ResMut<Stage>,
-    mut tfs: Query<&mut Transform, Without<super::scene::Hero>>,
-    mut vis: Query<&mut Visibility, Without<super::scene::Hero>>,
+    mut tfs: Query<&mut Transform>,
+    mut vis: Query<&mut Visibility>,
     mut meshes: ResMut<Assets<Mesh>>,
     peds: Query<(&Pedestal, &MeshMaterial3d<StandardMaterial>)>,
     mut mats: ResMut<Assets<StandardMaterial>>,
     mut players: Query<&mut AnimationPlayer, With<PreviewAnimator>>,
     mat_q: Query<&MeshMaterial3d<StandardMaterial>>,
-    mut hero: Query<(&mut Transform, &mut Visibility), (With<super::scene::Hero>, Without<Pedestal>, Without<SpotLight>)>,
     mut anim_rigs: Query<&mut crate::render::object_view::AnimRig>,
 ) {
     if !active.0 || menu.0.page != Page::Select || !stage.is_spawned() {
@@ -456,17 +484,10 @@ pub fn pose_stage(
         }
     }
     let step = 1.0 - (-10.0 * dt).exp();
-    let mut fallback = None;
-    let missing = stage.missing;
     for i in 0..N {
         let pos = spots[i];
         let is_sel = i == sel;
-        let Some(slot) = stage.slots[i].as_mut() else {
-            if is_sel && missing[i] {
-                fallback = Some(pos);
-            }
-            continue;
-        };
+        let Some(slot) = stage.slots[i].as_mut() else { continue };
         // Greyed out when the mode does not take this character.
         let want_dim = !ctx.0.allowed[i];
         if slot.dimmed != want_dim {
@@ -510,20 +531,9 @@ pub fn pose_stage(
         let (who, root_e) = (slot.who, slot.root);
         let hop_t = slot.hop.map_or(0.0, |h| h.0 / h.1);
         match &mut slot.body {
-            Body::Mario { player, nodes } => {
+            Body::Mario(anim) => {
                 let input = crate::game::sm64_animation::AnimInput { action: slot.m.action, vel_y: if air { 12.0 } else { 0.0 }, action_timer: (hop_t * 30.0) as f64, ..Default::default() };
-                let pose = player.update(&input, dt as f64);
-                if let Some(&node) = nodes.get(pose.clip as usize) {
-                    for mut p in &mut players {
-                        if !p.is_playing_animation(node) {
-                            p.stop_all();
-                            p.play(node).pause();
-                        }
-                        if let Some(a) = p.animation_mut(node) {
-                            a.seek_to(pose.sample_seconds);
-                        }
-                    }
-                }
+                anim.pose(&input, dt as f64, &mut players);
                 if let Ok(mut tf) = tfs.get_mut(root_e) {
                     *tf = Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw)).with_scale(Vec3::splat(scale));
                 }
@@ -554,7 +564,6 @@ pub fn pose_stage(
         }
         let _ = who;
     }
-    stage.fallback_at = fallback;
     // Pedestals: gold under the highlighted slot, navy otherwise (the spot follows it).
     for (p, mat) in &peds {
         let on = p.0 == sel;
@@ -571,17 +580,6 @@ pub fn pose_stage(
         // Position pedestals at the slot (they are static children of the stage root).
     }
     let _ = &ctx;
-    // Fallback fox when the highlighted slot has no model.
-    if let Ok((mut tf, mut v)) = hero.single_mut() {
-        match stage.fallback_at {
-            Some(p) => {
-                *v = Visibility::Inherited;
-                let p = stand(p, 1.0, &cam);
-                *tf = Transform::from_translation(p + Vec3::new(0.0, 0.07 + 0.015 * (t * 2.0).sin(), 0.0)).with_rotation(Quat::from_rotation_y((t * 0.9).sin() * 1.15)).with_scale(Vec3::splat(0.85));
-            }
-            None => *v = Visibility::Hidden,
-        }
-    }
 }
 
 /// Pedestals and the spotlight follow the slot positions (separate system so the borrow stays simple).
@@ -603,7 +601,7 @@ pub fn place_props(stage: Res<Stage>, menu: Res<MenuRes>, low: Res<LowRes>, mut 
     }
 }
 
-fn pose_rig(rig: &mut Rig, m: &MarioRuntime, dt: f64, meshes: &mut Assets<Mesh>, vis: &mut Query<&mut Visibility, Without<super::scene::Hero>>) {
+fn pose_rig(rig: &mut Rig, m: &MarioRuntime, dt: f64, meshes: &mut Assets<Mesh>, vis: &mut Query<&mut Visibility>) {
     match &mut rig.kind {
         RigKind::Link { asset, anim, young, modes } => {
             let (_, bones) = anim.update(asset, *young, m, dt, true);
@@ -741,13 +739,17 @@ pub fn draw_select(f: &mut Fb, menu: &Menu, ctx: &Ctx, cam: &CamState, stage_spo
 
     // Slot tabs under the models.
     let tab_h = if lay.portrait { 14 } else { 13 };
+    let (tw, stagger) = tab_size(&lay);
+    // Narrow lineups (five abreast on 4:3) put every other tab one row lower so each can be wide enough for its name.
+    // The highlighted tab follows its model forward, except in two rows where it would land on the other row.
+    let pop_dy = |pop: f32| if stagger { 0 } else { (pop * 16.0) as i32 };
+    let tab_dy = |i: usize| if stagger && (0..i).filter(|j| ctx.shown(*j)).count() % 2 == 1 { tab_h + 3 } else { 0 };
     for i in (0..N).filter(|i| ctx.shown(*i)) {
         let c = Character::ALL[i];
         let pop = pops[i];
         let (fx, fy) = lay.feet[i];
-        let pitch = lay.pitch as i32;
-        let tw = (pitch - 4).max(30);
-        let r = IRect::new(fx as i32 - tw / 2, fy as i32 + if lay.portrait { 14 } else { 18 } + (pop * 16.0) as i32, tw, tab_h);
+        let x = (fx as i32 - tw / 2).clamp(2 + sa.l, (if lay.portrait { w - 2 - sa.r } else { lay.panel.x - 2 }) - tw);
+        let r = IRect::new(x, fy as i32 + if lay.portrait { 14 } else { 18 } + pop_dy(pop) + tab_dy(i), tw, tab_h);
         let locked = lock_reason(c, ctx.hero_ok[i], ctx.allowed[i]).is_some();
         let on = i == sel;
         if locked {
@@ -762,8 +764,8 @@ pub fn draw_select(f: &mut Fb, menu: &Menu, ctx: &Ctx, cam: &CamState, stage_spo
         let label = if Fb::text_width(label, 1) > r.w - 4 { short_name(c) } else { label };
         f.text_centered(r.x + r.w / 2, r.y + (r.h - 7) / 2, label, 1, col);
         if locked {
-            // A little padlock above the empty pedestal.
-            if !on {
+            // A little padlock above the pedestal; the highlighted one only when it is empty (no stand-in model is shown).
+            if !on || !ctx.hero_ok[i] {
                 draw_lock(f, fx as i32, fy as i32 - 20);
             }
         }
@@ -773,7 +775,7 @@ pub fn draw_select(f: &mut Fb, menu: &Menu, ctx: &Ctx, cam: &CamState, stage_spo
     {
         let (fx, fy) = lay.feet[sel];
         let bob = ((t * 7.0).sin().abs() * 2.0) as i32;
-        let (x, y) = (fx as i32, fy as i32 + if lay.portrait { 14 } else { 18 } + (pops[sel] * 16.0) as i32 + tab_h + 4 + bob);
+        let (x, y) = (fx as i32, fy as i32 + if lay.portrait { 14 } else { 18 } + pop_dy(pops[sel]) + tab_dy(sel) + tab_h + 4 + bob);
         f.poly(&[((x - 5) as f32 + 1.0, (y + 5) as f32 + 1.0), ((x + 5) as f32 + 1.0, (y + 5) as f32 + 1.0), (x as f32 + 1.0, y as f32 + 1.0)], rgb(0x050a22));
         f.poly(&[((x - 5) as f32, (y + 5) as f32), ((x + 5) as f32, (y + 5) as f32), (x as f32, y as f32)], GOLD);
     }
@@ -836,6 +838,17 @@ pub fn draw_select(f: &mut Fb, menu: &Menu, ctx: &Ctx, cam: &CamState, stage_spo
 
 fn info_name(c: Character) -> &'static str {
     char_info(c).name
+}
+
+/// Width of the slot tabs and whether they alternate between two rows: a tab must fit the longest short name.
+fn tab_size(lay: &Layout) -> (i32, bool) {
+    let need = Character::ALL.iter().map(|c| Fb::text_width(short_name(*c), 1)).max().unwrap_or(30) + 6;
+    let pitch = lay.pitch as i32;
+    if lay.portrait || pitch - 4 >= need {
+        ((pitch - 4).max(30), false)
+    } else {
+        (need, true)
+    }
 }
 
 fn short_name(c: Character) -> &'static str {
@@ -986,6 +999,21 @@ mod tests {
             let four = layout(w, h, Insets::default(), &c.shown_slots());
             assert_eq!(four.cols, if w < h { 2 } else { 4 });
             assert!(four.feet[4].0 < 0.0, "off screen");
+        }
+    }
+
+    /// Every slot tab is wide enough for its (short) name, also with five abreast on a 4:3 screen.
+    #[test]
+    fn tab_labels_fit_their_tabs() {
+        let c = ctx();
+        for (w, h) in [(320, 240), (520, 240), (240, 522)] {
+            let (_, hits) = draw(w, h, 0, &c);
+            for i in (0..N).filter(|i| c.shown(*i)) {
+                let (r, _) = hits.0.iter().rev().find(|(r, x)| *x == Hit::Slot(i) && r.h <= 18).unwrap();
+                let name = char_info(Character::ALL[i]).name;
+                let label = if Fb::text_width(name, 1) > r.w - 6 { short_name(Character::ALL[i]) } else { name };
+                assert!(Fb::text_width(label, 1) <= r.w - 6, "{w}x{h}: {label} in {r:?}");
+            }
         }
     }
 

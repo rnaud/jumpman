@@ -114,6 +114,7 @@ pub mod swarm_core;
 pub mod swarm_fx;
 pub mod swarm_levels;
 pub mod swarm_meta;
+pub mod start_setup;
 pub mod swarm_view;
 pub mod swarm_bot;
 pub mod swarm_cam;
@@ -387,6 +388,9 @@ pub struct Shell {
     /// The active experiment asks to be started again from scratch (reloading the course it now needs): Gem Clash
     /// after its arena picker moved to or from a real-world region.
     pub reenter: bool,
+    /// Set while a mode's `enter` runs when the player chose its start options on the front end's MODE SETUP page
+    /// ([`start_setup`]): start the run with them right away instead of opening the mode's own start menu over the level.
+    pub direct: bool,
     /// The active experiment steps the course's walking goombas itself (Diorama).
     pub goombas_driven: bool,
     /// Disable the Bob-omb Battlefield radial camera (Mario is far from the mountain).
@@ -414,6 +418,8 @@ pub struct ExperimentSlot {
     pub exit: bool,
     /// With `exit`: also reload the current course from scratch afterwards (LEAVE EXPERIMENT).
     pub restart: bool,
+    /// The requested mode starts directly with its [`start_setup`] choices (READY after the MODE SETUP page).
+    pub direct: Option<ExperimentId>,
 }
 
 /// Waits for the shell's course load (fade out, load, fade in) that a fresh-start request triggered.
@@ -958,7 +964,9 @@ fn process_requests(
     }
     info!("experiment {}: entered on course {}", id.key(), course);
     p.shell.course_hidden = exp.replaces_course();
+    p.shell.direct = slot.direct.take() == Some(id);
     exp.enter(&mut p.host());
+    p.shell.direct = false;
     slot.id = Some(id);
     slot.active = Some(exp);
 }

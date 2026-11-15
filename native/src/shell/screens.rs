@@ -733,6 +733,11 @@ pub fn select_before(e: ExperimentId) -> bool {
     e != ExperimentId::Kart
 }
 
+/// Whether the mode has start choices, shown on the MODE SETUP page before the character select.
+pub fn has_setup(e: ExperimentId) -> bool {
+    e.theirs().is_some_and(crate::experiments::start_setup::has_setup)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn apply_actions(
     mut events: MessageReader<UiActionEvent>,
@@ -755,12 +760,14 @@ pub fn apply_actions(
     let mut bindings = bindings;
     let content = content.as_deref().cloned().unwrap_or_default();
     for UiActionEvent(action) in events.read() {
+        let from_ready = matches!(action, UiAction::Ready);
         // READY on the character select starts what the select was opened for.
         let resolved = match action {
             UiAction::Ready => match ui.pick {
                 Some(p) => UiAction::Launch(p),
                 None => continue,
             },
+            UiAction::SetupDone if ui.screen != Screen::ModeSetup => continue,
             other => other.clone(),
         };
         let action = &resolved;
@@ -792,10 +799,17 @@ pub fn apply_actions(
                 ui.pick = Some(Pick::Course);
                 ui.open(Screen::CharSelect);
             }
+            // A mode with start choices shows them first (MODE SETUP), then the character select; nothing loads before READY.
             UiAction::Experiment(e) if *state == AppState::Menu && select_before(*e) => {
                 ui.pick = Some(Pick::Mode(*e));
-                ui.open(Screen::CharSelect);
+                ui.open(if has_setup(*e) { Screen::ModeSetup } else { Screen::CharSelect });
             }
+            UiAction::SetupOption(row, value) => {
+                if let Some(x) = match ui.pick { Some(Pick::Mode(e)) => e.theirs(), _ => None } {
+                    crate::experiments::start_setup::set(x, *row as usize, *value as usize);
+                }
+            }
+            UiAction::SetupDone => ui.open(Screen::CharSelect),
             UiAction::Rebind(a) => {
                 if let Some(b) = bindings.as_deref_mut() {
                     b.listening = Some(crate::bindings::Listen::Key(*a));
@@ -858,8 +872,12 @@ pub fn apply_actions(
                 chars.write(SwitchCharacter(*c));
                 ui.dirty = true;
             }
+            // READY after a MODE SETUP page starts the mode with those choices (no start menu of its own over the level).
+            UiAction::Launch(Pick::Mode(e)) if from_ready && *state == AppState::Menu && has_setup(*e) => {
+                experiments.write(OpenExperiment(*e, true));
+            }
             UiAction::Experiment(e) | UiAction::Launch(Pick::Mode(e)) => {
-                experiments.write(OpenExperiment(*e));
+                experiments.write(OpenExperiment(*e, false));
             }
             UiAction::Ready => {}
             UiAction::Tab(t) => {
@@ -874,7 +892,8 @@ pub fn apply_actions(
             UiAction::Open(screen) => ui.open(*screen),
             UiAction::Back => match ui.stack.pop() {
                 Some(prev) => {
-                    if ui.screen == Screen::CharSelect {
+                    // Back from the select to the mode's setup keeps the pick; back to the menus drops it.
+                    if matches!(ui.screen, Screen::CharSelect | Screen::ModeSetup) && prev != Screen::ModeSetup {
                         ui.pick = None;
                     }
                     ui.screen = prev;
@@ -1355,15 +1374,20 @@ mod tests {
         assert_eq!(started, vec!["ccm".to_string()]);
     }
 
+    fn opened(app: &App) -> Vec<(ExperimentId, bool)> {
+        app.world().resource::<Messages<OpenExperiment>>().iter_current_update_messages().map(|e| (e.0, e.1)).collect()
+    }
+
     #[test]
     fn modes_go_through_the_select_but_the_kart_keeps_its_own_roster() {
         let mut app = flow_app(Screen::Title, "bob");
-        send_to(&mut app, UiAction::Experiment(ExperimentId::Brawl));
-        assert_eq!(app.world().resource::<ShellUi>().pick, Some(Pick::Mode(ExperimentId::Brawl)));
+        // A mode without start choices: straight to the select; READY opens it with its own flow.
+        send_to(&mut app, UiAction::Experiment(ExperimentId::Race));
+        let ui = app.world().resource::<ShellUi>();
+        assert_eq!((ui.screen, ui.pick), (Screen::CharSelect, Some(Pick::Mode(ExperimentId::Race))));
         assert_eq!(count::<OpenExperiment>(&mut app), 0);
         send_to(&mut app, UiAction::Ready);
-        let opened: Vec<_> = app.world().resource::<Messages<OpenExperiment>>().iter_current_update_messages().map(|e| e.0).collect();
-        assert_eq!(opened, vec![ExperimentId::Brawl]);
+        assert_eq!(opened(&app), vec![(ExperimentId::Race, false)]);
         send_to(&mut app, UiAction::Back);
         count::<OpenExperiment>(&mut app);
         // Kart: no select.
@@ -1371,6 +1395,42 @@ mod tests {
         assert_eq!(app.world().resource::<ShellUi>().screen, Screen::Title);
         assert_eq!(count::<OpenExperiment>(&mut app), 1);
         assert!(!select_before(ExperimentId::Kart) && select_before(ExperimentId::Halls) && select_before(ExperimentId::Party));
+    }
+
+    /// The modes that used to open their own start menu over a course loaded just for it: their choices come first (MODE
+    /// SETUP), then the select; nothing is opened or loaded until READY, which asks for a direct start with those choices.
+    #[test]
+    fn modes_with_start_choices_show_them_before_the_select_and_load_nothing_before_ready() {
+        let mut app = flow_app(Screen::Title, "bob");
+        for id in [ExperimentId::Brawl, ExperimentId::Swarm, ExperimentId::Gate, ExperimentId::Party] {
+            assert!(has_setup(id), "{id:?}");
+        }
+        assert!(!has_setup(ExperimentId::Race) && !has_setup(ExperimentId::Kart));
+        send_to(&mut app, UiAction::Experiment(ExperimentId::Gate));
+        let ui = app.world().resource::<ShellUi>();
+        assert_eq!((ui.screen, ui.pick), (Screen::ModeSetup, Some(Pick::Mode(ExperimentId::Gate))));
+        send_to(&mut app, UiAction::SetupOption(0, 1));
+        assert_eq!(crate::experiments::start_setup::gate_map(), 1);
+        send_to(&mut app, UiAction::SetupDone);
+        assert_eq!(app.world().resource::<ShellUi>().screen, Screen::CharSelect);
+        assert_eq!((count::<OpenExperiment>(&mut app), count::<StartCourse>(&mut app)), (0, 0), "nothing starts or loads before READY");
+        // Back from the select returns to the setup with the pick kept; back again to the menus drops it.
+        send_to(&mut app, UiAction::Back);
+        let ui = app.world().resource::<ShellUi>();
+        assert_eq!((ui.screen, ui.pick), (Screen::ModeSetup, Some(Pick::Mode(ExperimentId::Gate))));
+        send_to(&mut app, UiAction::SetupDone);
+        send_to(&mut app, UiAction::Ready);
+        assert_eq!(opened(&app), vec![(ExperimentId::Gate, true)], "READY: a direct start with the setup's choices");
+        let mut app = flow_app(Screen::Title, "bob");
+        send_to(&mut app, UiAction::Experiment(ExperimentId::Gate));
+        send_to(&mut app, UiAction::Back);
+        let ui = app.world().resource::<ShellUi>();
+        assert_eq!((ui.screen, ui.pick), (Screen::Title, None));
+        // NEXT outside the setup page does nothing; the direct-start hook `xp:` keeps the mode's own menu.
+        send_to(&mut app, UiAction::SetupDone);
+        assert_eq!(app.world().resource::<ShellUi>().screen, Screen::Title);
+        send_to(&mut app, UiAction::Launch(Pick::Mode(ExperimentId::Gate)));
+        assert_eq!(opened(&app), vec![(ExperimentId::Gate, false)]);
     }
 
     #[test]

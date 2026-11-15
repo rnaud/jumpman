@@ -381,8 +381,10 @@ impl ExperimentId {
 pub struct StartCourse(pub CourseRequest);
 #[derive(Message, Clone, Copy, Debug)]
 pub struct SwitchCharacter(pub Character);
+/// Start a mode (a fresh run). `.1`: straight into play with the choices of its MODE SETUP page (`experiments::start_setup`),
+/// not the mode's own start menu.
 #[derive(Message, Clone, Copy, Debug)]
-pub struct OpenExperiment(pub ExperimentId);
+pub struct OpenExperiment(pub ExperimentId, pub bool);
 #[derive(Message, Clone, Copy, Debug)]
 pub struct LeaveExperiment;
 #[derive(Message, Clone, Copy, Debug)]
@@ -420,6 +422,8 @@ pub enum Screen {
     GameOver,
     /// Fighting-game style character select between picking a level / mode and starting it (drawn by `retro::select`).
     CharSelect,
+    /// The start choices of a mode that has some (`experiments::start_setup`), before the character select; drawn by `retro`.
+    ModeSetup,
 }
 
 /// The hub's tabs (title screen and pause menu).
@@ -515,12 +519,16 @@ pub enum UiAction {
     Page(i32),
     /// Set the played character (`SwitchCharacter`): sent by the select screen's READY, the `char:` script command and the dev key.
     Character(Character),
-    /// Choose a mode from the hub: opens the character select first (modes with their own roster start directly).
+    /// Choose a mode from the grid: opens its setup page or the character select first (modes with their own roster start directly).
     Experiment(ExperimentId),
     /// Character select: READY was confirmed; start what was picked (`Launch(ui.pick)`).
     Ready,
     /// Start a course / mode right now with the current `Character` (no select screen): the direct-start hooks and READY.
     Launch(Pick),
+    /// MODE SETUP: choose value `.1` of the picked mode's start option `.0` (`experiments::start_setup::set`).
+    SetupOption(u8, u8),
+    /// MODE SETUP: done, on to the character select.
+    SetupDone,
     /// A running mode's secondary control (its dock key), offered in the pause menu on touch devices.
     DockKey(KeyCode),
     Tab(Tab),
@@ -740,15 +748,16 @@ impl Plugin for ShellPlugin {
                     .chain(),
             )
             .add_systems(Update, (theme::animate_menu, theme::place_cursor, retro::skin::style_buttons, retro::skin::animate_logo, retro::skin::place_cursor, play_menu_sfx).chain().after(theme::style_buttons))
-            .add_systems(Update, (retro::sync_state, retro::resize, retro::input, retro::tick, retro::select::manage_stage, retro::draw, retro::scene::animate_scene, retro::select::pose_stage, retro::select::place_props).chain().after(apply_save_events).before(screens::rebuild_screen));
+            .add_systems(Update, (retro::sync_state, retro::resize, retro::input, retro::tick, retro::select::manage_stage, retro::hero::manage_hero, retro::draw, retro::scene::animate_scene, retro::select::pose_stage, retro::hero::pose_hero, retro::select::place_props).chain().after(apply_save_events).before(screens::rebuild_screen));
     }
 }
 
 /// Headless test hook: `JUMPMAN_SHELL_SCRIPT="start@2,pause@6,back@8"` injects menu commands at the
 /// given times (seconds). Commands: `start`, `pause`, `back`, `menu`, `gameover`, `course:<id>`,
 /// `char:<link|young-link|banjo|sm64>`, `open:<screen>`, `tab:<modes|levels>`, `xp:<mode key>`, `activate`, and `move:<up|down|left|right>`.
-/// `start` and `xp:` start straight away (no select screen); `go` and `gomode:<key>` choose like a player (the character
-/// select opens), `pick:<char id>` highlights a character there and `ready` confirms it.
+/// `start` and `xp:` start straight away (no select screen); `go` and `gomode:<key>` choose like a player (the mode's
+/// setup page, if it has one, then the character select opens), `next` leaves the setup page for the select,
+/// `pick:<char id>` highlights a character there and `ready` confirms it.
 pub fn parse_script(text: &str) -> Vec<(f32, String)> {
     let mut out: Vec<_> = text.split(',').filter_map(|item| {
         let (cmd, at) = item.trim().split_once('@')?;
@@ -759,12 +768,26 @@ pub fn parse_script(text: &str) -> Vec<(f32, String)> {
 }
 
 /// `JUMPMAN_STATE_LOG=1`: one stderr line per app state change (headless / simulator checks of the menu flow).
-fn log_state(state: Res<AppState>, ui: Res<ShellUi>, character: Option<Res<characters::Character>>, time: Res<Time>, mut prev: Local<Option<AppState>>) {
-    if std::env::var_os("JUMPMAN_STATE_LOG").is_none() || *prev == Some(*state) {
+/// A line is printed whenever the state, the menu screen or the loaded course changes: `loaded` is the course actually built
+/// (`void` is the empty menu course), `course` the one highlighted in the level list.
+fn log_state(
+    state: Res<AppState>,
+    ui: Res<ShellUi>,
+    character: Option<Res<characters::Character>>,
+    sim: Option<Res<GameSim>>,
+    time: Res<Time>,
+    mut prev: Local<Option<(AppState, Screen, String)>>,
+) {
+    if std::env::var_os("JUMPMAN_STATE_LOG").is_none() {
         return;
     }
-    *prev = Some(*state);
-    eprintln!("STATE t={:.1} {:?} screen {:?} course {} character {:?}", time.elapsed_secs(), *state, ui.screen, ui.course, character.map(|c| *c));
+    let loaded = sim.map_or_else(|| "-".to_string(), |s| s.course.request.id.clone());
+    let now = (*state, ui.screen, loaded);
+    if prev.as_ref() == Some(&now) {
+        return;
+    }
+    eprintln!("STATE t={:.1} {:?} screen {:?} loaded {} course {} character {:?}", time.elapsed_secs(), now.0, now.1, now.2, ui.course, character.map(|c| *c));
+    *prev = Some(now);
 }
 
 fn run_script(
@@ -793,6 +816,7 @@ fn run_script(
             "import" => drop(actions.write(nav::UiActionEvent(UiAction::ImportRoms))),
             "gameover" => drop(over.write(GameOver)),
             "activate" => drop(nav.write(nav::NavCmd::Activate)),
+            "next" => drop(actions.write(nav::UiActionEvent(UiAction::SetupDone))),
             other => {
                 // `key:Escape|KeyJ|...` injects a key press (the controls screen's rebind capture reads it);
                 // `rebind:<action>` starts listening for that action's key.
@@ -1022,7 +1046,7 @@ fn route_events(
             }
             (StateCmd::PadStart, AppState::Menu) => {
                 // (On the character select Start means READY: `retro::input` reads the pad's Start there.)
-                if ui.screen != Screen::CharSelect {
+                if !matches!(ui.screen, Screen::CharSelect | Screen::ModeSetup) {
                     actions.write(nav::UiActionEvent(if matches!(ui.screen, Screen::Title | Screen::Courses) { UiAction::Start } else { UiAction::Back }));
                 }
             }
@@ -1075,12 +1099,15 @@ fn route_events(
             toast.show(format!("PLAYING AS {}", c.label().to_uppercase()), 1.4);
         }
     }
-    for OpenExperiment(id) in experiments.read() {
+    for OpenExperiment(id, direct) in experiments.read() {
         let Some(slot) = slot.as_mut() else { continue };
         match id.theirs().filter(|x| x.available()) {
             // Always a fresh run: the experiments module exits the running mode, reloads the course
             // from scratch through `StartCourse` (the transition sets the state) and then enters.
-            Some(x) => slot.request = Some(x),
+            Some(x) => {
+                slot.request = Some(x);
+                slot.direct = direct.then_some(x);
+            }
             None => toast.show(format!("{} IS NOT PORTED YET", id.title().to_uppercase()), 2.0),
         }
     }
@@ -1576,12 +1603,18 @@ mod tests {
     #[test]
     fn opening_a_mode_files_a_fresh_start_request() {
         let mut app = experiment_app();
-        app.world_mut().write_message(OpenExperiment(ExperimentId::Race));
+        app.world_mut().write_message(OpenExperiment(ExperimentId::Race, false));
         app.update();
         let slot = app.world().resource::<ExperimentSlot>();
         assert_eq!(slot.request, Some(experiments::ExperimentId::Race));
         assert!(slot.pending.is_none(), "no direct entry on the old world");
+        assert_eq!(slot.direct, None, "the mode's own start menu");
         assert_eq!(*app.world().resource::<AppState>(), AppState::Paused);
+        // After the MODE SETUP page the request asks the mode to start straight away.
+        app.world_mut().write_message(OpenExperiment(ExperimentId::Gate, true));
+        app.update();
+        let slot = app.world().resource::<ExperimentSlot>();
+        assert_eq!((slot.request, slot.direct), (Some(experiments::ExperimentId::Gate), Some(experiments::ExperimentId::Gate)));
     }
 
     #[test]

@@ -736,6 +736,8 @@ impl Experiment for PartyExperiment {
         let meta = init_clips(host);
         self.runs += 1;
         let runs = self.runs;
+        // Chosen on the front end's setup page: the party (or the mini-game list) starts at once, not the title over the board.
+        let direct = host.shell.direct.then(super::super::start_setup::party);
         host.commands.queue(move |w: &mut World| {
             let cache = super::view::ViewCache::from_world(w);
             w.insert_resource(cache);
@@ -743,6 +745,18 @@ impl Experiment for PartyExperiment {
             app.grounds = grounds;
             app.fields = fields;
             app.solids = solids;
+            if let Some((board, turns, level, humans, minis)) = direct {
+                app.cfg.board = board % BOARD_COUNT;
+                app.cfg.turns = turns;
+                app.level = Level::ALL[level.min(Level::ALL.len() - 1)];
+                app.humans = humans.clamp(1, 4);
+                if minis {
+                    app.screen = Screen::Minis;
+                    app.bump();
+                } else {
+                    app.start_game();
+                }
+            }
             w.insert_resource(app);
             w.resource_mut::<crate::hud::HudMinimal>().0 = true;
             let mut t = w.resource_mut::<crate::touch::TouchControls>();
