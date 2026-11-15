@@ -27,7 +27,7 @@ jobs:
         with:
           submodules: false
       - name: Fetch the decomp submodules
-        run: git submodule update --init --depth 1 reference/sm64 reference/mk64 reference/oot reference/banjo-kazooie
+        run: git submodule update --init --depth 1 reference/sm64 reference/mk64 reference/oot reference/banjo-kazooie reference/ssb64
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
