@@ -28,6 +28,7 @@ export-ssb64-motions.py
 export-ssb64-music.py
 export-ssb64-sounds.py
 export-ssb64-stages.py
+export-ssb64-weapons.py
 export-ssb64.py
 export_sm64_g2.py
 mk64_courses.py

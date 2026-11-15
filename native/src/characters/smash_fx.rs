@@ -43,8 +43,8 @@ impl Plugin for SmashFxPlugin {
     }
 }
 
-/// Sim cues into sound messages and particle bursts.
-fn drain_events(mut sim: ResMut<GameSim>, mut sfx: MessageWriter<SmashSpecialSfx>, particles: Option<ResMut<Particles>>) {
+/// Sim cues into sound messages and particle bursts (and the SSB64 hit flash, `smash_models`).
+pub(crate) fn drain_events(mut sim: ResMut<GameSim>, mut sfx: MessageWriter<SmashSpecialSfx>, particles: Option<ResMut<Particles>>, mut models: Option<ResMut<super::smash_models::SmashModels>>) {
     if sim.mario.smash.events.is_empty() {
         return;
     }
@@ -52,10 +52,15 @@ fn drain_events(mut sim: ResMut<GameSim>, mut sfx: MessageWriter<SmashSpecialSfx
     let mut particles = particles;
     for e in events {
         match e {
+            // Items make their own sounds (`smash_models::item_sounds`).
+            SmashEvent::Sfx(s) if s.mv == SpecialMove::Item => {}
             SmashEvent::Sfx(s) => {
                 sfx.write(SmashSpecialSfx { fighter: Fighter::from_sim(s.fighter), mv: s.mv, slot: s.slot, phase: s.phase });
             }
             SmashEvent::Hit { pos, kind, .. } => {
+                if let Some(m) = models.as_mut() {
+                    super::smash_models::flash(m, pos, kind);
+                }
                 if let Some(p) = particles.as_mut() {
                     let color = match kind {
                         HitKind::Fire => 0xff7a20,
@@ -92,8 +97,9 @@ fn drain_events(mut sim: ResMut<GameSim>, mut sfx: MessageWriter<SmashSpecialSfx
     }
 }
 
-/// Per-frame puffs: every projectile in flight and the running special's own effects.
-fn projectile_fx(sim: Res<GameSim>, time: Res<Time>, mut frame: Local<u32>, particles: Option<ResMut<Particles>>) {
+/// Per-frame puffs: every projectile in flight and the running special's own effects (where no SSB64 model draws them,
+/// `smash_models`).
+fn projectile_fx(sim: Res<GameSim>, time: Res<Time>, mut frame: Local<u32>, particles: Option<ResMut<Particles>>, models: Option<Res<super::smash_models::SmashModels>>) {
     let Some(mut p) = particles else { return };
     let ext = &sim.mario.smash;
     if ext.fighter.is_none() || (ext.projectiles.is_empty() && ext.special.is_none()) {
@@ -103,7 +109,7 @@ fn projectile_fx(sim: Res<GameSim>, time: Res<Time>, mut frame: Local<u32>, part
     let f = *frame;
     let t = time.elapsed_secs();
     for pr in &ext.projectiles {
-        if pr.dead {
+        if pr.dead || models.as_ref().is_some_and(|m| m.covers(pr)) {
             continue;
         }
         let pos = pr.pos;
@@ -180,11 +186,14 @@ fn projectile_fx(sim: Res<GameSim>, time: Res<Time>, mut frame: Local<u32>, part
                 p.puff(pos, [0.0; 3], 0x88c8ff, 40.0, 0.25);
                 p.puff(pos, [0.0; 3], 0xffffff, 18.0, 0.12);
             }
-            ProjKind::Blast => {}
+            ProjKind::Blast | ProjKind::Item => {}
         }
     }
     // The running special's own effects.
     let Some(sp) = ext.special else { return };
+    if models.as_ref().is_some_and(|m| m.covers_special(sp.mv, sp.phase, sp.total)) {
+        return;
+    }
     let m = &sim.mario;
     let yaw = jumpman_sim::math::angle_to_radians(m.face_angle[1]);
     let fwd = [yaw.sin(), yaw.cos()];

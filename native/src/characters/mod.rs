@@ -15,6 +15,7 @@ pub mod link_pose;
 pub mod smash;
 pub mod smash_audio;
 pub mod smash_fx;
+pub mod smash_models;
 
 use crate::game::runner::GameSim;
 use crate::hud::Toast;
@@ -209,7 +210,7 @@ impl Plugin for CharactersPlugin {
             .init_resource::<Rigs>()
             .init_resource::<crate::experiments::characters_support::CharacterFallback>()
             .add_systems(Startup, spawn_marker.in_set(crate::progress::PersistentSpawn))
-            .add_plugins((gltf_view::GltfRigPlugin, bowser::BowserPlugin, smash::SmashPlugin, smash_fx::SmashFxPlugin))
+            .add_plugins((gltf_view::GltfRigPlugin, bowser::BowserPlugin, smash::SmashPlugin, smash_fx::SmashFxPlugin, smash_models::SmashModelsPlugin))
             .add_systems(Update, (crate::experiments::characters_support::enforce, cycle_character, apply_character, update_rigs, update_marker).chain().before(crate::CameraSet));
     }
 }

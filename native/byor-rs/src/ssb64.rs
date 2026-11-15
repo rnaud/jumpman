@@ -1933,12 +1933,17 @@ pub fn run(source: &Path, stage: &Path, z64: &[u8], progress: &mut dyn FnMut(u32
     crate::ssb64_motions::export(source, z64, &stage.join("public/models/ssb64"))?;
     progress(97, "Exporting Super Smash Bros. voices");
     crate::ssb64_sounds::export(source, z64, &stage.join("assets/audio/voices/ssb64"))?;
+    weapons::export(source, z64, &stage.join("public"), &stage.join("assets/audio/voices/ssb64"))?;
     progress(98, "Exporting Super Smash Bros. stages");
     crate::ssb64_stages::export(source, z64, &stage.join("assets"), None, &mut |m| eprintln!("{m}"))?;
     progress(99, "Exporting Super Smash Bros. music");
     crate::ssb64_music::export(source, z64, &stage.join("assets/audio/music/ssb64"))?;
     Ok(())
 }
+
+/// Weapon, effect and item models and the item sounds (`scripts/export-ssb64-weapons.py`).
+#[path = "ssb64_weapons.rs"]
+pub mod weapons;
 
 #[cfg(test)]
 mod tests {
