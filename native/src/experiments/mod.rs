@@ -45,6 +45,7 @@ pub mod ground_fit;
 pub mod gate;
 pub mod gate_core;
 pub mod gate_view;
+pub mod smash_targets;
 pub mod god;
 pub mod halls;
 pub mod halls_core;

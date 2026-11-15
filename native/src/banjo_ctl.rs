@@ -69,7 +69,7 @@ fn is_banjo(current: &Character) -> bool {
 }
 
 /// Keyboard, D-pad and touch buttons into the C-button bits of `PlayerInput`.
-fn banjo_input(
+pub(crate) fn banjo_input(
     current: Res<Character>,
     slot: Option<Res<crate::experiments::ExperimentSlot>>,
     keys: Res<ButtonInput<KeyCode>>,

@@ -157,6 +157,27 @@ impl Particles {
         }
     }
 
+    /// One soft puff at `pos` drifting with `vel` (units/s): the Smash projectiles' trails (`characters::smash_fx`).
+    pub fn puff(&mut self, pos: [f64; 3], vel: [f32; 3], color: u32, size: f32, life: f32) {
+        let i = self.cursor;
+        self.cursor = (self.cursor + 1) % self.pool.len();
+        let r = self.rng.next();
+        self.pool[i] = Particle {
+            alive: true,
+            pos: [pos[0] as f32, pos[1] as f32, pos[2] as f32],
+            vel,
+            life,
+            max_life: life,
+            gravity: 0.0,
+            size,
+            spin: (r - 0.5) * 4.0,
+            rotation: r * std::f32::consts::PI,
+            color: hex_rgb(color),
+            opacity: 0.95,
+            scale: size,
+        };
+    }
+
     pub fn dust(&mut self, pos: [f64; 3], count: usize) {
         self.burst(pos, BurstOptions { color: 0xf0e2c0, count, speed: 90.0, life: 0.55, gravity: 150.0, size: 30.0, upward: 30.0, spread: 1.0 });
     }

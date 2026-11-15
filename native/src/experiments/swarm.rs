@@ -1493,6 +1493,13 @@ impl Experiment for StarSwarmExperiment {
         if let Some(t) = prof {
             super::swarm_view::prof_add(0, t);
         }
+        // A Smash fighter's specials (projectiles, hitboxes) hit the swarm too.
+        if host.sim.mario.smash.fighter.is_some() {
+            let heights: Vec<f32> = self.core.enemies.iter().map(|e| if e.alive { self.ground(e.pos) } else { 0.0 }).collect();
+            let center = [self.center[0], self.center[2]];
+            let mut targets = super::smash_targets::SwarmTargets::new(&mut self.core, center, |i| heights[i]);
+            jumpman_sim::smash::resolve(&mut host.sim.mario.smash, &mut targets);
+        }
         // Foe bodies are solid: the core swept the hero's step against them and says where he really ends up.
         self.apply_body_push(host);
         for n in 0..self.core.nums.len() {

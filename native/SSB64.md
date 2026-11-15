@@ -113,10 +113,65 @@ Master Hand is not playable):
   ssb-pikachu|ssb-jigglypuff|ssb-falcon|ssb-ness`, the V cycle and the character select's SMASH group; a fighter whose glb
   is missing is left out. `JUMPMAN_SMASH_CLIP=<motion or clip>` holds one clip for headless checks.
 - **Sounds**: no voices are exported; the fighters use the `silent` voice set (SM64's hit sound, the star jingle).
-- **Looks**: Link's sword and shield and Samus's arm cannon are joints of their models and come with them. Effects,
-  projectiles, items and hand / face swaps are not drawn.
+- **Looks**: Link's sword and shield and Samus's arm cannon are joints of their models and come with them. Projectiles
+  and special effects are particles (see Specials); items, hand / face swaps are not drawn.
 
-Not done: per-fighter move feel (Gem Clash heroes from `attributes`), specials as moves, voices, Master Hand as a boss.
+Not done: per-fighter move feel (Gem Clash heroes from `attributes`), voices, Master Hand as a boss.
+
+## Specials
+
+Every fighter's neutral, up and down special works on Mario's sim (`native/sim/src/smash.rs`, engine-free, 30 Hz, SM64
+units; app side `native/src/characters/smash.rs` (clips, input), `smash_fx.rs` (particles, sound messages, goombas) and
+`native/src/experiments/smash_targets.rs` (minigame enemies)).
+
+- **Input**: the special button is the N64 R: `Action::RButton` (H on the keyboard, rebindable; R2 on a pad). Special
+  alone = neutral, with the stick pushed up = up special, down = down special (A held also means up, Z held down: a 3D
+  stick is also the walking direction). Neutral and up specials turn to the stick first. iOS / touch: **no special
+  button** (the HUD has none for these fighters; Banjo's R button is Banjo-only), so touch players get Mario's moves only.
+  Test hook: `JUMPMAN_STICK="3:r"` presses R at 3 s.
+- **How it runs**: `MarioRuntime::smash` (`SmashExt`). While a special runs it owns Mario's frame like `step_banjo`
+  does, moving him with the sim's own ground / air steps (walls, ceilings, floors, ledge grabs stay SM64's); a knockback,
+  death or warp (anything that changes Mario's action from outside) cancels it. Recoveries end in the helpless fall
+  (`FallSpecial`: drift only, no specials, ledges grab) and its landing lag. Kirby's Stone is armour
+  (`take_damage` refuses), Jigglypuff's Rest is a real sleep (no input for the rest of the clip).
+- **Numbers**: decomp headers (`ft<name>.h`, `wpdef.h`, `wpvars.h`, `itvars.h`) converted with `K` = 0.348 (SSB64 units
+  to SM64: Smash Mario is 460 tall, SM64 Mario 160), `KV` = 2K per tick for speeds (60 -> 30 Hz) and `KA` = 4K for
+  accelerations. Moves that SSB64 drives by root motion (TRANSN clips: Super Jump Punch, Falcon Punch / Dive / Kick,
+  Final Cutter, Pound) follow their clip's root travel (peak height / distance / frame measured once from the import);
+  the view holds `joint_00` still in those clips (`root_motion_clips`) so the model does not travel twice. Damage comes
+  from the weapon tables where the decomp has them (Charge Shot 3-26%, boomerang return 8%, Kirby's spit 10%) and is
+  otherwise an approximate SSB64 value: the per-frame hitboxes live in the `*MainMotion` event scripts, which the import
+  does not read yet.
+- **Animation**: each phase names its decomp motions (`SmashExt::motion`, e.g. Giant Punch `SpecialNStart` /
+  `SpecialNLoop` / `SpecialNEnd` / `SpecialNFull`, `SpecialAir*` in the air, Kirby's copies `Copy<Name>SpecialN`); the
+  import already has every one of them (a test checks them all against `fighters.json`).
+- **Hits**: hitboxes (spheres, this tick) and projectiles hit `SmashTargets`: the course's SM64 objects (attacked like
+  a punch, inside the sim), the walking goombas (defeated), Hold the Gate's foes (1% = 2.2 health, electric / sleep
+  stun) and Star Swarm's swarm (1% = 1/6 of the run's weapon hit, sleep freezes). Kirby and Yoshi swallow what they
+  catch (bosses and elites resist). Gem Clash, Relic Descent, Deck, Last Stand and Party are not wired: Gem Clash plays
+  its own fighter sim (the specials do not run there), the others only see the SM64-object and goomba hits.
+- **Sound hook**: `characters::smash_fx::SmashSpecialSfx { fighter, mv, slot, phase }` (a Bevy message) at each sound
+  moment; `phase` is `SfxPhase::{Start, Charge, Full, Release, Projectile, Hit, Explode, Special, Land, End}`. Nothing
+  plays yet: a sound layer reads the messages.
+
+| Fighter | Neutral | Up | Down |
+|---|---|---|---|
+| Mario | Fireball: bounces (50, -5 degrees, gravity 1.2, 140 frames), 7% fire | Super Jump Punch: +613 / 338 forward (root motion), 1% coins, 6% top; helpless (drift 0.6, lag 25) | Mario Tornado: 88 frames, stick steers (0.025, 17 max), special taps lift (22, max 40), 2% multi + 6% |
+| Luigi | Green fireball: straight (36, no gravity, 80 frames), 6% | Super Jump Punch, 25% fire sweet spot on the first frames | Luigi Cyclone (as the Tornado) |
+| Donkey Kong | Giant Punch: 10 charge loops (13 frames each), stored when full or cancelled (A / Z), 10% + 1.8 per level (full ~28%), lunge | Spinning Kong: ground travel (26 max), air lift 20.3 at 0.07 gravity, multi-hit, helpless | Hand Slap (ground only): two shock-wave slaps per loop (12%), loops while special is pressed again |
+| Link | Boomerang: out decelerating, back homing, caught; one at a time (`Empty` clip); 9% out / 8% back | Spin Attack: ground multi-hit spin; air lift 69 at 0.23 gravity, helpless (0.6, lag 0.65) | Bomb: lobbed, bursts on a body / wall / landing / fuse (300 frames) |
+| Samus | Charge Shot: 7 levels every 20 frames, stored when full / cancelled, fires the level (3-26%, speed 60-74, size 100-260); air fires the stored level, recoil | Screw Attack: lift 62 (10 forward), multi-hit, helpless (0.66, lag 0.4) | Bomb: morph-ball hop in the air, bomb with a 100-frame fuse, 180-wide blast |
+| Yoshi | Egg Lay: tongue (frames ~8-20) swallows a body (removed) | Egg Throw: arc (gravity 2.7), 340-wide burst, stick tilts, one air hop | Yoshi Bomb: hop, slam at -150, 15% landing blast, two stars sliding front and back |
+| Kirby | Inhale: suction cone while held; mouthful: special spits a star (10%), Z swallows (a fighter's neutral special is copied and then played with Kirby's `Copy*` clips) | Final Cutter: +665 (root motion), straight down, a shock wave on landing (100 speed, 20 frames) | Stone: armour, falls at -140, 18%; special after 18 frames or 160 frames turns back |
+| Fox | Blaster: laser at 160, 3%, repeated presses fire again | Fire Fox: 35 frames of flames (gravity after 15), 30 frames at 115 toward the stick (up without one), helpless (1.0, lag 0.34) | Reflector: 5% shine, held while special is held (18 frames min), sends enemy projectiles back |
+| Pikachu | Thunder Jolt: crawls along floors (55), drops at -45 degrees from the air, 8% electric | Quick Attack: zip toward the stick (up without one), a second zip on another press, helpless (0.4) | Thunder: bolt from the sky (-450), 8% on its way, 17% burst when it strikes Pikachu (+20 hop) |
+| Jigglypuff | **Pound** (SSB64's neutral special; Rollout is Melee's, there is no Rollout clip): 167-unit lunge (root motion), 12% | Sing: 3 s of song, sleep in a 230 radius | Rest: 20% on the first frames, then asleep for the 251-frame clip |
+| Captain Falcon | Falcon Punch: wind-up, lunge 129 (root motion), 25% fire on frames 53-60 | Falcon Dive: +561 / 141 forward (root motion), grabs a body on the way up, 10% blast and a jump off, helpless (0.72) | Falcon Kick: ground dash of 988 (root motion), 15% then 9%; from the air a dive forward and down to the floor and `LandingDownSpecial` |
+| Ness | PK Fire: spark (73 / 95, -3.6 / -38 degrees) that becomes a pillar of fire (multi-hit) on a body or the floor | PK Thunder: steered ball (6 degrees a frame: stick left / right turns, up / down pitches; 160 frames, 8%); steered into Ness: PK Thunder 2 launches him along its heading (25%), helpless | PSI Magnet: held while special is held (30 frames min), absorbs enemy energy shots and heals |
+
+Not done: the ROM's weapon / effect models (fireball, Charge Shot, PK Thunder... are particles), hitbox timing and damage
+from the motion event scripts, knockback and percent on the fighters themselves, shields, the specials in Gem Clash, a
+touch special button.
 
 ## Not done yet
 

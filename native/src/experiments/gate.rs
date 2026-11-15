@@ -1117,6 +1117,12 @@ impl Experiment for HoldTheGateExperiment {
                 break;
             }
         }
+        // A Smash fighter's specials (projectiles, hitboxes) hit the foes too.
+        if self.stage == Stage::Playing && !self.core.over() && host.sim.mario.smash.fighter.is_some() {
+            let ground = self.ground.clone();
+            let mut targets = super::smash_targets::GateTargets::new(&mut self.core, &ground);
+            jumpman_sim::smash::resolve(&mut host.sim.mario.smash, &mut targets);
+        }
         // Foes are solid: after they moved, shove the hero out of their bodies (`Gate::hero_body_push`).
         if self.stage == Stage::Playing && !self.core.over() {
             let m = &host.sim.mario;

@@ -158,6 +158,8 @@ pub struct MarioRuntime {
     pub link: crate::link::LinkExt,
     /// Cutscene/special action state (`cutscene_ext.rs`): animation clock, cues for the host.
     pub cut: crate::cutscene_ext::CutExt,
+    /// Super Smash Bros. special moves of the selected fighter (`smash.rs`); inert while `smash.fighter` is `None`.
+    pub smash: crate::smash::SmashExt,
 }
 
 impl Deref for MarioRuntime {
@@ -217,6 +219,7 @@ impl MarioRuntime {
             action_loops: 0,
             link: Default::default(),
             cut: Default::default(),
+            smash: Default::default(),
             death_height,
         };
         m.state.health = m.max_health;
@@ -341,6 +344,7 @@ impl MarioRuntime {
     /// Advance one 30 Hz simulation frame.
     pub fn step(&mut self, controller: &ControllerSnapshot, camera_yaw: f64, as_link: bool, as_banjo: bool) {
         self.events.clear();
+        self.smash.begin_tick();
         self.controller = controller.clone();
         self.camera_yaw = camera_yaw;
 
@@ -390,13 +394,15 @@ impl MarioRuntime {
             && self.link.enabled
             && (self.link.mv == crate::link::moves::Mv::Dive || (self.controller.button_pressed & crate::state::A_BUTTON != 0 && self.link.can_dive(self)))
             && crate::link::moves::step(self);
-        let mut in_loop = !dive && (submerged || (!(as_link && step_link(self)) && !(as_banjo && step_banjo(self))));
+        let smash = !as_link && !as_banjo && self.smash.fighter.is_some();
+        let mut in_loop = !dive && (submerged || (!(as_link && step_link(self)) && !(as_banjo && step_banjo(self)) && !(smash && crate::smash::step_smash(self))));
         self.action_loops = 0;
         while in_loop && self.action_loops < MAX_ACTION_ITERATIONS {
             self.action_loops += 1;
             in_loop = execute_mario_action(self);
         }
 
+        crate::smash::after_step(self);
         if let Some(shell) = self.riding_shell {
             let (pos, yaw) = (self.pos, self.face_angle[1]);
             let s = &mut self.objects[shell];
@@ -638,6 +644,8 @@ impl MarioRuntime {
     pub fn take_damage(&mut self, damage: f64, source_position: Option<Vec3>) -> bool {
         if damage <= 0.0 { return false; }
         if self.action & (ACT_FLAG_INVULNERABLE | ACT_FLAG_INTANGIBLE) != 0 || self.invinc_timer > 0.0 || self.vanish_cap_timer > 0.0 { return false; }
+        // Kirby's Stone shrugs hits off.
+        if self.smash.armor() { return false; }
 
         let angle_to_object = match source_position {
             Some(p) => atan2s(p[2] - self.pos[2], p[0] - self.pos[0]) as f64,

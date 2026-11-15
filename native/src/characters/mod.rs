@@ -13,6 +13,7 @@ pub mod bowser;
 pub mod gltf_view;
 pub mod link_pose;
 pub mod smash;
+pub mod smash_fx;
 
 use crate::game::runner::GameSim;
 use crate::hud::Toast;
@@ -169,6 +170,8 @@ impl Character {
     pub fn controls_hint_touch(self) -> &'static str {
         match self {
             Self::Link | Self::YoungLink => "L LOCK-ON - B SWORD - C BUTTONS AND ITEMS FOR THE REST",
+            // No on-screen special button yet: the specials need a keyboard or a pad.
+            Self::Smash(_) => "A = JUMP - B = ATTACK - Z = POUND",
             other => other.controls_hint(),
         }
     }
@@ -180,7 +183,7 @@ impl Character {
             Self::Banjo => "B CLAW - R1 CROUCH - R2 R - D-PAD C BUTTONS",
             Self::Mario => "A = JUMP - HOLD FOR HEIGHT",
             Self::Bowser => "A = JUMP - B = FIRE BREATH",
-            Self::Smash(_) => "A = JUMP - B = ATTACK - Z = POUND",
+            Self::Smash(_) => "B = ATTACK - R2 = SPECIAL (+ STICK UP / DOWN)",
         }
     }
 
@@ -190,7 +193,7 @@ impl Character {
             Self::Banjo => "J CLAW - K+SPACE FLAP FLIP - K+J BEAK BARGE",
             Self::Mario => "A = JUMP - HOLD FOR HEIGHT",
             Self::Bowser => "A = JUMP - B = FIRE BREATH",
-            Self::Smash(_) => "A = JUMP - B = ATTACK - Z = POUND",
+            Self::Smash(_) => "J = ATTACK - H = SPECIAL (+ W / S FOR UP / DOWN)",
         }
     }
 }
@@ -204,7 +207,7 @@ impl Plugin for CharactersPlugin {
             .init_resource::<Rigs>()
             .init_resource::<crate::experiments::characters_support::CharacterFallback>()
             .add_systems(Startup, spawn_marker.in_set(crate::progress::PersistentSpawn))
-            .add_plugins((gltf_view::GltfRigPlugin, bowser::BowserPlugin, smash::SmashPlugin))
+            .add_plugins((gltf_view::GltfRigPlugin, bowser::BowserPlugin, smash::SmashPlugin, smash_fx::SmashFxPlugin))
             .add_systems(Update, (crate::experiments::characters_support::enforce, cycle_character, apply_character, update_rigs, update_marker).chain().before(crate::CameraSet));
     }
 }
@@ -231,7 +234,11 @@ pub fn apply_character(
 ) {
     // The sim is replaced by every course load (a fresh `GameSim` plays as Mario), so the selection is also re-applied
     // whenever the sim no longer matches it, not only when the selection changes.
-    let stale = sim.as_link != current.is_link() || sim.as_banjo != (*current == Character::Banjo);
+    let smash = match *current {
+        Character::Smash(f) => Some(f.sim()),
+        _ => None,
+    };
+    let stale = sim.as_link != current.is_link() || sim.as_banjo != (*current == Character::Banjo) || sim.mario.smash.fighter != smash;
     if *applied == Some(*current) && !stale {
         return;
     }
@@ -240,6 +247,11 @@ pub fn apply_character(
     *applied = Some(*current);
     sim.as_link = current.is_link();
     sim.as_banjo = *current == Character::Banjo;
+    // The Smash fighters' specials (`jumpman_sim::smash`): a new fighter starts clean.
+    if sim.mario.smash.fighter != smash {
+        sim.mario.smash.reset();
+        sim.mario.smash.fighter = smash;
+    }
     sim.link_focus.clear();
     sim.link_opponent = None;
     if first && *current != Character::Mario {
