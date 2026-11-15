@@ -214,6 +214,7 @@ pub fn read_input(
     bindings: Res<Bindings>,
     mut input: ResMut<PlayerInput>,
     slot: Option<Res<crate::experiments::ExperimentSlot>>,
+    current: Option<Res<crate::characters::Character>>,
 ) {
     use KeyCode::*;
     let any = |codes: &[KeyCode]| codes.iter().any(|k| keys.pressed(*k));
@@ -256,8 +257,12 @@ pub fn read_input(
             stick = s;
             mag = m;
         }
-        let held = |a| b.pad_buttons(a).iter().any(|x| pad.pressed(*x));
-        let tapped = |a| b.pad_buttons(a).iter().any(|x| pad.just_pressed(*x));
+        // A Smash fighter's X is the special button (`characters::smash::west_is_special`), not one of Z's extras.
+        let in_mode = slot.as_ref().is_some_and(|s| s.id.is_some());
+        let x_special = current.as_ref().is_some_and(|c| crate::characters::smash::west_is_special(c, in_mode, b));
+        let live = |x: &GamepadButton, a: Action| !(x_special && a == Action::Crouch && *x == GamepadButton::West);
+        let held = |a| b.pad_buttons(a).iter().any(|x| live(x, a) && pad.pressed(*x));
+        let tapped = |a| b.pad_buttons(a).iter().any(|x| live(x, a) && pad.just_pressed(*x));
         if held(Action::Jump) {
             down |= A_BUTTON;
         }
@@ -385,6 +390,42 @@ mod tests {
         press(&mut app, pad, GamepadButton::LeftTrigger2);
         app.update();
         assert_eq!(app.world().resource::<PlayerInput>().down & Z_TRIG, 0);
+    }
+
+    /// A Smash fighter's X is the special, not Z (Z held + special = down special); R1 and Y still crouch, and every
+    /// other character keeps X as an extra Z. A Z the player bound to X alone stays a Z.
+    #[test]
+    fn smash_x_is_not_crouch() {
+        use crate::characters::{smash::Fighter, Character};
+        use crate::last_input::testing::{end_frame, press, release, spawn_pad};
+        let mut app = App::new();
+        app.insert_resource(Bindings::default())
+            .insert_resource(Character::Smash(Fighter::ALL[0]))
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<AccumulatedMouseMotion>()
+            .init_resource::<AccumulatedMouseScroll>()
+            .init_resource::<PlayerInput>()
+            .add_systems(Update, read_input);
+        let pad = spawn_pad(&mut app);
+        let z_for = |app: &mut App, button: GamepadButton| {
+            press(app, pad, button);
+            app.update();
+            let c = app.world_mut().resource_mut::<PlayerInput>().consume_step();
+            release(app, pad, button);
+            end_frame(app, pad);
+            app.update();
+            app.world_mut().resource_mut::<PlayerInput>().consume_step();
+            c.button_down & Z_TRIG != 0 || c.button_pressed & Z_TRIG != 0
+        };
+        assert!(!z_for(&mut app, GamepadButton::West), "X is the Smash special");
+        assert!(z_for(&mut app, GamepadButton::RightTrigger), "R1 is still Z");
+        assert!(z_for(&mut app, GamepadButton::North), "Y is still Z");
+        app.insert_resource(Character::Mario);
+        assert!(z_for(&mut app, GamepadButton::West), "Mario's X is an extra Z");
+        app.insert_resource(Character::Smash(Fighter::ALL[0]));
+        app.world_mut().resource_mut::<Bindings>().rebind_pad(Action::Crouch, GamepadButton::West);
+        assert!(z_for(&mut app, GamepadButton::West), "the player's own X = Z");
     }
 
     #[test]

@@ -4,7 +4,7 @@
 //! The controls appear once a touch has been seen (touchscreens, iOS/Android builds) or when
 //! `JUMPMAN_TOUCH=1`, and only while playing. Each button is an [`Action`], so it presses exactly
 //! what the keyboard/pad binding for that action would (rebinding changes keys, not these).
-//! `JUMPMAN_TOUCH_SIM=1` replays synthetic touches (stick up-right, A held, a camera swipe) so the
+//! `JUMPMAN_TOUCH_SIM=1` replays synthetic touches (stick up-right, A held, a camera swipe, SPECIAL for a Smash fighter) so the
 //! layout can be screenshotted headlessly together with `JUMPMAN_SCREENSHOT`.
 use crate::button_marker::BorderRadius;
 use crate::bindings::Action;
@@ -97,6 +97,8 @@ pub enum Control {
     Extra(u8),
     /// Banjo-Kazooie's extra buttons (egg, trot, wonderwing, power...), see `banjo_ctl::layout`.
     Banjo(u8),
+    /// The Smash fighters' special button (N64 R into `R_TRIG`), see [`smash_rect`].
+    Smash,
 }
 
 impl Control {
@@ -187,6 +189,9 @@ fn button_fill(action: Action) -> Color {
     }
 }
 
+/// Fill of the SPECIAL button (Smash's special-move orange).
+const SMASH_FILL: Color = Color::srgba(0.80, 0.42, 0.06, 0.88);
+
 /// Number of Relic Descent's buttons and their labels (`TouchControls::extra_active` shows them).
 pub const EXTRA_LABELS: [&str; 9] = ["SLAM", "WHIRL", "STARS", "AEGIS", "DODGE", "ATK", "POT", "BAG", "TREE"];
 
@@ -225,6 +230,23 @@ pub fn extra_layout(size: Vec2, inset: Vec3) -> Vec<(u8, Rect)> {
     out.push((7, bag));
     out.push((8, tree));
     out
+}
+
+/// Size of the Smash fighters' SPECIAL button (a little bigger than A/B: it is their main move).
+pub const SMASH_SIZE: f32 = 52.0;
+/// Gap between the SPECIAL button and the B button on its right.
+pub const SMASH_GAP: f32 = 10.0;
+
+/// The Smash fighters' SPECIAL button: left of the B button, on the bottom (B A) row and sharing its bottom edge (so it
+/// stays above the home indicator), so the right thumb rolls from B to it. Same insets as [`layout`]; it never shows together with Banjo's or Relic Descent's buttons, which use
+/// that spot too.
+pub fn smash_rect(size: Vec2, inset: Vec3) -> Rect {
+    let right = MARGIN_X.max(inset.y);
+    let bottom = MARGIN_Y.max(inset.z);
+    let grid = 2.0 * BUTTON_SIZE + BUTTON_GAP;
+    let x1 = size.x - right - grid - SMASH_GAP;
+    let y1 = size.y - bottom;
+    Rect::from_corners(Vec2::new(x1 - SMASH_SIZE, y1 - SMASH_SIZE), Vec2::new(x1, y1))
 }
 
 /// Pause button, top-right (the phone has no Esc key): a tap opens the pause menu.
@@ -276,6 +298,11 @@ pub struct TouchControls {
     pub banjo_active: bool,
     pub banjo_down: u8,
     pub banjo_pressed: u8,
+    /// A Smash fighter plays outside a mode (`smash::smash_input` sets it): the SPECIAL button is offered.
+    pub smash_active: bool,
+    /// SPECIAL held / pressed since the last read.
+    pub smash_down: bool,
+    pub smash_pressed: bool,
     /// 0..1 cooldown shade shown on each Relic button.
     pub extra_fill: [f32; 9],
     /// kart_anywhere hook: a second top-bar button (beside pause) while it is shown. A tap inside is latched in
@@ -287,6 +314,12 @@ pub struct TouchControls {
 impl TouchControls {
     pub fn is_held(&self, c: Control) -> bool {
         self.held.contains(&c)
+    }
+
+    /// The SPECIAL button is drawn and hit-tested: a Smash fighter plays and no mode has taken the buttons over
+    /// (`mode_active` = an experiment's slot buttons are up).
+    pub fn smash_shown(&self, mode_active: bool) -> bool {
+        self.smash_active && !self.hide_pad && !self.extra_active && !self.banjo_active && !mode_active
     }
 
     /// A finger went down at `pos`: true if the extra top-bar button took it (see `top_extra`).
@@ -331,6 +364,10 @@ impl TouchControls {
                 if let Control::Banjo(i) = c {
                     self.banjo_down |= 1 << i;
                     self.banjo_pressed |= 1 << i;
+                }
+                if c == Control::Smash {
+                    self.smash_down = true;
+                    self.smash_pressed = true;
                 }
                 self.buttons |= c.mask();
                 self.pressed |= c.mask();
@@ -380,6 +417,9 @@ impl TouchControls {
             if let Control::Banjo(i) = c {
                 self.banjo_down &= !(1 << i);
             }
+            if c == Control::Smash {
+                self.smash_down = false;
+            }
             if c == Control::Button(Action::Focus) {
                 self.focus = false;
             }
@@ -399,6 +439,8 @@ impl TouchControls {
         self.extra_pressed = 0;
         self.banjo_down = 0;
         self.banjo_pressed = 0;
+        self.smash_down = false;
+        self.smash_pressed = false;
         self.focus = false;
         self.set_stick(Vec2::ZERO);
     }
@@ -431,6 +473,9 @@ pub(crate) fn drive_touch(
     }
     if tc.banjo_active {
         rects.extend(crate::banjo_ctl::layout(window.size(), Vec3::new(area.left, area.right, area.bottom)).into_iter().map(|(i, r)| (Control::Banjo(i), r)));
+    }
+    if tc.smash_shown(mode.active) {
+        rects.push((Control::Smash, smash_rect(window.size(), Vec3::new(area.left, area.right, area.bottom))));
     }
     if tc.suppress && !tc.owners.is_empty() {
         tc.clear();
@@ -465,11 +510,13 @@ pub(crate) fn drive_touch(
     input.merge_touch(&mut tc, swipe);
 }
 
-/// Synthetic touches: stick pushed up-right and a camera swipe from 1 s, A pressed and held from 1.5 s.
+/// Synthetic touches: stick pushed up-right and a camera swipe from 1 s, A pressed and held from 1.5 s, and for a Smash
+/// fighter SPECIAL from 3 s.
 fn simulate(tc: &mut TouchControls, rects: &[(Control, Rect)], t: f32) -> Vec2 {
     const STICK: u64 = 9001;
     const BUTTON: u64 = 9002;
     const CAMERA: u64 = 9003;
+    const SPECIAL: u64 = 9004;
     let centre = |c: Control| rects.iter().find(|(k, _)| *k == c).map(|(_, r)| r.center()).unwrap_or_default();
     if t <= 1.0 {
         return Vec2::ZERO;
@@ -480,6 +527,10 @@ fn simulate(tc: &mut TouchControls, rects: &[(Control, Rect)], t: f32) -> Vec2 {
     tc.moved(STICK, centre(Control::Stick) + Vec2::new(30.0, -40.0));
     if t > 1.5 && !tc.has_owner(BUTTON) {
         tc.begin(BUTTON, centre(Control::Button(Action::Jump)), rects);
+    }
+    // A Smash fighter: SPECIAL pressed (with the stick up-right: an up special) and held from 3 s.
+    if t > 3.0 && !tc.has_owner(SPECIAL) && rects.iter().any(|(c, _)| *c == Control::Smash) {
+        tc.begin(SPECIAL, centre(Control::Smash), rects);
     }
     if !tc.has_owner(CAMERA) {
         tc.begin(CAMERA, Vec2::new(400.0, 200.0), rects);
@@ -564,6 +615,9 @@ fn spawn_ui(mut commands: Commands) {
             p.spawn((TouchPart(Control::Button(*action)), Node { position_type: PositionType::Absolute, width: Val::Px(BUTTON_SIZE), height: Val::Px(BUTTON_SIZE), right: Val::Px(MARGIN_X + (1.0 - col) * (BUTTON_SIZE + BUTTON_GAP)), bottom: Val::Px(MARGIN_Y + (1.0 - row) * (BUTTON_SIZE + BUTTON_GAP)), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(bg), BorderColor::all(rim), BorderRadius::MAX))
                 .with_child((ButtonLabel(*action, label), Text::new(*label), TextFont { font_size: FontSize::Px(20.0), ..default() }, TextColor(Color::WHITE), TextLayout::justify(Justify::Center)));
         }
+        // The Smash fighters' SPECIAL (hidden until `smash_shown`; `update_ui` places it from `smash_rect`).
+        p.spawn((TouchPart(Control::Smash), Node { display: Display::None, position_type: PositionType::Absolute, width: Val::Px(SMASH_SIZE), height: Val::Px(SMASH_SIZE), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(SMASH_FILL), BorderColor::all(rim), BorderRadius::MAX))
+            .with_child((Text::new("SPECIAL"), TextFont { font_size: FontSize::Px(10.0), ..default() }, TextColor(Color::WHITE), TextLayout::justify(Justify::Center)));
     });
 }
 
@@ -668,11 +722,17 @@ fn update_ui(
         let inset = Vec3::new(area.left, area.right, area.bottom);
         let mut rects = layout(w.size(), inset);
         rects.extend(mode_layout(w.size(), inset));
+        rects.push((Control::Smash, smash_rect(w.size(), inset)));
         (rects, pause_rect(w.size(), area.right, area.top))
     });
     for (part, mut border, mut node) in &mut parts {
         if let Control::Mode(i) = part.0 {
             let d = if mode.active && mode.tint[i as usize].is_some() && !tc.hide_pad && !pad { Display::Flex } else { Display::None };
+            if node.display != d {
+                node.display = d;
+            }
+        } else if part.0 == Control::Smash {
+            let d = if tc.smash_shown(mode.active) && !tc.suppress && !pad { Display::Flex } else { Display::None };
             if node.display != d {
                 node.display = d;
             }
@@ -787,6 +847,46 @@ mod tests {
         }
     }
 
+    /// The SPECIAL button fits iPhone landscape (safe area included) and stays clear of the stick, L/Z/B/A, the pause
+    /// button and the mode slot buttons.
+    #[test]
+    fn smash_button_fits_and_does_not_overlap_the_base_controls() {
+        let sizes = [(Vec2::new(844.0, 390.0), Vec3::new(47.0, 47.0, 21.0)), (Vec2::new(874.0, 402.0), Vec3::new(62.0, 62.0, 21.0)), (Vec2::new(667.0, 375.0), Vec3::ZERO), (Vec2::new(1040.0, 680.0), Vec3::ZERO)];
+        for (size, inset) in sizes {
+            let r = smash_rect(size, inset);
+            assert!(r.min.x >= inset.x && r.max.x <= size.x - inset.y && r.min.y >= 0.0 && r.max.y <= size.y - inset.z, "{size:?}: {r:?}");
+            assert!(r.width() >= 44.0, "a comfortable thumb target");
+            assert!(r.intersect(pause_rect(size, inset.y, 0.0)).is_empty());
+            for (c, b) in layout(size, inset).into_iter().chain(mode_layout(size, inset)) {
+                assert!(r.intersect(b).is_empty(), "{size:?}: SPECIAL overlaps {c:?}");
+            }
+            let b = layout(size, inset).into_iter().find(|(c, _)| *c == Control::Button(Action::Punch)).unwrap().1;
+            assert!(r.max.x < b.min.x && r.max.y == b.max.y, "left of B, on its row");
+        }
+    }
+
+    #[test]
+    fn smash_touch_holds_and_latches_without_pressing_sm64_buttons() {
+        let size = Vec2::new(844.0, 390.0);
+        let mut rects = layout(size, Vec3::ZERO);
+        rects.push((Control::Smash, smash_rect(size, Vec3::ZERO)));
+        let mut tc = TouchControls { smash_active: true, ..default() };
+        assert!(tc.smash_shown(false) && !tc.smash_shown(true), "a mode's slot buttons take over");
+        // Stick held down + SPECIAL: a down special (the stick goes through as usual).
+        tc.begin(1, rects[0].1.center() + Vec2::new(0.0, 50.0), &rects);
+        tc.begin(2, smash_rect(size, Vec3::ZERO).center(), &rects);
+        assert!(tc.smash_down && tc.smash_pressed && tc.is_held(Control::Smash));
+        assert_eq!(tc.buttons, 0, "SPECIAL is not A/B/Z");
+        assert!(tc.stick.y < -40.0);
+        tc.end(2);
+        assert!(!tc.smash_down && tc.smash_pressed, "the edge survives until read");
+        tc.clear();
+        assert!(!tc.smash_pressed);
+        for hide in [TouchControls { smash_active: true, hide_pad: true, ..default() }, TouchControls { smash_active: true, extra_active: true, ..default() }, TouchControls { smash_active: true, banjo_active: true, ..default() }, TouchControls::default()] {
+            assert!(!hide.smash_shown(false));
+        }
+    }
+
     // ---- last-used input device ----
 
     fn overlay_app(device: crate::last_input::InputDevice) -> App {
@@ -832,5 +932,28 @@ mod tests {
         app.insert_resource(crate::last_input::LastInput::new(InputDevice::Touch));
         app.update();
         assert!(displays(&mut app).0.iter().any(|d| *d == Display::Flex));
+    }
+
+    fn smash_display(app: &mut App) -> Display {
+        let world = app.world_mut();
+        world.query::<(&TouchPart, &Node)>().iter(world).find(|(p, _)| p.0 == Control::Smash).unwrap().1.display
+    }
+
+    /// SPECIAL is drawn only for a Smash fighter, and hides with a gamepad or while a mode hides the pad.
+    #[test]
+    fn smash_button_shows_for_smash_and_hides_with_a_gamepad() {
+        use crate::last_input::InputDevice;
+        let mut app = overlay_app(InputDevice::Touch);
+        assert_eq!(smash_display(&mut app), Display::None, "not a Smash fighter");
+        app.world_mut().resource_mut::<TouchControls>().smash_active = true;
+        app.update();
+        assert_eq!(smash_display(&mut app), Display::Flex);
+        app.insert_resource(crate::last_input::LastInput::new(InputDevice::Gamepad));
+        app.update();
+        assert_eq!(smash_display(&mut app), Display::None, "a pad hides it");
+        app.insert_resource(crate::last_input::LastInput::new(InputDevice::Touch));
+        app.world_mut().resource_mut::<TouchControls>().hide_pad = true;
+        app.update();
+        assert_eq!(smash_display(&mut app), Display::None, "a mode hid the pad");
     }
 }

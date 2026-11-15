@@ -171,8 +171,8 @@ impl Character {
     pub fn controls_hint_touch(self) -> &'static str {
         match self {
             Self::Link | Self::YoungLink => "L LOCK-ON - B SWORD - C BUTTONS AND ITEMS FOR THE REST",
-            // No on-screen special button yet: the specials need a keyboard or a pad.
-            Self::Smash(_) => "A = JUMP - B = ATTACK - Z = POUND",
+            // The on-screen SPECIAL button (`touch::Control::Smash`), left of B.
+            Self::Smash(_) => "B ATTACK - SPECIAL (WITH STICK UP OR DOWN)",
             other => other.controls_hint(),
         }
     }
@@ -184,7 +184,8 @@ impl Character {
             Self::Banjo => "B CLAW - R1 CROUCH - R2 R - D-PAD C BUTTONS",
             Self::Mario => "A = JUMP - HOLD FOR HEIGHT",
             Self::Bowser => "A = JUMP - B = FIRE BREATH",
-            Self::Smash(_) => "B = ATTACK - R2 = SPECIAL (+ STICK UP / DOWN)",
+            // X is the special as B is in Smash (`smash::west_is_special`), R2 is the N64 R.
+            Self::Smash(_) => "B ATTACK - X OR R2 SPECIAL (WITH STICK UP OR DOWN)",
         }
     }
 
@@ -722,5 +723,7 @@ mod tests {
         assert!(Character::Link.controls_hint_touch().contains("B SWORD") && !Character::Link.controls_hint_touch().contains("TAB"));
         assert!(Character::YoungLink.controls_hint().contains("J SWORD"));
         assert!(Character::Link.controls_hint_pad().contains("R1 SHIELD") && Character::Link.controls_hint_pad().contains("L2 LOCK-ON"));
+        let falcon = Character::Smash(smash::Fighter::ALL[0]);
+        assert!(falcon.controls_hint_touch().contains("SPECIAL") && falcon.controls_hint_pad().contains("X OR R2 SPECIAL") && falcon.controls_hint().contains("H = SPECIAL"));
     }
 }

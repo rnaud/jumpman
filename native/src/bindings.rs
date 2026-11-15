@@ -62,7 +62,7 @@ impl Action {
             Action::OrbitLeft => "Orbit camera left",
             Action::OrbitRight => "Orbit camera right",
             Action::Focus => "L: lock-on (Link)",
-            Action::RButton => "R: aim / Banjo R",
+            Action::RButton => "R: aim / Banjo R / special",
             Action::Reset => "Restart the run",
             Action::CycleCamera => "Cycle camera",
             Action::SnapCamera => "Snap camera behind",
@@ -230,6 +230,19 @@ impl Bindings {
     }
     pub fn pad_just_pressed(&self, pad: &Gamepad, a: Action) -> bool {
         self.pad_buttons(a).iter().any(|b| pad.just_pressed(*b))
+    }
+
+    /// X (`GamepadButton::West`) is the Smash fighters' special button, as B is in Smash, unless the player gave it an
+    /// action of their own: it is taken while it is bound to nothing, to R already, or is just one of Z's extra buttons
+    /// (the default Z = R1 / X / Y). A Crouch the player bound to X alone is their choice and keeps X.
+    pub fn smash_takes_west(&self) -> bool {
+        const X: GamepadButton = GamepadButton::West;
+        let holders: Vec<Action> = self.pad.iter().filter(|(_, v)| v.contains(&X)).map(|(a, _)| *a).collect();
+        match holders.as_slice() {
+            [] | [Action::RButton] => true,
+            [Action::Crouch] => self.pad_buttons(Action::Crouch).len() > 1,
+            _ => false,
+        }
     }
 
     pub fn key_text(&self, a: Action) -> String {
@@ -450,7 +463,7 @@ mod tests {
     fn controls_screen_rows_show_the_new_layout() {
         let b = Bindings::default();
         let rows: Vec<(String, String)> = Action::PAD.iter().map(|&x| (x.label().to_string(), b.pad_text(x))).collect();
-        for (label, buttons) in [("Z: crouch / guard / pound", "R1 / X / Y"), ("L: lock-on (Link)", "L2"), ("R: aim / Banjo R", "R2")] {
+        for (label, buttons) in [("Z: crouch / guard / pound", "R1 / X / Y"), ("L: lock-on (Link)", "L2"), ("R: aim / Banjo R / special", "R2")] {
             assert!(rows.contains(&(label.to_string(), buttons.to_string())), "{label} -> {buttons} in {rows:?}");
         }
         assert!(rows.iter().all(|(l, t)| l.is_ascii() && t.is_ascii() && !t.contains("LB") && !t.contains("RT")));
@@ -482,6 +495,38 @@ mod tests {
         let json = b.to_json();
         assert!(json.contains("\"version\":2"));
         assert_eq!(Bindings::from_json(&json), b);
+    }
+
+    /// The Smash fighters' pad special: R2 (`RButton`) with the defaults and with every v1 file, plus X unless the
+    /// player gave X an action of their own.
+    #[test]
+    fn smash_special_reaches_the_pad_from_default_and_v1_bindings() {
+        let b = Bindings::default();
+        assert_eq!(b.pad_buttons(Action::RButton), &[GamepadButton::RightTrigger2]);
+        assert!(b.smash_takes_west(), "X is only an extra Z by default");
+        // A v1 file with the untouched old defaults (no RButton entry, Crouch on X / Y / L2 / R2): R moves to R2.
+        let v1 = r#"{"pad":{"Jump":["South"],"Punch":["East"],"Crouch":["West","North","LeftTrigger2","RightTrigger2"],"Focus":["LeftTrigger"]}}"#;
+        let b = Bindings::from_json(v1);
+        assert_eq!(b.pad_buttons(Action::RButton), &[GamepadButton::RightTrigger2]);
+        assert!(b.smash_takes_west());
+        // A v1 file whose Crouch was rebound to R2 alone: R2 stays the player's Z, so R has no pad button, but X is free.
+        let v1 = r#"{"pad":{"Crouch":["RightTrigger2"]}}"#;
+        let b = Bindings::from_json(v1);
+        assert!(b.pad_buttons(Action::RButton).is_empty());
+        assert!(b.pad_buttons(Action::Crouch) == [GamepadButton::RightTrigger2] && b.smash_takes_west(), "X is unbound: the special");
+        // A v1 Crouch kept on X among others (only the triggers changed): X is still just an extra Z.
+        let v1 = r#"{"pad":{"Crouch":["West","North","LeftTrigger2"]}}"#;
+        assert!(Bindings::from_json(v1).smash_takes_west());
+        // Rebinds the player made to X are respected.
+        let mut b = Bindings::default();
+        b.rebind_pad(Action::Punch, GamepadButton::West);
+        assert!(!b.smash_takes_west(), "X is the player's punch");
+        let mut b = Bindings::default();
+        b.rebind_pad(Action::Crouch, GamepadButton::West);
+        assert!(!b.smash_takes_west(), "a Z bound to X alone stays a Z");
+        let mut b = Bindings::default();
+        b.rebind_pad(Action::RButton, GamepadButton::West);
+        assert!(b.smash_takes_west(), "X as R is the special anyway");
     }
 
     #[test]

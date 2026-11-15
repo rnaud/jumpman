@@ -55,7 +55,7 @@
 //! face swaps (blinks), items, and voices: the fighters use the `ssb64` id, mapped to the `silent` voice set (SM64's hit
 //! sound and the star jingle).
 //!
-//! Specials: the special button (N64 R: `Action::RButton`, H / R2; [`smash_input`]) plays the fighter's neutral / up / down
+//! Specials: the special button (N64 R: `Action::RButton`, H / R2, plus X on a pad and the touch SPECIAL button; [`smash_input`]) plays the fighter's neutral / up / down
 //! special on the sim (`jumpman_sim::smash`, see `native/SSB64.md`); while one runs this view plays its motions
 //! (`SmashExt::motion`) instead of the table above and holds the root-motion joint still ([`root_motion_clips`]).
 //! Projectiles, effects, sound messages and goomba hits are `smash_fx.rs`.
@@ -1005,25 +1005,55 @@ fn hold_root_motion(mut view: ResMut<SmashView>, children: Query<&Children>, nam
     }
 }
 
-/// The special button for the Smash fighters: N64 R (`Action::RButton`: H on the keyboard, R2 on a pad) into `R_TRIG`.
-/// Runs after Banjo's C-button reader, which owns the extra bits while Banjo plays. Touch has no special button.
-fn smash_input(
+/// X on a pad (`GamepadButton::West`) is the special button, as B is in Smash: a Smash fighter plays outside a mode (the
+/// modes read X themselves) and the player has not given X an action of their own ([`Bindings::smash_takes_west`]).
+/// `input::read_input` then stops reading X as one of Z's extra buttons (Z held = down special: every X press would
+/// come out as a down special).
+///
+/// [`Bindings::smash_takes_west`]: crate::bindings::Bindings::smash_takes_west
+pub fn west_is_special(current: &Character, in_mode: bool, bindings: &crate::bindings::Bindings) -> bool {
+    matches!(current, Character::Smash(_)) && !in_mode && bindings.smash_takes_west()
+}
+
+/// The special button for the Smash fighters into `R_TRIG`, held and latched: N64 R (`Action::RButton`: H on the
+/// keyboard, R2 on a pad), X on a pad ([`west_is_special`]) and the touch SPECIAL button (`touch::Control::Smash`,
+/// offered here through `TouchControls::smash_active`). Up / down specials come from the stick or held A / Z as usual.
+/// Runs after Banjo's C-button reader, which owns the extra bits while Banjo plays.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn smash_input(
     current: Res<Character>,
     keys: Res<ButtonInput<KeyCode>>,
     pads: Query<&Gamepad>,
     bindings: Option<Res<crate::bindings::Bindings>>,
     mut input: ResMut<crate::input::PlayerInput>,
+    slot: Option<Res<crate::experiments::ExperimentSlot>>,
+    state: Option<Res<crate::shell::AppState>>,
+    tc: Option<ResMut<crate::touch::TouchControls>>,
 ) {
-    if !matches!(*current, Character::Smash(_)) {
+    let smash = matches!(*current, Character::Smash(_));
+    let in_mode = slot.as_ref().is_some_and(|s| s.id.is_some());
+    let playing = state.is_none_or(|s| *s == crate::shell::AppState::Playing);
+    let mut touch = (false, false);
+    if let Some(mut tc) = tc {
+        tc.smash_active = smash && playing && !in_mode;
+        if tc.smash_active {
+            touch = (tc.smash_down, std::mem::take(&mut tc.smash_pressed));
+        } else {
+            tc.smash_down = false;
+            tc.smash_pressed = false;
+        }
+    }
+    if !smash {
         return;
     }
     use crate::bindings::Action;
     let r_keys = bindings.as_ref().map(|b| b.keys(Action::RButton)).unwrap_or(&[]);
     let pad = pads.iter().next();
-    let pad_held = pad.is_some_and(|p| bindings.as_ref().map_or_else(|| p.pressed(GamepadButton::RightTrigger2), |b| b.pad_pressed(p, Action::RButton)));
-    let pad_tap = pad.is_some_and(|p| bindings.as_ref().map_or_else(|| p.just_pressed(GamepadButton::RightTrigger2), |b| b.pad_just_pressed(p, Action::RButton)));
-    let held = r_keys.iter().any(|k| keys.pressed(*k)) || pad_held;
-    let tapped = r_keys.iter().any(|k| keys.just_pressed(*k)) || pad_tap;
+    let west = bindings.as_ref().map_or(!in_mode, |b| west_is_special(&current, in_mode, b));
+    let pad_held = pad.is_some_and(|p| bindings.as_ref().map_or_else(|| p.pressed(GamepadButton::RightTrigger2), |b| b.pad_pressed(p, Action::RButton)) || (west && p.pressed(GamepadButton::West)));
+    let pad_tap = pad.is_some_and(|p| bindings.as_ref().map_or_else(|| p.just_pressed(GamepadButton::RightTrigger2), |b| b.pad_just_pressed(p, Action::RButton)) || (west && p.just_pressed(GamepadButton::West)));
+    let held = r_keys.iter().any(|k| keys.pressed(*k)) || pad_held || touch.0;
+    let tapped = r_keys.iter().any(|k| keys.just_pressed(*k)) || pad_tap || touch.1;
     if held {
         input.extra_down |= R_TRIG;
     } else {
@@ -1370,5 +1400,65 @@ mod tests {
         app.update();
         app.update();
         assert_eq!(app.world_mut().query::<&SmashRoot>().iter(app.world()).count(), 0);
+    }
+
+    /// Every special button reaches `R_TRIG` (held, and latched for the next step): R2 and X on a pad with the default
+    /// bindings, and the touch SPECIAL button, which is offered only to a Smash fighter outside a mode.
+    #[test]
+    fn special_buttons_reach_r_trig() {
+        use crate::bindings::Bindings;
+        use crate::input::PlayerInput;
+        use crate::last_input::testing::{end_frame, press, release, spawn_pad};
+        use crate::touch::TouchControls;
+        let mut app = App::new();
+        app.insert_resource(Bindings::default())
+            .insert_resource(Character::Smash(Fighter::ALL[0]))
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<TouchControls>()
+            .init_resource::<PlayerInput>()
+            .init_resource::<crate::experiments::ExperimentSlot>()
+            .add_systems(Update, smash_input);
+        let pad = spawn_pad(&mut app);
+        let r_for = |app: &mut App, button: GamepadButton| {
+            press(app, pad, button);
+            app.update();
+            let held = app.world().resource::<PlayerInput>().extra_down & R_TRIG != 0;
+            let edge = app.world_mut().resource_mut::<PlayerInput>().consume_step().button_pressed & R_TRIG != 0;
+            release(app, pad, button);
+            end_frame(app, pad);
+            app.update();
+            app.world_mut().resource_mut::<PlayerInput>().consume_step();
+            assert_eq!(app.world().resource::<PlayerInput>().extra_down & R_TRIG, 0, "{button:?} released");
+            held && edge
+        };
+        assert!(r_for(&mut app, GamepadButton::RightTrigger2), "R2 = special");
+        assert!(r_for(&mut app, GamepadButton::West), "X = special");
+        assert!(!r_for(&mut app, GamepadButton::RightTrigger), "R1 is Z, not special");
+        assert!(!r_for(&mut app, GamepadButton::North));
+        assert!(app.world().resource::<TouchControls>().smash_active, "the touch SPECIAL is offered");
+
+        // Touch: a tap shorter than a frame still latches; holding keeps R_TRIG down.
+        app.world_mut().resource_mut::<TouchControls>().smash_pressed = true;
+        app.update();
+        assert_eq!(app.world_mut().resource_mut::<PlayerInput>().consume_step().button_pressed & R_TRIG, R_TRIG);
+        assert!(!app.world().resource::<TouchControls>().smash_pressed, "drained");
+        app.world_mut().resource_mut::<TouchControls>().smash_down = true;
+        app.update();
+        assert_ne!(app.world().resource::<PlayerInput>().extra_down & R_TRIG, 0);
+        app.world_mut().resource_mut::<TouchControls>().smash_down = false;
+        app.update();
+        assert_eq!(app.world().resource::<PlayerInput>().extra_down & R_TRIG, 0);
+
+        // Inside a mode: no touch SPECIAL and X is the mode's own button again; R2 still works.
+        app.world_mut().resource_mut::<crate::experiments::ExperimentSlot>().id = Some(crate::experiments::ExperimentId::Brawl);
+        assert!(!r_for(&mut app, GamepadButton::West));
+        assert!(r_for(&mut app, GamepadButton::RightTrigger2));
+        assert!(!app.world().resource::<TouchControls>().smash_active);
+
+        // Not a Smash fighter: nothing.
+        app.world_mut().resource_mut::<crate::experiments::ExperimentSlot>().id = None;
+        app.insert_resource(Character::Mario);
+        assert!(!r_for(&mut app, GamepadButton::West));
+        assert!(!app.world().resource::<TouchControls>().smash_active);
     }
 }
