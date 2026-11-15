@@ -11,9 +11,11 @@ in an app bundle; the decomp only supplies names and tables (three files plus fo
   `reference/roms/ssb64-us.z64`.
 - Exporters: `scripts/export-ssb64.py` (reference, standard library only) and its byte-identical Rust port
   `native/byor-rs/src/ssb64.rs` (what the apps run). `byor-rs --ssb64 ROM` / `pipeline.py --ssb64 ROM` import it like the
-  other games; the setup screen lists it as "Super Smash Bros. (US) [fighters]".
+  other games; the setup screen lists it as "Super Smash Bros. (US) [fighters, stages, music]" (import stamp version 3).
 - Output (data dir): `public/models/ssb64/<fighter>.glb` for mario, fox, donkey, samus, luigi, link, yoshi, captain, kirby,
   pikachu, purin (Jigglypuff), ness and boss (Master Hand), and `public/models/ssb64/fighters.json`. About 49 MB in all.
+  Plus the voices (see Sounds), the 41 stages (`assets/courses/ssb64_*`, `assets/levels/ssb64_*`, about 5 MB, see Stages)
+  and the music (`assets/audio/music/ssb64`, about 1.3 MB, see Music).
 - Viewer: `native/examples/ssb64_view.rs` loads one glb on a floor, plays clips and saves off-screen stills (headless).
 
 ## File system: relocData
@@ -241,6 +243,16 @@ Use in the moves (`native/sim/src/smash.rs`):
 - `byor/check-manifest.py --trace --ssb64 ROM --strict-unused`: the import reads exactly the manifest files (18 with
   `include/ft/motiondesc_offsets.h`).
 
+- `python3 -m unittest byor/test_ssb64_stages.py` (from `native/`): the AObjEvent32 interpreter, the extrusion's
+  winding per line kind, the pass-through flag, the stage table, the ALSeqFile reader and the BGM names (synthetic data).
+- `cargo test -p byor-rs --test ssb64_stages_rom`: with `BYOR_TEST_SSB64_ROM` all 41 stages and the 47 sequences export
+  (four player starts on every VS stage, spawn inside the blast zones, a floor line); with `BYOR_TEST_SSB64_STAGES_REF` /
+  `BYOR_TEST_SSB64_MUSIC_REF` (the `--out` folders of the Python exporters) every file is byte-identical (they are).
+- `cargo test -p jumpman game::ssb64 ssb64_music` (with the import in `assets/` or `JUMPMAN_SMASH_TEST_ASSETS`): every stage
+  loads, Mario lands on the spawn's floor, walks left / right and never leaves the depth band; the moving platforms of
+  Congo Jungle, Saffron City, Peach's Castle and Planet Zebes move and carry him; the music renders.
+- `byor/check-manifest.py --trace --ssb64 ROM --strict-unused`: the import reads exactly the 17 manifest files.
+
 ## Playable fighters
 
 The twelve fighters are playable as skins on Mario's sim, like the playable Bowser (`native/src/characters/smash.rs`;
@@ -334,10 +346,92 @@ Not done: the ROM's weapon / effect models (fireball, Charge Shot, PK Thunder...
 the fighters themselves (the scripts' knockback inputs are on every hit), shields, the specials in Gem Clash, a
 touch special button.
 
+## Stages
+
+`scripts/export-ssb64-stages.py` (reference; it reuses the fighter exporter's relocData reader, F3DEX2 / RDP interpreter
+and glTF writer) and its byte-identical port `native/byor-rs/src/ssb64_stages.rs` (run by `ssb64::run`) export all 41
+grounds of `dMPCollisionGroundFileInfos` (`src/mp/mpcollision.c`): the nine VS stages (Peach's Castle, Sector Z, Congo
+Jungle, Planet Zebes, Hyrule Castle, Yoshi's Island, Dream Land, Saffron City, Mushroom Kingdom), Final Destination, Meta
+Crystal, Duel Zone (the Battlefield-style polygon stage), Race to the Finish, How to Play, the 1P mini Yoshi's Island, the
+beta Dream Land and the test stage, and the twelve Break the Targets and twelve Board the Platforms stages. Output (data
+dir, ~1.9 s in Rust, ~80 s in Python): `assets/courses/ssb64_<stage>.json` (a regular course document),
+`assets/levels/ssb64_<stage>/stage.glb`, `part_<n>.glb` for each moving platform, `assets/courses/ssb64_stages.json`.
+
+| What | Where in the decomp | Format |
+|---|---|---|
+| Stage file | `GR<Name>Map` (`tools/relocFileDescriptions.us.txt`), `MPGroundData` (`src/mp/mptypes.h`) at 0x14 in the VS maps (after their item weights; found as the offset whose +0x40 map geometry and +0x84 item weights are pointers) and 0 in the others | four `MPGroundDesc` layers, `map_geometry`, `layer_mask`, fog colour, light angle, camera bounds, `map_bound_*` (blast zones), `bgm_id`, `map_nodes`, `alt_warning`. |
+| Geometry | `grDisplayMakeGeometryLayer` (`src/gr/grdisplay.c`), `gcSetupCustomDObjs` (`src/sys/objanim.c`) | Each layer is a DObjDesc tree (`id & 0xFFF` = depth) with `MObjSub` lists (materials, `costume` = frame 0 of the material animations) and AObjEvent32 joint animations; a layer whose `layer_mask` bit is set carries `DObjDLLink {list_id, dl}` lists (opaque 0, translucent 1) instead of one display list. 63-451 triangles a stage. |
+| Joint animation | `gcParseDObjAnimJoint` / `gcPlayDObjAnimJoint` (`src/sys/objanim.c`) | AObjEvent32: `{opcode:7, flags:10, payload:15}` then one f32 per flagged track (two for the rate forms); SetVal (linear), SetValRate / SetVal0Rate (Hermite), SetValAfter (step), Wait, Jump / SetAnim (loop). Run frame by frame like the figatree interpreter; one period is kept (up to 7200 frames: Peach's Castle's platform loops every 4800). |
+| Collision | `MPGeometryData`, `mpCollision*` (`src/mp/mpcollision.c`), `src/mp/mpdef.h` | `yakumono_count` groups (`MPLineInfo`: id + {first line, count} for floor, ceiling, right wall, left wall); a line is a polyline of vertex ids (`MPVertexLinks {first, count}` into the id array); a vertex is `{s16 x, y; u16 flags}`: `0x4000` pass-through, `0x8000` ledge, low byte = material. Yakumono *i* moves with DObj *i* of layer 1 (`mpCollisionAllocYakumono`) when that DObj is animated: its lines are relative to the DObj's translation. |
+| Map objects | `MPMapObjData {u16 kind; s16 x, y}`, `MPMapObjKind` (`src/mp/mpdef.h`) | 0-3 player starts, 4 item spawns, 0x20 respawn point, ... |
+
+**3D play.** SSB64 stages are 2D lines (x right, y up, the camera looks down -z). Each line segment is extruded into a
+quad over a depth band `z` in `[-360, 360]` SM64 units (about 1030 SSB64 units, a little wider than a fighter's stance and
+inside most stages' visible depth), wound so floors face up, ceilings down and right / left walls +x / -x: Mario's sim
+(and anything using `CollisionWorld`) walks the stage's real surfaces. Pass-through platforms are just floor lines with no
+ceiling or wall, so they are one-way like in SSB64 (jump through from below, land on top; dropping through on down is
+not done); their triangles are listed in `passTriangles` (ledges in `ledgeTriangles`). Two invisible walls (surface `0x76`,
+no camera collision) close the band at `z = +-360` across the whole blast zone, so a fighter knocked or walking toward the
+camera or the background stays in the plane, also off stage. Scale: `K` = 0.348 SM64 units per SSB64 unit, the fighters'
+common scale (Smash Mario 460 tall = SM64 Mario 160). The spawn is player 1's start dropped onto the floor below it,
+facing the camera side (`faceYaw` 0x8000), so the follow camera starts in front of the stage like SSB64's.
+
+**Blast zones / death.** `deathHeight` = the bottom blast line and `horizontalBoundary` = the nearer side blast line, so
+falling or walking out kills through the sim's own void check (the top blast line only matters with knockback). The
+`ssb64` block of the course json exposes `blast`, `camera`, `warning` (the whistle height), `players`, `items`, `rebirth`
+(SM64 units, `z` = 0), `bgm`, `fog`, the yakumono list and the moving `parts`; `game::ssb64::Stage` reads it.
+
+**Moving parts.** Every DObj whose animation changes its pose is cut out of the static mesh with its subtree:
+- a moving yakumono of layer 1 (a platform with collision) becomes a surface object: its lines go to `extraCollision`
+  (relative to the DObj), its model to `part_<id>.glb` (relative to its frame-0 translation) and its translation, one row per
+  30 Hz tick, to the `track` of a `ssb64Yakumono` solid (`native/sim/src/solids/ssb64.rs`), which replays it in a loop and
+  carries a rider (`apply_platform_displacement`). Working: Peach's Castle's sliding platform under the stage and its
+  two moving blocks, Congo Jungle's two floating platforms, Planet Zebes's rising platform, Saffron City's two elevators,
+  the test stage's two platforms and every moving platform of Board the Platforms (2-8 a stage).
+- the others (scenery) stay in `stage.glb` under a `parts` node, one looping glTF clip each, played by
+  `render::ssb64_stage`: Sector Z's passing ships, Yoshi's Island's turning and drifting background pieces, Mushroom Kingdom's
+  background, Final Destination's spinning backdrop, the beta Dream Land's swaying trees.
+
+Not done (code-driven in SSB64, `src/gr/grcommon/*.c`): Peach's Castle's bumper, Sector Z's Arwing and its lasers, Congo
+Jungle's barrel cannon, Planet Zebes's acid (the rising and falling lake), Hyrule Castle's tornado, Yoshi's Island's
+cloud platforms vanishing, Dream Land's Whispy wind, Saffron City's Pokémon door, Mushroom Kingdom's POW block / Piranha
+Plants / scale platforms, the Break the Targets targets and the Board the Platforms goal platforms (the course is there,
+the objects are not), the wallpaper (the 2D background image behind each stage; the sky uses the fog colour instead).
+
+**In the game.** A SMASH group in the level select lists the imported stages (the retro LEVELS page: "SUPER SMASH BROS.",
+"BREAK THE TARGETS", "BOARD THE PLATFORMS"; the hub's course grid too); any character, the Smash fighters included, can be
+played there (`JUMPMAN_COURSE=ssb64_pupupu`). Other modes load one by id: `game::ssb64::load(assets, "pupupu")` (or
+`"ssb64_pupupu"`) returns a `LoadedCourse`; `game::ssb64::stage(assets, id)` the `Stage` block; `STAGES`,
+`battle_stages()`, `installed()` list them.
+
+## Music
+
+`scripts/export-ssb64-music.py` and its byte-identical port `native/byor-rs/src/ssb64_music.rs` write
+`assets/audio/music/ssb64/`: `seq_NN.bin` (the 47 BGM sequences), `bank.ctl` / `bank.tbl` (the music instrument bank) and
+`music.json` (id, name from `gmMusicID` in `src/gm/gmsound.h`, division, channels, volume; `menu` = main menu, character /
+stage select, results, training, data, opening, credits, stage clear, game over; `victory` = each fighter's fanfare).
+
+| What | Where | Format |
+|---|---|---|
+| Sequences | `S1_music.sbk` ROM `0xB277B0` (`smashbrothers.us.yaml`, `MUSIC_AND_SFX_DISCOVERIES.md`) | libultra `ALSeqFile` ('S1'): 47 compact-MIDI files (`ALCMidiHdr`: 16 track offsets + division 480), played by `n_alCSPlay`; BGM id = sequence index (`syAudioPlayBGM`). |
+| Bank | `B1_sounds1.ctl` `0xB4E5C0`, `.tbl` `0xB54CE0` | `ALBankFile` ('B1'), 43 instruments + percussion, VADPCM, 32 kHz. |
+
+It is the same format Banjo-Kazooie uses, so the game plays it with BK's software sequence player
+(`bk_music::synth`, given SSB64's 32 kHz output rate): `native/src/ssb64_music.rs` plays each stage's `bgm` (from its map
+header: Dream Land's theme on Dream Land, ...; Final Destination's header names the Master Hand theme) while a Smash stage
+is loaded, stepping the SM64 music aside. The menu / victory themes are exported and named but nothing plays them yet (the
+menus have no per-game music). Not modelled: reverb, the Mushroom Kingdom hurry theme, the hammer / star themes.
+`cargo test -p jumpman ssb64_music` renders 15 themes (stage, menu, victory) and checks they are audible;
+`JUMPMAN_SSB64_MUSIC_WAV=<dir>` writes 20 s WAVs of them.
+
 ## Not done yet
 
 - Costumes other than 0, face (texture part) swaps, hand model parts (open / closed fists), low-poly models, the polygon /
   metal / giant variants (NMario, MMario, GDonkey), accessories (Pikachu's hat, Jigglypuff's bow), playing the motion scripts' effects and sound timing (exported, not
   used yet), the throw / damage-thrown scripts and hurtbox events on the sim; music, stage / item / menu
   sounds and the announcer, item and weapon models, stages.
+
+  metal / giant variants (NMario, MMario, GDonkey), accessories (Pikachu's hat, Jigglypuff's bow), hitboxes and the
+  motion event scripts (when each sound plays, effects, hitbox timing in `*MainMotion` files); stage / item / menu
+  sounds and the announcer, item and weapon models, the code-driven stage hazards (see Stages).
 - The `TraI` spline track is ignored (no exported motion uses it visibly).

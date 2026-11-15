@@ -70,7 +70,7 @@ fn be32(d: &[u8], o: usize) -> R<u32> {
 fn bef32(d: &[u8], o: usize) -> R<f64> {
     Ok(f32::from_bits(be32(d, o)?) as f64)
 }
-fn f32r(x: f64) -> f64 {
+pub(crate) fn f32r(x: f64) -> f64 {
     x as f32 as f64
 }
 
@@ -378,7 +378,7 @@ pub(crate) fn apply(m: &M4, v: [f64; 3], w: f64) -> [f64; 3] {
     [f(0), f(1), f(2)]
 }
 
-fn quat(r: [f64; 3]) -> [f64; 4] {
+pub(crate) fn quat(r: [f64; 3]) -> [f64; 4] {
     let (cx, sx) = (libm::cos_(r[0] / 2.0), libm::sin_(r[0] / 2.0));
     let (cy, sy) = (libm::cos_(r[1] / 2.0), libm::sin_(r[1] / 2.0));
     let (cz, sz) = (libm::cos_(r[2] / 2.0), libm::sin_(r[2] / 2.0));
@@ -584,7 +584,7 @@ fn uses(mode: (u32, u32), two: bool, inputs: &[u32]) -> bool {
 // ------------------------------------------------------------------------------------------------ display lists
 
 const G_LIGHTING: u32 = 0x0002_0000;
-const G_CULL_BACK: u32 = 0x0000_0400;
+pub(crate) const G_CULL_BACK: u32 = 0x0000_0400;
 const G_CULL_FRONT: u32 = 0x0000_0200;
 const G_TEXTURE_GEN: u32 = 0x0004_0000;
 
@@ -599,7 +599,7 @@ struct Cached {
 
 #[derive(Clone)]
 #[allow(dead_code)] // fmt / block_fmt mirror the MObjSub layout; the TMEM model does not need them
-struct MObj {
+pub(crate) struct MObj {
     fmt: u8,
     siz: u8,
     sprites: Option<Ref>,
@@ -636,47 +636,47 @@ struct Timg {
 
 type Uv = (i64, i64, i64, i64, f64, f64, (f64, f64));
 
-struct Material {
+pub(crate) struct Material {
     uv: Option<Uv>,
-    vcol: bool,
-    double: bool,
-    image: Option<(usize, usize, Vec<u8>)>,
-    wrap: (i64, i64),
-    alpha: &'static str,
-    color: [f64; 4],
+    pub(crate) vcol: bool,
+    pub(crate) double: bool,
+    pub(crate) image: Option<(usize, usize, Vec<u8>)>,
+    pub(crate) wrap: (i64, i64),
+    pub(crate) alpha: &'static str,
+    pub(crate) color: [f64; 4],
 }
 
-struct Vert {
-    joint: usize,
-    pos: [f64; 3],
-    nrm: Option<[f64; 3]>,
-    uv: [f64; 2],
-    col: Option<[f64; 4]>,
+pub(crate) struct Vert {
+    pub(crate) joint: usize,
+    pub(crate) pos: [f64; 3],
+    pub(crate) nrm: Option<[f64; 3]>,
+    pub(crate) uv: [f64; 2],
+    pub(crate) col: Option<[f64; 4]>,
 }
 
-struct Mesh<'f, 'a> {
+pub(crate) struct Mesh<'f, 'a> {
     files: &'f Files<'a>,
     cache: Vec<Option<Cached>>,
-    verts: Vec<Vert>,
-    tris: Vec<Vec<usize>>,
+    pub(crate) verts: Vec<Vert>,
+    pub(crate) tris: Vec<Vec<usize>>,
     keys: Vec<Vec<u8>>,
-    materials: Vec<Material>,
+    pub(crate) materials: Vec<Material>,
     tmem: [u8; 4096],
     tiles: [Tile; 8],
     timg: Option<Timg>,
-    geom: u32,
+    pub(crate) geom: u32,
     combine: (u32, u32),
     prim: [f64; 4],
     prim_lod: f64,
     env: [f64; 4],
-    light1: [f64; 3],
+    pub(crate) light1: [f64; 3],
     light2: [f64; 3],
     tex_on: bool,
     tex_scale: (f64, f64),
     tex_tile: usize,
     other_h: u32,
-    mobjs: Vec<MObj>,
-    unknown: std::collections::BTreeSet<String>,
+    pub(crate) mobjs: Vec<MObj>,
+    pub(crate) unknown: std::collections::BTreeSet<String>,
     gen: u64,
     last: Option<(u64, usize)>,
 }
@@ -692,7 +692,7 @@ fn push_f(k: &mut Vec<u8>, xs: &[f64]) {
 }
 
 impl<'f, 'a> Mesh<'f, 'a> {
-    fn new(files: &'f Files<'a>) -> Self {
+    pub(crate) fn new(files: &'f Files<'a>) -> Self {
         Mesh {
             files,
             cache: vec![None; 64],
@@ -846,7 +846,7 @@ impl<'f, 'a> Mesh<'f, 'a> {
         Ok(())
     }
 
-    fn run(&mut self, at: Ref, joint: usize, world: &M4) -> R<()> {
+    pub(crate) fn run(&mut self, at: Ref, joint: usize, world: &M4) -> R<()> {
         let file = self.files.get(at.0)?;
         let mut o = at.1;
         loop {
@@ -1116,7 +1116,7 @@ impl<'f, 'a> Mesh<'f, 'a> {
 
 // ------------------------------------------------------------------------------------------------ fighters
 
-fn read_mobjs(files: &Files, list: Option<Ref>) -> R<Vec<MObj>> {
+pub(crate) fn read_mobjs(files: &Files, list: Option<Ref>) -> R<Vec<MObj>> {
     let mut out = vec![];
     let mut k = 0;
     while list.is_some() {
@@ -1163,7 +1163,7 @@ fn read_mobjs(files: &Files, list: Option<Ref>) -> R<Vec<MObj>> {
 }
 
 /// Costume 0 of a material script (AObjEvent32 at frame 0): the values the first block sets.
-fn costume(files: &Files, m: &mut MObj, script: Option<Ref>) -> R<()> {
+pub(crate) fn costume(files: &Files, m: &mut MObj, script: Option<Ref>) -> R<()> {
     let Some((f, mut o)) = script else { return Ok(()) };
     let file = files.get(f)?;
     let d = &file.data;
@@ -1525,19 +1525,19 @@ fn simulate(data: &[u8], mut pos: usize, joint: &Joint) -> R<Vec<Pose>> {
 
 // ------------------------------------------------------------------------------------------------ glTF
 
-struct Gltf {
+pub(crate) struct Gltf {
     bin: Vec<u8>,
-    j: Map<String, Value>,
+    pub(crate) j: Map<String, Value>,
 }
 
-enum Rows<'a> {
+pub(crate) enum Rows<'a> {
     F(&'a [Vec<f64>]),
     U8(&'a [[u8; 4]]),
     Idx(&'a [usize], bool),
 }
 
 impl Gltf {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut j = Map::new();
         j.insert("asset".into(), json!({"version": "2.0", "generator": "jumpman export-ssb64.py"}));
         j.insert("scene".into(), json!(0));
@@ -1548,11 +1548,11 @@ impl Gltf {
         Gltf { bin: vec![], j }
     }
 
-    fn arr(&mut self, k: &str) -> &mut Vec<Value> {
+    pub(crate) fn arr(&mut self, k: &str) -> &mut Vec<Value> {
         self.j.get_mut(k).unwrap().as_array_mut().unwrap()
     }
 
-    fn view(&mut self, data: &[u8], target: Option<u32>) -> usize {
+    pub(crate) fn view(&mut self, data: &[u8], target: Option<u32>) -> usize {
         while self.bin.len() % 4 != 0 {
             self.bin.push(0);
         }
@@ -1569,7 +1569,7 @@ impl Gltf {
         a.len() - 1
     }
 
-    fn accessor(&mut self, rows: Rows, kind: &str, target: Option<u32>, minmax: bool) -> usize {
+    pub(crate) fn accessor(&mut self, rows: Rows, kind: &str, target: Option<u32>, minmax: bool) -> usize {
         let mut data = vec![];
         let (ctype, count) = match &rows {
             Rows::F(r) => {
@@ -1627,7 +1627,7 @@ impl Gltf {
         acc.len() - 1
     }
 
-    fn glb(self) -> Vec<u8> {
+    pub(crate) fn glb(self) -> Vec<u8> {
         let mut j: Map<String, Value> = self.j.into_iter().filter(|(_, v)| v.as_array().is_none_or(|a| !a.is_empty())).collect();
         j.insert("buffers".into(), json!([{"byteLength": self.bin.len()}]));
         let mut js = dumps(&Value::Object(j), None).into_bytes();
@@ -1933,6 +1933,10 @@ pub fn run(source: &Path, stage: &Path, z64: &[u8], progress: &mut dyn FnMut(u32
     crate::ssb64_motions::export(source, z64, &stage.join("public/models/ssb64"))?;
     progress(97, "Exporting Super Smash Bros. voices");
     crate::ssb64_sounds::export(source, z64, &stage.join("assets/audio/voices/ssb64"))?;
+    progress(98, "Exporting Super Smash Bros. stages");
+    crate::ssb64_stages::export(source, z64, &stage.join("assets"), None, &mut |m| eprintln!("{m}"))?;
+    progress(99, "Exporting Super Smash Bros. music");
+    crate::ssb64_music::export(source, z64, &stage.join("assets/audio/music/ssb64"))?;
     Ok(())
 }
 

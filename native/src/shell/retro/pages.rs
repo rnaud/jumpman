@@ -393,6 +393,21 @@ fn course_items(d: &CourseData) -> Vec<CourseItem> {
                     out.push(CourseItem::Head("BANJO-KAZOOIE WORLDS".into()));
                 }
             }
+        } else if x.series == Series::Smash {
+            // Super Smash Bros.: only the imported stages (an optional import, like the fighters), the bonus stages under
+            // their own headings.
+            if !d.content.course_present(x.id) {
+                continue;
+            }
+            let wanted = match crate::game::ssb64::kind(x.id) {
+                Some(crate::game::ssb64::Kind::Targets) => "BREAK THE TARGETS",
+                Some(crate::game::ssb64::Kind::Platforms) => "BOARD THE PLATFORMS",
+                _ => "SUPER SMASH BROS.",
+            };
+            if section != wanted {
+                section = wanted;
+                out.push(CourseItem::Head(wanted.into()));
+            }
         } else if series != Some(x.series) {
             out.push(CourseItem::Head(
                 match x.series {
@@ -400,6 +415,7 @@ fn course_items(d: &CourseData) -> Vec<CourseItem> {
                     Series::MarioKart => "MARIO KART 64",
                     Series::Zelda => "OCARINA OF TIME",
                     Series::Banjo => "BANJO-KAZOOIE",
+                    Series::Smash => "SUPER SMASH BROS.",
                 }
                 .into(),
             ));
@@ -495,6 +511,32 @@ mod course_tests {
         assert!(closed.iter().any(|i| matches!(i, CourseItem::Toggle(t) if t.ends_with("SHOW"))));
         assert!(open.iter().any(|i| matches!(i, CourseItem::Toggle(t) if t.ends_with("HIDE"))));
         assert!(closed.iter().any(|i| matches!(i, CourseItem::Course("bob", _, true, _))), "the chosen course is lit");
+    }
+
+    /// The Smash stages come under SUPER SMASH BROS., BREAK THE TARGETS and BOARD THE PLATFORMS, and only the imported ones.
+    #[test]
+    fn smash_stages_have_their_group_and_follow_the_import() {
+        let heads = |items: &[CourseItem]| items.iter().filter_map(|i| if let CourseItem::Head(h) = i { Some(h.clone()) } else { None }).collect::<Vec<_>>();
+        let smash = |items: &[CourseItem]| items.iter().filter(|i| matches!(i, CourseItem::Course(id, ..) if id.starts_with("ssb64_"))).count();
+        let all = crate::content::AvailableContent::default();
+        let items = course_items(&CourseData { course: "ssb64_pupupu", act: 1, content: &all, sub_open: false });
+        let h = heads(&items);
+        let at = |name: &str| h.iter().position(|x| x == name).unwrap_or_else(|| panic!("no {name} heading in {h:?}"));
+        assert!(at("SUPER SMASH BROS.") < at("BREAK THE TARGETS") && at("BREAK THE TARGETS") < at("BOARD THE PLATFORMS"));
+        assert_eq!(smash(&items), crate::game::ssb64::STAGES.len());
+        assert!(items.iter().any(|i| matches!(i, CourseItem::Course("ssb64_pupupu", _, true, _))));
+        // an import with only Dream Land lists only Dream Land, under its heading
+        let dir = std::env::temp_dir().join(format!("smash-levels-{}", std::process::id()));
+        let root = dir.join("assets");
+        std::fs::create_dir_all(root.join("courses")).unwrap();
+        for f in ["bob.json", "ssb64_pupupu.json"] {
+            std::fs::write(root.join("courses").join(f), "{}").unwrap();
+        }
+        let some = crate::content::AvailableContent::probe(&root);
+        let items = course_items(&CourseData { course: "bob", act: 1, content: &some, sub_open: false });
+        assert_eq!(smash(&items), 1);
+        assert!(heads(&items).iter().any(|x| x == "SUPER SMASH BROS.") && !heads(&items).iter().any(|x| x == "BREAK THE TARGETS"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
 #[cfg(test)]

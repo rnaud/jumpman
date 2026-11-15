@@ -20,6 +20,8 @@ pub mod sm64;
 pub mod ssb64;
 pub mod ssb64_motions;
 pub mod ssb64_sounds;
+pub mod ssb64_music;
+pub mod ssb64_stages;
 pub mod sm64_import;
 pub mod sound;
 pub mod sound_banks;

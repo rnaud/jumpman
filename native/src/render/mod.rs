@@ -13,6 +13,7 @@ mod g1_view_tests;
 pub mod mario_view;
 pub mod object_view;
 pub mod pickup_view;
+pub mod ssb64_stage;
 
 use bevy::prelude::*;
 use std::path::{Path, PathBuf};
@@ -81,6 +82,7 @@ impl Plugin for RenderPlugin {
             pickup_view::PickupViewPlugin,
             currency_skin::CurrencySkinPlugin,
             billboard::BillboardPlugin,
+            ssb64_stage::Ssb64StagePlugin,
         ));
     }
 }

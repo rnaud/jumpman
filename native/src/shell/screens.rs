@@ -619,6 +619,10 @@ fn levels_tab(body: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ui: &S
                 if sub && !sub_open {
                     continue;
                 }
+                // Super Smash Bros. stages: listed only when imported.
+                if c.series == Series::Smash && !ctx.content.course_present(c.id) {
+                    continue;
+                }
                 if sub && super::bk_picker::group_of(c.name) != group {
                     group = super::bk_picker::group_of(c.name);
                     g.spawn(Node { width: Val::Percent(100.0), margin: UiRect::top(Val::Px(4.0)), ..default() }).with_children(|h| {
@@ -639,6 +643,8 @@ fn levels_tab(body: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ui: &S
                     e.insert(BorderColor::from(hex(0xd98a1f)));
                 } else if c.series == Series::MarioKart {
                     e.insert(BorderColor::from(hex(0xc8281e)));
+                } else if c.series == Series::Smash {
+                    e.insert(BorderColor::from(hex(0x8a8a8a)));
                 }
                 if ctx.content.course_missing(c.id).is_some() {
                     e.insert(Disabled);

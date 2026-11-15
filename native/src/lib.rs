@@ -39,6 +39,7 @@ mod rt_scene;
 mod load_log;
 mod bk_anim_tex;
 mod bk_music;
+mod ssb64_music;
 pub mod hints;
 mod mk64_music;
 mod perf;
@@ -273,6 +274,7 @@ pub fn main() {
         .add_plugins(audio::GameAudioPlugin)
         .add_plugins(mk64_music::Mk64MusicPlugin)
         .add_plugins(bk_music::BkMusicPlugin)
+        .add_plugins(ssb64_music::Ssb64MusicPlugin)
         .add_plugins(hints::HintsPlugin)
         .add_plugins(bk_anim_tex::BkAnimTexturePlugin)
         .add_plugins(audio::bk_events::BkEventSoundsPlugin)
@@ -551,6 +553,7 @@ pub(crate) fn reload_content(world: &mut World) {
     world.insert_resource(now);
     audio::voices::forget_missing();
     bk_music::reload(world);
+    ssb64_music::reload(world);
     link::items3d::reload(world);
     if let Some(mut ui) = world.get_resource_mut::<shell::ShellUi>() {
         ui.dirty = true;

@@ -204,6 +204,7 @@ fn listener(sim: Res<GameSim>, root: Res<AssetRoot>, mut audio: ResMut<GameAudio
         // The exported OoT scenes play the ROM's own sequence (`zelda::music`).
         let mk64 = crate::mk64_music::owns_course(&key.0)
             || crate::bk_music::owns_course(&key.0)
+            || crate::ssb64_music::owns_course(&key.0)
             || crate::zelda_enemies::load_placements(&root.0, &key.0, key.1).is_some_and(|p| p.environment.music.seq != 255);
         audio.course = key;
         audio.override_music = mk64;

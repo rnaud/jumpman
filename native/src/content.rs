@@ -121,6 +121,12 @@ impl AvailableContent {
         }
     }
 
+    /// Whether the course's json is installed (always true when nothing was probed). The optional Super Smash Bros.
+    /// stages are listed only when present.
+    pub fn course_present(&self, id: &str) -> bool {
+        self.courses.as_ref().is_none_or(|set| set.contains(id))
+    }
+
     pub fn character_missing(&self, c: crate::shell::Character) -> Option<Game> {
         use crate::shell::Character::*;
         match c {

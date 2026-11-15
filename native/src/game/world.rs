@@ -387,7 +387,7 @@ impl LoadedCourse {
             visual: CourseVisual::Glb { models },
             world: Arc::new(world),
             spawn,
-            death_height: if min_y.is_finite() { min_y - 500.0 } else { -1600.0 },
+            death_height: data.death_height.unwrap_or(if min_y.is_finite() { min_y - 500.0 } else { -1600.0 }),
             sky: data.sky,
             objects,
             props,
