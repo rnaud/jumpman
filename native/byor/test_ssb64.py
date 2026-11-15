@@ -127,12 +127,55 @@ class DecompTables(unittest.TestCase):
         self.assertEqual(len(tables['Pikachu']['specials']), 16)
 
 
+spec = importlib.util.spec_from_file_location('export_ssb64_sounds', ROOT / 'scripts/export-ssb64-sounds.py')
+snd = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(snd)
+
+
+class Sounds(unittest.TestCase):
+    """scripts/export-ssb64-sounds.py: the FGM interpreters on hand-built programs."""
+
+    def test_cents_ratio_and_packages(self):
+        self.assertEqual(snd.cents_ratio(0), 1.0)
+        self.assertAlmostEqual(snd.cents_ratio(-1200), 0.5, places=3)
+        self.assertEqual(snd.package(bytes([0, 0, 0, 2, 0, 0, 0, 12, 0, 0, 0, 14, 1, 2, 3])), [b'\x01\x02', b'\x03'])
+        self.assertEqual(snd.varint(bytes([0x81, 0x02]), 0), (0x102, 2))
+
+    def test_one_note_through_one_articulation(self):
+        # a fake bank: sound 0 is 64 samples of 1000
+        class FakeBank:
+            sounds = [0]
+
+            def sound(self, i):
+                return [1000] * 64, None
+        # ucd: set_articulation 0, set_volume 255, note pitch_code 13 (0 cents) for 2 frames, stop
+        ucd = [bytes([0xD1, 0, 0xD5, 255, (13 << 3) | 7, 2, 0xD0])]
+        # tbl: trigger 0, vol 127 then wait 10 frames (extended timer byte before the argument), end
+        tbl = [bytes([0x60, 0, 0x08, 10, 127, 0x70])]
+        pcm, cut = snd.Engine(ucd, tbl, [], FakeBank()).render(0)
+        self.assertFalse(cut)
+        self.assertEqual(len(pcm), 64)       # the sample runs out before the 2-frame note ends
+        gain = (127 * (255 * 127 >> 7) * 127 >> 7) / 32768.0
+        self.assertEqual(pcm[0], int(1000 * gain + 0.5))
+
+    @unittest.skipUnless((ex.DECOMP / 'src/gm/gmsound.h').is_file(), 'reference/ssb64 not checked out')
+    def test_enum_names(self):
+        names = snd.voice_names()
+        self.assertEqual(names[0], 'FGMExplodeS')
+        self.assertEqual(names.index('VoiceMarioJump'), 435)
+        self.assertEqual(names.index('FGMMarioSpecialN'), 215)
+        self.assertEqual(names.index('VoiceCaptainSpecialNPunch'), 347)
+        exported = snd.export_list(names)
+        self.assertTrue(set(snd.EXPORT_FGM) <= set(names))
+        self.assertEqual(sum(n.startswith('Voice') for n in exported), 197)
+
+
 class PipelineEntry(unittest.TestCase):
     def test_registered_with_the_decomp_checksum(self):
         label, algo, digests = pipeline.ROMS['ssb64']
         self.assertEqual((algo, digests), ('sha1', {ex.SHA1}))
         self.assertIn('ssb64', pipeline.DO)
-        self.assertEqual(pipeline.GAME_SCRIPTS['ssb64'], ['export-ssb64.py'])
+        self.assertEqual(pipeline.GAME_SCRIPTS['ssb64'], ['export-ssb64.py', 'export-ssb64-sounds.py'])
         self.assertEqual(pipeline.LINKED['ssb64'], 'reference/ssb64')
 
     def test_identified_in_any_byte_order(self):

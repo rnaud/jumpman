@@ -34,7 +34,7 @@ ORIGINAL = ['assets/ui/*', 'assets/audio/kart-voices.json', 'assets/audio/charac
 DENY = ['*/assets/actors/*', '*/assets/levels/*', '*/assets/extracted/*', '*/assets/courses/*',
         '*/assets/oot-dialogue/*', '*/assets/oot-icons/*', '*/assets/animations.json', '*/assets/layouts.json', '*/assets/export-report.json',
         '*/assets/audio/music/*', '*/assets/audio/manifest.json', '*/assets/audio/sfx_*', '*/assets/audio/instruments/*',
-        '*/assets/audio/bowser_organ/*', '*/assets/audio/course_start/*', '*/assets/audio/piranha_music_box/*',
+        '*/assets/audio/bowser_organ/*', '*/assets/audio/course_start/*', '*/assets/audio/piranha_music_box/*', '*/assets/audio/voices/*',
         '*/public/models/oot/*', '*/public/models/bk/*', '*/public/models/ssb64/*', '*/public/mk64/gLR*', '*/public/mk64/hud-*',
         '*/public/mk64/lakitu-*', '*/public/mk64/*-kart.png', '*/public/mk64/mk64-*', '*/public/mk64/luigi-raceway*',
         '*/public/mk64/kart-*']

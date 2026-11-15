@@ -48,7 +48,7 @@ pub fn decomp_dir(source: &Path) -> PathBuf {
 }
 
 // The platform libm, like CPython's `math` module.
-mod libm {
+pub(crate) mod libm {
     extern "C" {
         fn sin(x: f64) -> f64;
         fn cos(x: f64) -> f64;
@@ -1655,7 +1655,7 @@ fn round4(x: f64) -> f64 {
 }
 
 /// Sorted keys at every level (`json.dumps(..., sort_keys=True)`).
-fn sort_keys(v: Value) -> Value {
+pub(crate) fn sort_keys(v: Value) -> Value {
     match v {
         Value::Object(m) => {
             let sorted: BTreeMap<String, Value> = m.into_iter().map(|(k, v)| (k, sort_keys(v))).collect();
@@ -1929,7 +1929,10 @@ pub fn export(source: &Path, z64: &[u8], public: &Path, progress: &mut dyn FnMut
 }
 
 pub fn run(source: &Path, stage: &Path, z64: &[u8], progress: &mut dyn FnMut(u32, &str)) -> R<()> {
-    export(source, z64, &stage.join("public"), progress)
+    export(source, z64, &stage.join("public"), progress)?;
+    progress(97, "Exporting Super Smash Bros. voices");
+    crate::ssb64_sounds::export(source, z64, &stage.join("assets/audio/voices/ssb64"))?;
+    Ok(())
 }
 
 #[cfg(test)]

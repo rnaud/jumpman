@@ -98,3 +98,63 @@ fn ssb64_import_matches_python() {
     assert_eq!(n, 14);
     let _ = std::fs::remove_dir_all(&out);
 }
+
+/// The fighter sounds (native/SSB64.md "Sounds"): every playable fighter gets its voices and its special-move effects.
+#[test]
+fn ssb64_sounds_exist_for_every_fighter() {
+    let Some(z64) = rom() else {
+        eprintln!("skipped: BYOR_TEST_SSB64_ROM not set");
+        return;
+    };
+    let out = std::env::temp_dir().join(format!("byor-ssb64-sounds-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&out);
+    let n = byor_rs::ssb64_sounds::export(&source(), &z64, &out).unwrap();
+    let manifest: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(out.join("manifest-ssb64.json")).unwrap()).unwrap();
+    let clips = manifest["clips"].as_object().unwrap();
+    assert_eq!(clips.len(), n);
+    assert!(n > 200, "{n} sounds");
+    for f in byor_rs::ssb64_sounds::FIGHTER_NAMES {
+        // every fighter has hurt, star-KO and attack voices (SSB64 gives Jigglypuff no plain Dead voice)
+        for v in ["Damage", "DeadUp", "Smash1", "Smash2", "Smash3"] {
+            let name = format!("Voice{f}{v}");
+            let c = clips.get(&name).unwrap_or_else(|| panic!("{name} not exported"));
+            assert!(c["peak"].as_i64().unwrap() > 3000, "{name} is nearly silent");
+            assert!(c["frames"].as_u64().unwrap() > 1600, "{name} is shorter than 50 ms");
+            let wav = std::fs::read(out.join(format!("{name}_0.wav"))).unwrap();
+            assert_eq!(&wav[..4], b"RIFF");
+            assert_eq!(u32::from_le_bytes(wav[24..28].try_into().unwrap()), 32000);
+        }
+    }
+    for name in byor_rs::ssb64_sounds::EXPORT_FGM {
+        let c = clips.get(name).unwrap_or_else(|| panic!("{name} not exported"));
+        assert!(c["peak"].as_i64().unwrap() > 3000, "{name} is nearly silent");
+    }
+    // the two halves of the Falcon Punch and the PK Fire / Thunder Jolt calls are voices of their own
+    for name in ["VoiceCaptainSpecialNFalcon", "VoiceCaptainSpecialNPunch", "VoiceNessSpecialN", "VoicePikachuSpecialN"] {
+        assert!(clips[name]["duration"].as_f64().unwrap() > 0.3, "{name}");
+    }
+    let _ = std::fs::remove_dir_all(&out);
+}
+
+/// With BYOR_TEST_SSB64_SOUNDS_REF = a folder written by `python3 scripts/export-ssb64-sounds.py --out <dir>`, every
+/// file the Rust port writes is byte-identical.
+#[test]
+fn ssb64_sounds_match_python() {
+    let (Some(z64), Some(reference)) = (rom(), std::env::var_os("BYOR_TEST_SSB64_SOUNDS_REF")) else {
+        eprintln!("skipped: BYOR_TEST_SSB64_ROM / BYOR_TEST_SSB64_SOUNDS_REF not set");
+        return;
+    };
+    let out = std::env::temp_dir().join(format!("byor-ssb64-sounds-ref-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&out);
+    byor_rs::ssb64_sounds::export(&source(), &z64, &out).unwrap();
+    let mut n = 0;
+    for e in std::fs::read_dir(PathBuf::from(reference)).unwrap().flatten() {
+        let name = e.file_name();
+        let a = std::fs::read(out.join(&name)).unwrap_or_else(|_| panic!("{name:?} not written"));
+        assert!(a == std::fs::read(e.path()).unwrap(), "{name:?} differs from the Python output");
+        n += 1;
+    }
+    assert_eq!(n, std::fs::read_dir(&out).unwrap().count());
+    assert!(n > 200);
+    let _ = std::fs::remove_dir_all(&out);
+}
