@@ -52,8 +52,13 @@
 //!
 //! What the export has and lacks: Link's sword and shield and Samus's arm cannon are part of their models (joints of the
 //! high-poly skeleton), so they swing and aim with the clips. Missing: the hand swaps (open / closed fists stay as modelled),
-//! face swaps (blinks), items, projectiles and effects (no fireball, no Falcon Punch flame; Mario's own hits do the damage),
-//! and voices: the fighters use the `ssb64` id, mapped to the `silent` voice set (SM64's hit sound and the star jingle).
+//! face swaps (blinks), items, and voices: the fighters use the `ssb64` id, mapped to the `silent` voice set (SM64's hit
+//! sound and the star jingle).
+//!
+//! Specials: the special button (N64 R: `Action::RButton`, H / R2; [`smash_input`]) plays the fighter's neutral / up / down
+//! special on the sim (`jumpman_sim::smash`, see `native/SSB64.md`); while one runs this view plays its motions
+//! (`SmashExt::motion`) instead of the table above and holds the root-motion joint still ([`root_motion_clips`]).
+//! Projectiles, effects, sound messages and goomba hits are `smash_fx.rs`.
 //! In Gem Clash the fighters are drawn between 0.8x and 1.25x Mario's height ([`Fighter::gem_clash_scale`]): the arena
 //! camera and the power form (which doubles the hero) are built around Mario.
 //! Missing glb or `fighters.json`: the fighter is left out of the roster and the V cycle; selecting it anyway (env) toasts
@@ -298,6 +303,49 @@ impl Fighter {
     pub fn model(self) -> String {
         format!("{DIR}/{}.glb", self.stem())
     }
+
+    /// The sim's fighter (its specials, `jumpman_sim::smash`).
+    pub fn sim(self) -> jumpman_sim::smash::SmashFighter {
+        jumpman_sim::smash::SmashFighter::ALL[self.index()]
+    }
+
+    pub fn from_sim(f: jumpman_sim::smash::SmashFighter) -> Self {
+        Self::ALL[f.index()]
+    }
+}
+
+/// The clips whose `joint_00` (SSB64's `TransN`, the root-motion joint) starts at the origin: the TRANSN-flagged motions
+/// (Super Jump Punch, Falcon Punch / Dive / Kick, Final Cutter, Pound...) whose travel the sim already does, so the view
+/// holds that joint still while they play. Read from the glb's own keys (the first `joint_00` translation of each clip).
+pub fn root_motion_clips(path: &Path) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    let Ok(glb) = std::fs::read(path) else { return out };
+    if glb.len() < 28 || &glb[0..4] != b"glTF" {
+        return out;
+    }
+    let len = u32::from_le_bytes([glb[12], glb[13], glb[14], glb[15]]) as usize;
+    let Some(json) = glb.get(20..20 + len).and_then(|j| serde_json::from_slice::<serde_json::Value>(j).ok()) else { return out };
+    let bin_at = 20 + len + 8;
+    let Some(joint) = json["nodes"].as_array().and_then(|n| n.iter().position(|n| n["name"] == "joint_00")) else { return out };
+    let first_y = |acc: usize| -> Option<f32> {
+        let a = &json["accessors"][acc];
+        let bv = &json["bufferViews"][a["bufferView"].as_u64()? as usize];
+        let off = bin_at + bv["byteOffset"].as_u64().unwrap_or(0) as usize + a["byteOffset"].as_u64().unwrap_or(0) as usize;
+        glb.get(off + 4..off + 8).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    };
+    for anim in json["animations"].as_array().into_iter().flatten() {
+        for ch in anim["channels"].as_array().into_iter().flatten() {
+            if ch["target"]["node"].as_u64() != Some(joint as u64) || ch["target"]["path"] != "translation" {
+                continue;
+            }
+            let Some(sampler) = ch["sampler"].as_u64() else { continue };
+            let Some(acc) = anim["samplers"][sampler as usize]["output"].as_u64() else { continue };
+            if first_y(acc as usize).is_some_and(|y| y.abs() < 20.0) {
+                out.insert(anim["name"].as_str().unwrap_or("").to_string());
+            }
+        }
+    }
+    out
 }
 
 /// Whether the installed data has this fighter (its glb and the import's index).
@@ -759,7 +807,9 @@ pub struct SmashPlugin;
 impl Plugin for SmashPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SmashView>()
-            .add_systems(Update, (spawn_fighter, drive_fighter).chain().after(super::update_rigs).before(crate::CameraSet));
+            .add_systems(PreUpdate, smash_input.after(crate::banjo_ctl::banjo_input))
+            .add_systems(Update, (spawn_fighter, drive_fighter).chain().after(super::update_rigs).before(crate::CameraSet))
+            .add_systems(PostUpdate, hold_root_motion.after(bevy::app::AnimationSystems).before(bevy::transform::TransformSystems::Propagate));
     }
 }
 
@@ -798,6 +848,10 @@ pub struct SmashView {
     failed: Vec<Fighter>,
     clock: ClipClock,
     pub cache: IndexCache,
+    /// The on-screen fighter's root-motion clips ([`root_motion_clips`]), its `joint_00` and the clip playing now.
+    root_motion: std::collections::HashSet<String>,
+    joint00: Option<Entity>,
+    playing: String,
 }
 
 /// Spawn a fighter's glb (the object views' clip driver, seek mode) under `parent`-less body; mesh culling off (the clips
@@ -852,6 +906,8 @@ fn spawn_fighter(mut commands: Commands, character: Res<Character>, root: Option
     commands.entity(root_e).add_child(body);
     view.on = Some((f, root_e, body, Arc::new(data)));
     view.clock = ClipClock::default();
+    view.root_motion = root_motion_clips(&root.0.join(f.model()));
+    view.joint00 = None;
 }
 
 /// What a Gem Clash match tells the skin about the hero (set by `brawl.rs` while a match runs).
@@ -906,14 +962,26 @@ fn drive_fighter(
     } else {
         Vec3::splat(size)
     };
-    let played = view.clock.step(&clip, m.action, dt);
     let forced = forced_clip();
-    let name = match forced.as_deref() {
-        Some(n) => forced_clip_name(&data, n),
-        None => data.resolve(clip.mv),
+    // A special (`jumpman_sim::smash`) plays its own motions: the first one the fighter's table has.
+    let special = if hint.is_none() && forced.is_none() { m.smash.motion() } else { None };
+    let (name, sample) = if let Some((names, secs, looped)) = special {
+        view.clock = ClipClock::default();
+        let name = names.iter().find_map(|n| data.motion_clip(n)).unwrap_or_else(|| data.resolve(if m.action & ACT_FLAG_AIR != 0 { Move::Fall } else { Move::Wait }));
+        let len = data.seconds(name);
+        (name, if looped { secs.rem_euclid(len) } else { secs.min(len) })
+    } else {
+        let played = view.clock.step(&clip, m.action, dt);
+        let name = match forced.as_deref() {
+            Some(n) => forced_clip_name(&data, n),
+            None => data.resolve(clip.mv),
+        };
+        let len = data.seconds(name);
+        (name, if forced.is_some() { (time.elapsed_secs()).rem_euclid(len) } else { sample_time(&clip, len, played) })
     };
-    let len = data.seconds(name);
-    let sample = if forced.is_some() { (time.elapsed_secs()).rem_euclid(len) } else { sample_time(&clip, len, played) };
+    if view.playing != name {
+        view.playing = name.to_string();
+    }
     if let Ok(mut rig) = rigs.get_mut(body) {
         if let Some(i) = rig.names.iter().position(|n| n == name) {
             rig.want = i;
@@ -922,12 +990,123 @@ fn drive_fighter(
     }
 }
 
+/// Hold `joint_00` at the origin while a root-motion clip plays: the sim moves the fighter, the clip must not move it
+/// again (it would fly twice as high and snap back).
+fn hold_root_motion(mut view: ResMut<SmashView>, children: Query<&Children>, names: Query<&Name>, mut tfs: Query<&mut Transform>) {
+    let Some((_, _, body, _)) = view.on.clone() else { return };
+    if view.joint00.is_none_or(|j| tfs.get(j).is_err()) {
+        view.joint00 = children.iter_descendants(body).find(|e| names.get(*e).is_ok_and(|n| n.as_str() == "joint_00"));
+    }
+    let Some(j) = view.joint00 else { return };
+    if view.root_motion.contains(&view.playing) {
+        if let Ok(mut tf) = tfs.get_mut(j) {
+            tf.translation = Vec3::ZERO;
+        }
+    }
+}
+
+/// The special button for the Smash fighters: N64 R (`Action::RButton`: H on the keyboard, R2 on a pad) into `R_TRIG`.
+/// Runs after Banjo's C-button reader, which owns the extra bits while Banjo plays. Touch has no special button.
+fn smash_input(
+    current: Res<Character>,
+    keys: Res<ButtonInput<KeyCode>>,
+    pads: Query<&Gamepad>,
+    bindings: Option<Res<crate::bindings::Bindings>>,
+    mut input: ResMut<crate::input::PlayerInput>,
+) {
+    if !matches!(*current, Character::Smash(_)) {
+        return;
+    }
+    use crate::bindings::Action;
+    let r_keys = bindings.as_ref().map(|b| b.keys(Action::RButton)).unwrap_or(&[]);
+    let pad = pads.iter().next();
+    let pad_held = pad.is_some_and(|p| bindings.as_ref().map_or_else(|| p.pressed(GamepadButton::RightTrigger2), |b| b.pad_pressed(p, Action::RButton)));
+    let pad_tap = pad.is_some_and(|p| bindings.as_ref().map_or_else(|| p.just_pressed(GamepadButton::RightTrigger2), |b| b.pad_just_pressed(p, Action::RButton)));
+    let held = r_keys.iter().any(|k| keys.pressed(*k)) || pad_held;
+    let tapped = r_keys.iter().any(|k| keys.just_pressed(*k)) || pad_tap;
+    if held {
+        input.extra_down |= R_TRIG;
+    } else {
+        input.extra_down &= !R_TRIG;
+    }
+    if tapped {
+        input.latch_extra(R_TRIG);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// The asset root: `JUMPMAN_SMASH_TEST_ASSETS` (a data dir's `assets/` with a Smash import next to it) or the repo's.
     fn assets() -> std::path::PathBuf {
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets")
+        std::env::var_os("JUMPMAN_SMASH_TEST_ASSETS").map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets"))
+    }
+
+    /// Every special of every fighter, on the ground and in the air, run through its phases on the sim: each motion list
+    /// it names resolves to a clip of the fighter's import, and the root-motion clips are the TRANSN ones. Skipped without
+    /// a Smash import.
+    #[test]
+    fn special_motions_resolve_in_the_import() {
+        use jumpman_sim::collision::{CollisionWorld, SurfaceOptions};
+        use jumpman_sim::mario_runtime::{MarioRuntime, SpawnPoint};
+        use jumpman_sim::smash::SpecialSlot;
+        let root = assets();
+        if !root.join(INDEX).is_file() {
+            eprintln!("skipped: no {}", root.join(INDEX).display());
+            return;
+        }
+        let index = load_index(&root).unwrap();
+        let mut w = CollisionWorld::default();
+        let o = SurfaceOptions::default();
+        w.add_triangle([-8000.0, 0.0, -8000.0], [-8000.0, 0.0, 8000.0], [8000.0, 0.0, 8000.0], &o);
+        w.add_triangle([-8000.0, 0.0, -8000.0], [8000.0, 0.0, 8000.0], [8000.0, 0.0, -8000.0], &o);
+        let world = std::sync::Arc::new(w);
+        let step = |m: &mut MarioRuntime, sy: f64, down: u32, pressed: u32| {
+            let c = ControllerSnapshot { focus_yaw: None, stick_x: 0.0, stick_y: sy, stick_mag: sy.abs(), button_down: down | pressed, button_pressed: pressed };
+            m.step(&c, 0x8000 as f64, false, false);
+        };
+        let mut checked = 0;
+        for f in Fighter::ALL {
+            let data = &index[f.stem()];
+            for (slot, sy) in [(SpecialSlot::Neutral, 0.0), (SpecialSlot::Up, 64.0), (SpecialSlot::Down, -64.0)] {
+                for air in [false, true] {
+                    let mut m = MarioRuntime::new(world.clone(), SpawnPoint { action: None, pos: [0.0; 3], face_yaw: 0.0 }, -1600.0);
+                    m.smash.fighter = Some(f.sim());
+                    for _ in 0..3 {
+                        step(&mut m, 0.0, 0, 0);
+                    }
+                    if air {
+                        step(&mut m, 0.0, A_BUTTON, A_BUTTON);
+                        for _ in 0..7 {
+                            step(&mut m, 0.0, A_BUTTON, 0);
+                        }
+                    }
+                    step(&mut m, sy, 0, R_TRIG);
+                    for k in 0..400 {
+                        let Some((names, _, _)) = m.smash.motion() else { break };
+                        assert!(names.iter().any(|n| data.motion_clip(n).is_some()), "{f:?} {slot:?} air={air}: none of {names:?} ({:?})", m.smash.special.map(|s| s.phase));
+                        checked += 1;
+                        step(&mut m, 0.0, 0, if k == 20 || k == 200 { R_TRIG } else { 0 });
+                    }
+                }
+            }
+            // Kirby's copies: every copied neutral special has its Copy<Name> motions.
+            if f == Fighter::Kirby {
+                for c in Fighter::ALL.iter().filter(|c| **c != Fighter::Kirby) {
+                    let name = format!("Copy{}SpecialN", c.sim().decomp_name());
+                    let start = format!("{name}Start");
+                    assert!(data.motion_clip(&name).is_some() || data.motion_clip(&start).is_some(), "Kirby lacks {name}");
+                }
+            }
+            let rm = root_motion_clips(&root.join(f.model()));
+            assert!(!rm.contains(data.resolve(Move::Wait)), "{f:?}: Wait is not a root-motion clip");
+        }
+        assert!(checked > 1000, "{checked}");
+        let mario = root_motion_clips(&root.join(Fighter::Mario.model()));
+        assert!(mario.contains(index["mario"].motion_clip("SpecialHi").unwrap()), "Super Jump Punch carries root motion");
+        let falcon = root_motion_clips(&root.join(Fighter::Captain.model()));
+        assert!(falcon.contains(index["captain"].motion_clip("SpecialN").unwrap()) && falcon.contains(index["captain"].motion_clip("SpecialLw").unwrap()));
     }
 
     /// A tiny index in the import's format: two fighters, one with Kirby's multi-jumps and no `Attack12`.

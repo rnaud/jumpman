@@ -1018,6 +1018,22 @@ impl Gate {
         e.burn_t = 90;
     }
 
+    /// A Smash special hit enemy `i` (`experiments::smash_targets`): damage as the hero's own hits (no tower credit), an
+    /// optional stun. Returns whether it died.
+    pub fn smash_hit(&mut self, i: usize, dmg: f32, stun_ticks: f32) -> bool {
+        if !self.enemies[i].alive {
+            return false;
+        }
+        self.ev.hero_hit = true;
+        if self.damage(i, dmg, false, NO_SRC) {
+            return true;
+        }
+        if stun_ticks > 0.0 {
+            self.apply_stun(i, stun_ticks);
+        }
+        false
+    }
+
     fn apply_stun(&mut self, i: usize, ticks: f32) {
         let e = &mut self.enemies[i];
         let t = if e.kind.is_boss() { ticks * 0.4 } else { ticks } as u16;
