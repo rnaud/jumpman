@@ -87,6 +87,8 @@ pub enum SfxCue {
     /// Like [`SfxCue::Sound`] for a sound the decomp requests every tick (fuse, wind, flames): `key` identifies the
     /// emitter so the engine keeps one entry playing instead of restarting it.
     SoundLoop { name: &'static str, pos: [f64; 3], key: u32 },
+    /// A Super Smash Bros. fighter's own sound (voice or special-move effect, `characters::smash_audio`), at the player.
+    Smash { fighter: crate::characters::smash::Fighter, sfx: crate::characters::smash_audio::SmashSfx },
 }
 
 /// Handle to the sound player for systems that need more than [`SfxCue`].
@@ -221,6 +223,13 @@ fn listener(sim: Res<GameSim>, root: Res<AssetRoot>, mut audio: ResMut<GameAudio
         floor_type: m.floor.as_ref().map(|f| f.kind),
         underwater_floor: wet,
     });
+}
+
+/// A silent [`Sfx`] with no engine behind it, for tests outside this module.
+#[cfg(test)]
+pub(crate) fn test_sfx(muted: bool) -> Sfx {
+    let (tx, _rx) = channel();
+    Sfx::new(tx, MasterGain::new(0.0), muted)
 }
 
 const CASTLE_BIRDS: [[f64; 3]; 3] = [[-7430.0, 1500.0, 873.0], [-80.0, 1500.0, 5004.0], [7131.0, 1500.0, -2989.0]];
@@ -552,6 +561,9 @@ pub(crate) fn apply_cue(sfx: &mut Sfx, cue: &SfxCue, pos: &dyn Fn([f64; 3]) -> P
         },
         SfxCue::Sound { name, pos: at } => sfx.named(name, at.map(pos)),
         SfxCue::SoundLoop { name, pos: at, key } => sfx.object_sound_keyed(&name.to_ascii_uppercase(), pos(*at), *key),
+        SfxCue::Smash { fighter, sfx: s } => {
+            crate::characters::smash_audio::play(sfx, *fighter, *s);
+        }
         SfxCue::SetMuted(m) => {
             sfx.set_muted(*m);
             store_muted(*m);

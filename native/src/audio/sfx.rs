@@ -320,6 +320,8 @@ impl Sfx {
             upper = format!("ACTION_{upper}");
         }
         if upper.starts_with("MARIO_") && self.voice_set != "mario" {
+            // Another character's set may answer a Mario voice by its name (the Smash fighters' punch grunts).
+            self.voice(&upper);
             return;
         }
         let metal_name = upper.replace("TERRAIN", "METAL");
@@ -800,7 +802,7 @@ mod tests {
     fn every_character_resolves_every_voice_action_without_mario_clips() {
         let data = CharacterSounds::load();
         let (s, _rx) = sfx();
-        for id in ["sm64", "procedural", "link", "young-link", "banjo", "bowser", "ssb64", "cc0", "custom-gltf"] {
+        for id in ["sm64", "procedural", "link", "young-link", "banjo", "bowser", "ssb64", "ssb-mario", "ssb-falcon", "ssb-jigglypuff", "cc0", "custom-gltf"] {
             let set = data.set_for(id);
             let actions = data.sets.get(set).unwrap_or_else(|| panic!("{id}: no set {set}"));
             for key in VOICE_KEYS {
@@ -820,8 +822,9 @@ mod tests {
         assert_eq!(data.set_for("young-link"), "young_link");
         assert_eq!(data.set_for("cc0"), "silent");
         assert_eq!(data.set_for(crate::characters::Character::Bowser.sound_id()), "bowser");
-        // No Smash voices are exported: the fighters use the silent set (the SM64 hit sound and the star jingle).
-        assert_eq!(data.set_for(crate::characters::Character::Smash(crate::characters::smash::Fighter::Fox).sound_id()), "silent");
+        // Each Smash fighter has its own set of SSB64 clips (`characters::smash_audio`); the old shared id stays silent.
+        assert_eq!(data.set_for(crate::characters::Character::Smash(crate::characters::smash::Fighter::Fox).sound_id()), "ssb_fox");
+        assert_eq!(data.set_for("ssb64"), "silent");
     }
 
     /// Every ROM clip a set names exists in the full asset tree, belongs to that set's own folder, decodes, and is audible.
@@ -837,6 +840,12 @@ mod tests {
                         continue;
                     }
                     assert!(set != "mario" && set != "silent", "{set}/{key}: ROM clips only belong to character sets");
+                    if set.starts_with("ssb_") {
+                        // The Smash fighters share one folder (Luigi's fireball is Mario's); `smash_audio` tests those clips
+                        // and skips them when the Smash import is absent.
+                        assert!(sound.starts_with("voices/ssb64/"), "{set}/{key}: {sound} is outside voices/ssb64");
+                        continue;
+                    }
                     assert!(sound.starts_with(&format!("voices/{set}/")), "{set}/{key}: {sound} is outside the set's folder");
                     for i in 0..*variants as usize {
                         let path = super::super::voices::clip_path(&assets_dir(), sound, i);
@@ -858,6 +867,34 @@ mod tests {
                 assert!(!data.sets[set][key].is_empty(), "{set}/{key} should have a voice");
             }
         }
+    }
+
+    /// The Smash fighters: jump, attack (Mario's punch grunts answered by name), hurt and death play the fighter's clips.
+    #[test]
+    fn smash_fighters_voice_the_action_triggers() {
+        let (mut s, _rx) = sfx();
+        let played = |s: &Sfx| s.voice_log.iter().map(|v| v.1.clone()).collect::<Vec<_>>();
+        s.set_character("ssb-mario");
+        assert_eq!(s.voice_set(), "ssb_mario");
+        s.jump();
+        s.double_jump();
+        s.named("mario_punch_yah", None);
+        s.named("MARIO_PUNCH_HOO", None);
+        s.hurt();
+        s.death();
+        assert_eq!(
+            played(&s),
+            ["voices/ssb64/VoiceMarioJump", "voices/ssb64/VoiceMarioJumpAerial", "voices/ssb64/VoiceMarioSmash1", "voices/ssb64/VoiceMarioSmash3", "voices/ssb64/VoiceMarioDamage", "voices/ssb64/VoiceMarioDead"]
+        );
+        s.set_character("ssb-falcon");
+        s.voice_log.clear();
+        s.jump();
+        s.named("MARIO_WHOA", None);
+        assert!(s.voice_log.is_empty(), "Captain Falcon has no jump voice, nothing answers MARIO_WHOA: {:?}", played(&s));
+        s.kick();
+        s.cannon_fire();
+        assert_eq!(played(&s), ["voices/ssb64/VoiceCaptainSmash1", "voices/ssb64/VoiceCaptainDeadUp", "voices/ssb64/FGMDeadUpStar"]);
+        assert!(s.missing.is_empty(), "{:?}", s.missing);
     }
 
     #[test]

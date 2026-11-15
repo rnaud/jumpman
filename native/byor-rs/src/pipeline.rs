@@ -12,7 +12,7 @@ pub const VERSION: u64 = 3;
 ///
 /// All games are complete (every exporter of `do_<game>` is ported and verified byte for byte, see
 /// native/ANDROID_IMPORT.md; Super Smash Bros. against scripts/export-ssb64.py, native/SSB64.md).
-pub const PORTED: [(&str, &str); 5] = [("sm64", "1"), ("mk64", "1"), ("oot", "2"), ("bk", "1"), ("ssb64", "1")];
+pub const PORTED: [(&str, &str); 5] = [("sm64", "1"), ("mk64", "1"), ("oot", "2"), ("bk", "1"), ("ssb64", "2")];
 
 pub fn exporter_hash(game: &str) -> Option<String> {
     PORTED.iter().find(|(g, _)| *g == game).map(|(g, rev)| format!("rust-{g}-{rev}"))

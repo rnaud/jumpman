@@ -13,6 +13,7 @@ pub mod bowser;
 pub mod gltf_view;
 pub mod link_pose;
 pub mod smash;
+pub mod smash_audio;
 
 use crate::game::runner::GameSim;
 use crate::hud::Toast;
@@ -66,8 +67,8 @@ impl Character {
             Self::YoungLink => "young-link",
             Self::Banjo => "banjo",
             Self::Bowser => "bowser",
-            // No Smash voices are exported: SM64 sound-bank hits only (`character-sounds.json` set `ssb64`).
-            Self::Smash(_) => "ssb64",
+            // Each fighter has its own set of SSB64 voices from the Smash import (`smash_audio`, set `ssb_<stem>`).
+            Self::Smash(f) => f.id(),
         }
     }
 
@@ -622,7 +623,7 @@ mod tests {
         assert_eq!(Character::from_name("ssb-boss"), None);
         let smash_mario = Character::Smash(smash::Fighter::Mario);
         assert!(smash_mario.plays_as_mario() && !smash_mario.has_cpu_rig() && !smash_mario.is_link() && smash_mario.optional_model());
-        assert_eq!((smash_mario.label(), smash_mario.sound_id()), ("SMASH MARIO", "ssb64"));
+        assert_eq!((smash_mario.label(), smash_mario.sound_id()), ("SMASH MARIO", "ssb-mario"));
         assert_eq!(Character::Smash(smash::Fighter::Link).label(), "SMASH LINK");
         assert_eq!(smash_mario.theme(), jumpman_sim::collectible_theme::Theme::Coin);
         assert!(Character::Smash(smash::Fighter::Donkey).camera_scale() > 1.0 && Character::Smash(smash::Fighter::Kirby).camera_scale() == 1.0);

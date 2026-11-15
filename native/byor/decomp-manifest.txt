@@ -7588,4 +7588,5 @@ ssb64/src/ft/ftchar/ftsamus/ftsamus.h
 ssb64/src/ft/ftchar/ftyoshi/ftyoshi.h
 ssb64/src/ft/ftdata.c
 ssb64/src/ft/ftdef.h
+ssb64/src/gm/gmsound.h
 ssb64/tools/relocFileDescriptions.us.txt

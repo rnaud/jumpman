@@ -2,7 +2,7 @@
 
 The Smash import turns the user's own Super Smash Bros. (US) ROM into rigged, animated fighters: one skinned glTF per
 fighter with every motion as a named clip, plus an index (`fighters.json`). Nothing from the ROM is in the repository or
-in an app bundle; the decomp only supplies names and tables (three files plus thirteen headers, see the manifest below).
+in an app bundle; the decomp only supplies names and tables (three files plus fourteen headers, see the manifest below).
 
 - Decomp: `reference/ssb64` = [VetriTheRetri/ssb-decomp-re](https://github.com/VetriTheRetri/ssb-decomp-re) pinned at
   `572a747d8171137718fad472c5d7473dc7309ffd` (2026-10-20). Only its sources and headers are read; nothing is built.
@@ -80,6 +80,57 @@ heights, air control, gravity, terminal velocities, `jumps_max`, `weight`), in S
 
 Counts (costume 0, high poly): 22-29 joints, 256-474 triangles, 139-186 clips per fighter (Master Hand: 22).
 
+## Sounds
+
+The import also renders the twelve fighters' voices and their jump / special-move effects from the ROM:
+`scripts/export-ssb64-sounds.py` (reference) and its byte-identical port `native/byor-rs/src/ssb64_sounds.rs` (run by
+`ssb64::run`, so `byor-rs --ssb64 ROM` and the pipeline write them with the fighters). Output (data dir):
+`assets/audio/voices/ssb64/<Name>_0.wav` (mono 16-bit, 32000 Hz; `Name` = the `gmFGMVoiceID` name without `nSYAudio`,
+e.g. `VoiceMarioJump`, `FGMCaptainSpecialNPunch`) and `manifest-ssb64.json` (id, frames, duration, peak, cut). 237 clips,
+about 14 MB: every `nSYAudioVoice<Fighter>*` of the twelve fighters (197) plus the 41 effects in `EXPORT_FGM` (jumps,
+specials, the KO star), minus `VoiceLinkNull` (its script plays nothing). Python takes ~5 s, Rust ~0.3 s.
+
+| What | Where in the decomp | Format |
+|---|---|---|
+| Sample bank | `B1_sounds2.ctl` ROM `0xC6B650`, `.tbl` `0xC7B1F0` (`smashbrothers.us.yaml`, `MUSIC_AND_SFX_DISCOVERIES.md`) | libultra `ALBankFile` (`include/PR/libaudio.h`): one bank, one instrument whose `soundArray` holds every effect sample, VADPCM (order 2) with optional `ALADPCMloop`. |
+| Sound ids | `src/gm/gmsound.h` `gmFGMVoiceID` (US branch of the `REGION_US` conditionals) | 695 entries; the id indexes `fgm.ucd`. |
+| Voice scripts | `fgm.ucd` `0xF5A9C0`: `{s32 count; u32 offsets[]; data}`, run by `func_80026B90_27790` (`src/libultra/n_audio/n_env.c`) once per 60 Hz audio frame | `0xD0` stop, `0xD1` articulation, `0xD2` staccato flag, `0xD4` duration table, `0xD5`/`0xD6` volume, `0xD9` fork a script, `0xDA`/`0xDB` loop, `0xDE` priority group, `0xDF`/`0xE0` -2400/-4800 cents; notes `(pitch_code << 3) \| dur_code`: `pitch_code * 100 - 1300` cents (0 = release). The first note spawns the articulation, later notes only re-pitch it (legato). |
+| Articulations | `fgm.tbl` `0xF57BF0`, same package shape, run by `func_80027460_28060` | `0x00` vol, `0x10` pan, `0x20` pitch (cents), `0x30` fx, `0x40` attach LFO, `0x50` detach, `0x60` trigger sample N of the bank, `0x70` end (silence), `0x80`/`0x90` loop; a 4-bit wait (extended form for longer waits) after each. |
+| LFOs | `fgm.unk` `0xF573D0`: `{u32 count; {u8 shape, target, postproc, phase; f32 period, amplitude, offset}[]}` | sine (`gSYSinTable`, here `sin`), square, saws, one-shot ramps, sample-and-hold / interpolated random (the engine's LCG, seed 1); targets volume, pitch, pan, scratch registers or another LFO's parameters. |
+| Playback | `n_alSynStartVoiceParams(wave, alCents2Ratio(pitch + note), vol)` with `unityPitch = 0`; output rate 32000 (`dSYAudioPublicSettings`) | a sample plays at `32000 * 2^(cents / 1200)` Hz; volume `vol * (set_volume * 127 >> 7) * 127 >> 7` of 32768. |
+
+The exporter runs those interpreters offline exactly as the engine schedules them (scripts, then articulations, then
+one frame of mixing with linear interpolation; mono, pan and reverb ignored) and stops a sound that is still playing
+after 3.5 s (charge loops: `FGMSamusSpecialNCharge0`, `FGMKirbySpecialNStart`, `FGMNessPKThunderLoop`, the Screw
+Attack) with a 10 ms fade. Note: the decomp's enum names around ids 183-189 are partly guesses; `FGMCaptainSpecialNStart`
+/ `NPunch` fork into ids 186 / 187, which the enum calls `FGMFoxSpecialHiStart` / `Fly` (both moves are fire effects).
+
+In the game (`native/src/characters/smash_audio.rs`): `smash_sfx(fighter, SmashSfx::X)` names the clips of a sound,
+`smash_audio::play(&mut sfx, fighter, X)` or `SfxCue::Smash { fighter, sfx: X }` plays them. `SmashSfx`: `Jump`,
+`DoubleJump`, `AttackLight` / `AttackStrong` / `AttackSmash` (the fighter's `Smash1-3` grunts), `HeavyLift`, `Hurt`,
+`Ko` (star KO scream + twinkle), `Death`, `Dizzy`, `Taunt`, and the specials `NeutralSpecialStart` (wind-up: "FALCON..."),
+`NeutralSpecialCharge` (Samus / DK charge loop), `NeutralSpecial` (release: "...PUNCH!", fireball, blaster, PK Fire,
+Thunder Jolt, Charge Shot, boomerang, Inhale, Egg Lay, Giant Punch, Pound), `NeutralSpecialEnd` (boomerang return, egg,
+Kirby's spit), `UpSpecialStart` (Fire Fox take-off, "PK Thunder!"), `UpSpecial`, `DownSpecial`, `DownSpecialEnd` (Rest
+wake-up, Yoshi Bomb landing, reflect, Samus's bomb blast, Pikachu's bolt). Each fighter's voice set
+`ssb_<stem>` in `assets/audio/character-sounds.json` maps the SM64 triggers to these: jump, double jump / backflip / wall
+kick, punches (Mario's `MARIO_PUNCH_*` grunts answered by name) and kicks, hurt, death, the star dance (taunt).
+
+| Fighter | Jump / double | Neutral special | Up special | Down special |
+|---|---|---|---|---|
+| Mario | voice / voice | fireball | Super Jump Punch + coin | Mario Tornado voice |
+| Luigi | voice / voice | fireball (Mario's sound) | Super Jump Punch | Luigi Cyclone voice |
+| Donkey Kong | - / - | charge, Giant Punch yell | Spinning Kong | Hand Slap |
+| Link | voice / voice | boomerang throw, return | Spin Attack voice + swing | bomb pull |
+| Samus | jump / aerial effects | charge loop, Charge Shot | Screw Attack | bomb, explosion |
+| Yoshi | voice / voice | tongue, egg lay | Egg Throw voice + throw | Yoshi Bomb jump, fall |
+| Kirby | puff jump / inflate | Inhale loop, spit | Final Cutter voice | Stone voice + effect |
+| Fox | - / voice | Blaster | "Fire!" + take-off, flight | Reflector, reflect |
+| Pikachu | - / - | "Pika!" + Thunder Jolt | Quick Attack voice + effect | Thunder call, bolt |
+| Jigglypuff | puff jump / inflate | Pound | Sing | Rest, wake-up |
+| Captain Falcon | - / voice | "FALCON..." + flame, "...PUNCH!" + blast | Falcon Dive voice + effect | Falcon Kick voice |
+| Ness | jump effect / - | "PK Fire!" + PSI | "PK Thunder!", thunder loop | PSI Magnet |
+
 ## Checks
 
 - `python3 -m unittest byor/test_ssb64.py` (from `native/`): vpk0, relocation chains, figatree interpreter, combiner, tile
@@ -87,7 +138,14 @@ Counts (costume 0, high poly): 22-29 joints, 256-474 triangles, 139-186 clips pe
 - `cargo test -p byor-rs` (`src/ssb64.rs` unit tests, `tests/ssb64_rom.rs`): with `BYOR_TEST_SSB64_ROM` the export runs
   and every fighter must have the core motions; with `BYOR_TEST_SSB64_REF` (a `scripts/export-ssb64.py` output) all 14
   files must be byte-identical (they are).
-- `byor/check-manifest.py --trace --ssb64 ROM --strict-unused`: the import reads exactly the 16 manifest files.
+- `cargo test -p byor-rs --test ssb64_rom ssb64_sounds`: with `BYOR_TEST_SSB64_ROM` every fighter's voices and every
+  effect are exported and audible; with `BYOR_TEST_SSB64_SOUNDS_REF` (a `scripts/export-ssb64-sounds.py --out <dir>`
+  folder) all 238 files are byte-identical (they are). `src/ssb64_sounds.rs` unit tests and `byor/test_ssb64.py`
+  `Sounds` cover the interpreters without a ROM.
+- `cargo test -p jumpman smash_audio` (`native/src/characters/smash_audio.rs`): the table covers every fighter, names only
+  exported clips, equals the `ssb_*` sets of `character-sounds.json`; with the clips in `assets/audio/voices/ssb64` they
+  decode and are audible (skipped without them).
+- `byor/check-manifest.py --trace --ssb64 ROM --strict-unused`: the import reads exactly the 17 manifest files.
 
 ## Playable fighters
 
@@ -112,15 +170,17 @@ Master Hand is not playable):
   (`smash::gem_clash_clip`). `JUMPMAN_CHARACTER=ssb-mario|ssb-luigi|ssb-dk|ssb-link|ssb-samus|ssb-yoshi|ssb-kirby|ssb-fox|
   ssb-pikachu|ssb-jigglypuff|ssb-falcon|ssb-ness`, the V cycle and the character select's SMASH group; a fighter whose glb
   is missing is left out. `JUMPMAN_SMASH_CLIP=<motion or clip>` holds one clip for headless checks.
-- **Sounds**: no voices are exported; the fighters use the `silent` voice set (SM64's hit sound, the star jingle).
+- **Sounds**: each fighter has its own SSB64 voices and special-move effects ("Sounds" above): voice set `ssb_<stem>` for
+  the SM64 action triggers, `characters::smash_audio` for the specials.
 - **Looks**: Link's sword and shield and Samus's arm cannon are joints of their models and come with them. Effects,
   projectiles, items and hand / face swaps are not drawn.
 
-Not done: per-fighter move feel (Gem Clash heroes from `attributes`), specials as moves, voices, Master Hand as a boss.
+Not done: per-fighter move feel (Gem Clash heroes from `attributes`), specials as moves, Master Hand as a boss.
 
 ## Not done yet
 
 - Costumes other than 0, face (texture part) swaps, hand model parts (open / closed fists), low-poly models, the polygon /
   metal / giant variants (NMario, MMario, GDonkey), accessories (Pikachu's hat, Jigglypuff's bow), hitboxes and the
-  motion event scripts (sounds, effects, hitbox timing in `*MainMotion` files), item and weapon models, stages.
+  motion event scripts (when each sound plays, effects, hitbox timing in `*MainMotion` files); music, stage / item / menu
+  sounds and the announcer, item and weapon models, stages.
 - The `TraI` spline track is ignored (no exported motion uses it visibly).
