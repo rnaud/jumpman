@@ -1,5 +1,5 @@
 //! Original per-mode vignettes, drawn procedurally into 48x30 pixel buffers: they stand in for the
-//! mode-card thumbnails (shown in the hub's dialog box and on the classic cards).
+//! mode-card thumbnails (on the classic cards).
 use super::fb::*;
 use crate::shell::ExperimentId;
 
@@ -14,7 +14,7 @@ pub fn accent(id: ExperimentId) -> Rgba {
 /// Side of a mode's pixel icon.
 pub const BADGE: i32 = crate::experiments::mode_icons::SIZE as i32;
 
-/// The mode's own 16x16 pixel icon (on the hub's door signs and in its dialog box).
+/// The mode's own 16x16 pixel icon (on the mode grid's tiles and in its info box).
 pub fn badge(id: ExperimentId) -> Fb {
     let mut f = Fb::new(BADGE, BADGE);
     if let Some(x) = id.theirs() {

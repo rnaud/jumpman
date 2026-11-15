@@ -6,7 +6,7 @@
 //!
 //! Everything is drawn by the menu's private camera (render layer [`super::scene::LAYER`]) into the small
 //! scene image, the 2D layer (plates, tabs, panel, READY) goes on top through the CPU framebuffer, exactly
-//! like the title and the hub. No course is loaded for this screen.
+//! like the title and the mode grid. No course is loaded for this screen.
 use super::fb::{clean, mix, rgb, Fb, IRect, Rgba};
 use super::model::{char_info, lock_reason, Ctx, Hit, Menu, Page};
 use super::scene::{self, CamState, MeshBuilder, SceneAssets, LAYER};
@@ -125,11 +125,11 @@ pub struct StageRoot;
 pub struct Pedestal(usize);
 #[derive(Component)]
 pub struct SpotLight;
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct PreviewAnimator;
 
 enum Body {
-    Mario { player: Box<crate::game::sm64_animation::Sm64AnimationPlayer>, nodes: Vec<AnimationNodeIndex> },
+    Mario(MarioAnim),
     Rig(Rig),
 }
 
@@ -154,11 +154,10 @@ pub struct Stage {
     root: Option<Entity>,
     slots: [Option<Slot>; 4],
     last_sel: Option<usize>,
-    /// Slots whose model could not be shown (locked data or a load error): the highlighted one falls back to the fox.
+    /// Slots whose model could not be shown (locked data or a load error): an empty, greyed pedestal with a padlock.
     pub missing: [bool; 4],
-    /// World position of the stage floor slots (kept for the hero fallback and tests).
+    /// World position of the stage floor slots.
     pub spots: [Vec3; 4],
-    pub fallback_at: Option<Vec3>,
     log_done: bool,
 }
 
@@ -275,7 +274,7 @@ fn spawn_stage(
         }
         let Some(asset_root) = root else { continue };
         let built = match who {
-            Character::Mario => spawn_mario(commands, assets, asset_root, graphs, &layer),
+            Character::Mario => spawn_mario(commands, assets, asset_root, graphs, &layer, PreviewAnimator),
             other => {
                 let which = match other {
                     Character::AdultLink => characters::Character::Link,
@@ -316,7 +315,9 @@ fn spawn_stage(
     stage.log_done = false;
 }
 
-fn spawn_mario(commands: &mut Commands, assets: &AssetServer, root: &AssetRoot, graphs: &mut Assets<AnimationGraph>, layer: &RenderLayers) -> Result<(Entity, Body), String> {
+/// Spawn the real Mario model (the player's imported `mario_geo.glb`, never bundled) on the menu's render layer, its
+/// animation players tagged with `marker` so a menu system can pose it. Errors when the imported file is missing.
+pub(super) fn spawn_mario_model<M: Component + Clone>(commands: &mut Commands, assets: &AssetServer, root: &AssetRoot, graphs: &mut Assets<AnimationGraph>, layer: &RenderLayers, marker: M) -> Result<(Entity, MarioAnim), String> {
     use crate::game::runner::MARIO_MODEL;
     let glb = std::fs::read(root.0.join(MARIO_MODEL)).map_err(|e| format!("{MARIO_MODEL}: {e}"))?;
     let meta = crate::game::sm64_animation::read_clip_meta(&glb);
@@ -332,7 +333,7 @@ fn spawn_mario(commands: &mut Commands, assets: &AssetServer, root: &AssetRoot, 
             for child in children.iter_descendants(target) {
                 commands.entity(child).insert(layer.clone());
                 if players.contains(child) {
-                    commands.entity(child).insert((PreviewAnimator, AnimationGraphHandle(graph.clone())));
+                    commands.entity(child).insert((marker.clone(), AnimationGraphHandle(graph.clone())));
                 }
                 if let Ok(Some(x)) = extras.get(child) {
                     if x.value.contains(r#""mario_cap_wings""#) {
@@ -342,7 +343,35 @@ fn spawn_mario(commands: &mut Commands, assets: &AssetServer, root: &AssetRoot, 
             }
         })
         .id();
-    Ok((e, Body::Mario { player: Box::new(crate::game::sm64_animation::Sm64AnimationPlayer::new(meta)), nodes }))
+    Ok((e, MarioAnim { player: Box::new(crate::game::sm64_animation::Sm64AnimationPlayer::new(meta)), nodes }))
+}
+
+fn spawn_mario<M: Component + Clone>(commands: &mut Commands, assets: &AssetServer, root: &AssetRoot, graphs: &mut Assets<AnimationGraph>, layer: &RenderLayers, marker: M) -> Result<(Entity, Body), String> {
+    spawn_mario_model(commands, assets, root, graphs, layer, marker).map(|(e, a)| (e, Body::Mario(a)))
+}
+
+/// Mario's SM64 animation driver and the clip nodes of his animation graph.
+pub(super) struct MarioAnim {
+    pub player: Box<crate::game::sm64_animation::Sm64AnimationPlayer>,
+    pub nodes: Vec<AnimationNodeIndex>,
+}
+
+impl MarioAnim {
+    /// Pose every animation player tagged `M` for `input` (the clip the game would pick for that action, at its frame).
+    pub fn pose<M: Component>(&mut self, input: &crate::game::sm64_animation::AnimInput, dt: f64, players: &mut Query<&mut AnimationPlayer, With<M>>) {
+        let pose = self.player.update(input, dt);
+        if let Some(&node) = self.nodes.get(pose.clip as usize) {
+            for mut p in players.iter_mut() {
+                if !p.is_playing_animation(node) {
+                    p.stop_all();
+                    p.play(node).pause();
+                }
+                if let Some(a) = p.animation_mut(node) {
+                    a.seek_to(pose.sample_seconds);
+                }
+            }
+        }
+    }
 }
 
 /// Spawn the stage when the select page opens and take everything down when it closes.
@@ -384,14 +413,13 @@ pub fn pose_stage(
     ctx: Res<super::CtxRes>,
     low: Res<LowRes>,
     mut stage: ResMut<Stage>,
-    mut tfs: Query<&mut Transform, Without<super::scene::Hero>>,
-    mut vis: Query<&mut Visibility, Without<super::scene::Hero>>,
+    mut tfs: Query<&mut Transform>,
+    mut vis: Query<&mut Visibility>,
     mut meshes: ResMut<Assets<Mesh>>,
     peds: Query<(&Pedestal, &MeshMaterial3d<StandardMaterial>)>,
     mut mats: ResMut<Assets<StandardMaterial>>,
     mut players: Query<&mut AnimationPlayer, With<PreviewAnimator>>,
     mat_q: Query<&MeshMaterial3d<StandardMaterial>>,
-    mut hero: Query<(&mut Transform, &mut Visibility), (With<super::scene::Hero>, Without<Pedestal>, Without<SpotLight>)>,
 ) {
     if !active.0 || menu.0.page != Page::Select || !stage.is_spawned() {
         return;
@@ -422,17 +450,10 @@ pub fn pose_stage(
         }
     }
     let step = 1.0 - (-10.0 * dt).exp();
-    let mut fallback = None;
-    let missing = stage.missing;
     for i in 0..4 {
         let pos = spots[i];
         let is_sel = i == sel;
-        let Some(slot) = stage.slots[i].as_mut() else {
-            if is_sel && missing[i] {
-                fallback = Some(pos);
-            }
-            continue;
-        };
+        let Some(slot) = stage.slots[i].as_mut() else { continue };
         // Greyed out when the mode does not take this character.
         let want_dim = !ctx.0.allowed[i];
         if slot.dimmed != want_dim {
@@ -476,20 +497,9 @@ pub fn pose_stage(
         let (who, root_e) = (slot.who, slot.root);
         let hop_t = slot.hop.map_or(0.0, |h| h.0 / h.1);
         match &mut slot.body {
-            Body::Mario { player, nodes } => {
+            Body::Mario(anim) => {
                 let input = crate::game::sm64_animation::AnimInput { action: slot.m.action, vel_y: if air { 12.0 } else { 0.0 }, action_timer: (hop_t * 30.0) as f64, ..Default::default() };
-                let pose = player.update(&input, dt as f64);
-                if let Some(&node) = nodes.get(pose.clip as usize) {
-                    for mut p in &mut players {
-                        if !p.is_playing_animation(node) {
-                            p.stop_all();
-                            p.play(node).pause();
-                        }
-                        if let Some(a) = p.animation_mut(node) {
-                            a.seek_to(pose.sample_seconds);
-                        }
-                    }
-                }
+                anim.pose(&input, dt as f64, &mut players);
                 if let Ok(mut tf) = tfs.get_mut(root_e) {
                     *tf = Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw)).with_scale(Vec3::splat(scale));
                 }
@@ -507,7 +517,6 @@ pub fn pose_stage(
         }
         let _ = who;
     }
-    stage.fallback_at = fallback;
     // Pedestals: gold under the highlighted slot, navy otherwise (the spot follows it).
     for (p, mat) in &peds {
         let on = p.0 == sel;
@@ -524,17 +533,6 @@ pub fn pose_stage(
         // Position pedestals at the slot (they are static children of the stage root).
     }
     let _ = &ctx;
-    // Fallback fox when the highlighted slot has no model.
-    if let Ok((mut tf, mut v)) = hero.single_mut() {
-        match stage.fallback_at {
-            Some(p) => {
-                *v = Visibility::Inherited;
-                let p = stand(p, 1.0, &cam);
-                *tf = Transform::from_translation(p + Vec3::new(0.0, 0.07 + 0.015 * (t * 2.0).sin(), 0.0)).with_rotation(Quat::from_rotation_y((t * 0.9).sin() * 1.15)).with_scale(Vec3::splat(0.85));
-            }
-            None => *v = Visibility::Hidden,
-        }
-    }
 }
 
 /// Pedestals and the spotlight follow the slot positions (separate system so the borrow stays simple).
@@ -556,7 +554,7 @@ pub fn place_props(stage: Res<Stage>, menu: Res<MenuRes>, low: Res<LowRes>, mut 
     }
 }
 
-fn pose_rig(rig: &mut Rig, m: &MarioRuntime, dt: f64, meshes: &mut Assets<Mesh>, vis: &mut Query<&mut Visibility, Without<super::scene::Hero>>) {
+fn pose_rig(rig: &mut Rig, m: &MarioRuntime, dt: f64, meshes: &mut Assets<Mesh>, vis: &mut Query<&mut Visibility>) {
     match &mut rig.kind {
         RigKind::Link { asset, anim, young, modes } => {
             let (_, bones) = anim.update(asset, *young, m, dt, true);
@@ -715,8 +713,8 @@ pub fn draw_select(f: &mut Fb, menu: &Menu, ctx: &Ctx, cam: &CamState, stage_spo
         let label = if Fb::text_width(label, 1) > r.w - 4 { short_name(c) } else { label };
         f.text_centered(r.x + r.w / 2, r.y + (r.h - 7) / 2, label, 1, col);
         if locked {
-            // A little padlock above the empty pedestal.
-            if !on {
+            // A little padlock above the pedestal; the highlighted one only when it is empty (no stand-in model is shown).
+            if !on || !ctx.hero_ok[i] {
                 draw_lock(f, fx as i32, fy as i32 - 20);
             }
         }

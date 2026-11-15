@@ -1028,7 +1028,8 @@ impl Experiment for HoldTheGateExperiment {
         host.cam.fog = Some((Color::srgb(0.7, 0.85, 1.0), 9000.0, 30000.0));
         host.shell.plain_camera = true;
         self.best = load_best();
-        let map = env_num::<usize>("JUMPMAN_GATE_MAP");
+        // The map chosen on the front end's setup page starts the run at once (no map picker over the lawn).
+        let map = env_num::<usize>("JUMPMAN_GATE_MAP").or(host.shell.direct.then(super::start_setup::gate_map));
         self.map = map.unwrap_or(0) % MAPS.len();
         self.load_script();
         host.rig.distance = 1300.0;

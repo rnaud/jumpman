@@ -93,6 +93,13 @@ pub fn tier_index() -> usize {
     TIER_PICK.load(Ordering::Relaxed)
 }
 
+/// Pick the battlefield and difficulty from outside the mode (the front end's MODE SETUP page, `start_setup`).
+pub fn set_pick(level: usize, tier: usize) {
+    load_pick();
+    LEVEL_PICK.store(level.min(LEVELS.len() - 1), Ordering::Relaxed);
+    TIER_PICK.store(tier.min(swarm_meta::TIERS - 1), Ordering::Relaxed);
+}
+
 /// Per-kind display: model scale and hover height.
 fn look(kind: EnemyKind) -> (f32, f32) {
     match kind {
@@ -1306,7 +1313,17 @@ impl Experiment for StarSwarmExperiment {
         while self.tier_i > 0 && !self.meta.tier_unlocked(self.tier_i) {
             self.tier_i -= 1;
         }
-        self.briefing = std::env::var_os("JUMPMAN_SWARM_SKIPBRIEF").is_none();
+        // Chosen on the front end's setup page: no briefing over the battlefield, the run starts at once (remembered as the
+        // briefing's START would).
+        let direct = host.shell.direct;
+        self.briefing = std::env::var_os("JUMPMAN_SWARM_SKIPBRIEF").is_none() && !direct;
+        if direct {
+            self.meta.last_level = self.level.key.to_string();
+            self.meta.last_tier = self.tier_i;
+            if !cheating() {
+                save_meta(&self.meta);
+            }
+        }
         self.start_run(host);
         if self.briefing {
             host.bridge.briefing = Some(self.briefing(host));

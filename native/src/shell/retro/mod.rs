@@ -1,22 +1,27 @@
-//! The "v3" front end: an N64-era file-select list on the title screen and a hub room (a ring of
-//! doors: games in one wing, experiments in another) for choosing a mode.
+//! The "v3" front end: an N64-era file-select list on the title screen (with the real Mario model from
+//! the player's imported data beside it) and a grid of mode tiles in two tabs (GAMES, LAB) for choosing
+//! a mode, then the character select.
 //!
-//! Rendering: a private camera draws the 3D props (hero, gem, rooms) into a ~320x240 image, a CPU
-//! framebuffer ([`fb`]) draws the 2D layer (bitmap font, slabs, signs, cursor) at the same
+//! Rendering: a private camera draws the 3D props (Mario, the gem, the select stage) into a ~320x240
+//! image, a CPU framebuffer ([`fb`]) draws the 2D layer (bitmap font, slabs, tiles, cursor) at the same
 //! resolution, and a faint scanline strip goes on top; the three images are stretched over the
 //! window with bilinear filtering. Navigation lives in [`model`] (pure, unit tested); this module
 //! turns its output into the shell's normal [`UiAction`]s so everything downstream is unchanged.
 //!
 //! `JUMPMAN_MENU=classic` falls back to the old bevy_ui title screen. Screenshot hooks:
-//! `JUMPMAN_MENU_PAGE=hub|lab` starts in a hub wing, `JUMPMAN_MENU_DOOR=n` picks the door and
-//! `JUMPMAN_MENU_ROW=n` the title row.
+//! `JUMPMAN_MENU_PAGE=games|lab` starts on a tab of the grid (`hub` is kept as an alias of `games`),
+//! `JUMPMAN_MENU_TILE=n` (or the old `JUMPMAN_MENU_DOOR=n`) highlights a tile and `JUMPMAN_MENU_ROW=n`
+//! a title row.
 pub mod fb;
 pub mod font;
+pub mod grid;
+pub mod hero;
 pub mod icons;
 pub mod model;
 pub mod pages;
 pub mod scene;
 pub mod select;
+pub mod setup;
 pub mod skin;
 
 use super::nav::{NavCmd, UiActionEvent};
@@ -31,8 +36,27 @@ use bevy::input::mouse::MouseButton;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 use bevy::window::PrimaryWindow;
-use fb::{clean, mix, rgb, Fb, IRect, Rgba};
-use model::{sign_lines, sign_name, Ctx, Hit, In, Menu, Out, Page, TitleRow, Wing, TITLE_ROWS};
+use fb::{mix, rgb, Fb, IRect, Rgba};
+use model::{sign_name, Ctx, Hit, In, Menu, Out, Page, TitleRow, Wing, TITLE_ROWS};
+
+/// Break `s` into lines of at most `max` characters, on words.
+pub(crate) fn wrap_text(s: &str, max: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut cur = String::new();
+    for word in s.split(' ') {
+        if !cur.is_empty() && cur.chars().count() + 1 + word.chars().count() > max {
+            lines.push(std::mem::take(&mut cur));
+        }
+        if !cur.is_empty() {
+            cur.push(' ');
+        }
+        cur.push_str(word);
+    }
+    if !cur.is_empty() {
+        lines.push(cur);
+    }
+    lines
+}
 
 pub const INTERNAL_H: i32 = 240;
 
@@ -51,9 +75,10 @@ pub struct RetroEnabled(pub bool);
 #[derive(Message, Clone, Copy, Debug)]
 pub struct PickCmd(pub Character);
 
-/// Whether the v3 front end draws the screen: the title (unless `JUMPMAN_MENU=classic`) and the character select.
+/// Whether the v3 front end draws the screen: the title (unless `JUMPMAN_MENU=classic`), a mode's setup page and the
+/// character select.
 pub fn wants(enabled: bool, state: AppState, screen: Screen) -> bool {
-    state == AppState::Menu && (screen == Screen::CharSelect || (enabled && screen == Screen::Title))
+    state == AppState::Menu && (matches!(screen, Screen::CharSelect | Screen::ModeSetup) || (enabled && screen == Screen::Title))
 }
 
 /// Internal resolution, following the window's aspect between 4:3 and about 2.2:1.
@@ -72,10 +97,10 @@ impl LowRes {
         self.w as f32 / self.h as f32
     }
 
-    /// The resolution for the window while the character select is up: a portrait window gets a portrait
-    /// canvas (240 wide) so the lineup is not stretched; everything else follows [`Self::for_window`].
-    pub fn for_page(w: f32, h: f32, select: bool) -> Self {
-        if select && w > 0.0 && h > w {
+    /// The resolution for the window while the character select or the grid is up: a portrait window gets a
+    /// portrait canvas (240 wide) so the lineup / the tiles are not stretched; everything else follows [`Self::for_window`].
+    pub fn for_page(w: f32, h: f32, portrait_ok: bool) -> Self {
+        if portrait_ok && w > 0.0 && h > w {
             let ih = (240.0 * h / w).round().clamp(240.0, 640.0) as i32;
             return Self { w: 240, h: ih };
         }
@@ -110,8 +135,6 @@ pub struct Anim {
     sel: Option<(Page, Wing, usize, usize)>,
     since: f32,
     cursor_y: f32,
-    last_wing: Option<Wing>,
-    wing_flash: f32,
     touch_start: Option<Vec2>,
     last_mouse: Vec2,
 }
@@ -132,11 +155,12 @@ fn new_image(w: i32, h: i32, filter: ImageSampler, usage: TextureUsages) -> Imag
 fn start_page() -> (Page, Wing, Option<usize>, Option<usize>) {
     let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
     let (page, wing) = match env("JUMPMAN_MENU_PAGE").as_deref() {
-        Some("hub") | Some("games") => (Page::Hub, Wing::Games),
-        Some("lab") => (Page::Hub, Wing::Lab),
+        Some("grid") | Some("hub") | Some("games") => (Page::Grid, Wing::Games),
+        Some("lab") => (Page::Grid, Wing::Lab),
         _ => (Page::Title, Wing::Games),
     };
-    (page, wing, env("JUMPMAN_MENU_DOOR").and_then(|v| v.parse().ok()), env("JUMPMAN_MENU_ROW").and_then(|v| v.parse().ok()))
+    let tile = env("JUMPMAN_MENU_TILE").or_else(|| env("JUMPMAN_MENU_DOOR")).and_then(|v| v.parse().ok());
+    (page, wing, tile, env("JUMPMAN_MENU_ROW").and_then(|v| v.parse().ok()))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -164,8 +188,7 @@ pub fn setup(
     let hero = character.map_or(Character::Mario, |c| Character::from_theirs(*c));
     let ported: Vec<_> = crate::shell::ExperimentId::ALL.iter().map(|id| (*id, id.available())).collect();
     let ctx = Ctx::from_registry(hero, [true; 4], |id| ported.iter().any(|(p, ok)| *p == id && *ok));
-    let ids: [Vec<crate::shell::ExperimentId>; 2] = [ctx.doors[0].iter().map(|d| d.id).collect(), ctx.doors[1].iter().map(|d| d.id).collect()];
-    scene::spawn_scene(&mut commands, &mut meshes, &mut mats, scene_img.clone(), &ids);
+    scene::spawn_scene(&mut commands, &mut meshes, &mut mats, scene_img.clone());
 
     // Per-mode vignettes also fill the classic cards' empty thumbnail slots.
     if let Some(mut ui) = ui {
@@ -186,7 +209,7 @@ pub fn setup(
     menu.page = page;
     menu.wing = wing;
     if let Some(d) = door {
-        menu.door[wing.idx()] = d.min(ctx.doors[wing.idx()].len().saturating_sub(1));
+        menu.tile[wing.idx()] = d.min(ctx.tiles[wing.idx()].len().saturating_sub(1));
     }
     if let Some(r) = row {
         menu.row = r.min(TITLE_ROWS.len() - 1);
@@ -196,6 +219,7 @@ pub fn setup(
     commands.insert_resource(Ported(ported));
     commands.insert_resource(low);
     commands.insert_resource(scene::CamState::default());
+    commands.insert_resource(hero::TitleHero::default());
     commands.insert_resource(Hits::default());
     commands.insert_resource(Anim::default());
     commands.insert_resource(RetroActive(false));
@@ -247,19 +271,35 @@ pub fn sync_state(
         ctx.0.hero_ok[i] = content.character_missing(*ch).is_none();
     }
     for wing in 0..2 {
-        for d in &mut ctx.0.doors[wing] {
-            let ok = ported.0.iter().any(|(p, ok)| *p == d.id && *ok);
-            d.enabled = ok && content.experiment_missing(d.id).is_none();
+        for d in &mut ctx.0.tiles[wing] {
+            let ported = ported.0.iter().any(|(p, ok)| *p == d.id && *ok);
+            let missing = content.experiment_missing(d.id);
+            d.enabled = ported && missing.is_none();
+            d.lock = if !ported { Some(model::NOT_PORTED) } else { missing.map(model::tile_lock) };
         }
     }
-    // The character select: what it is for and who the mode takes.
+    // The character select: what it is for and who the mode takes; the mode's start options for its setup page.
     ctx.0.allowed = select_allowed(ui.pick);
     ctx.0.target = select_target(ui.pick, &ui.course);
-    if ui.screen == Screen::CharSelect && menu.0.page != Page::Select {
-        menu.0.open_select(&ctx.0);
-    } else if ui.screen != Screen::CharSelect && menu.0.page == Page::Select {
-        menu.0.close_select();
+    ctx.0.setup = match ui.pick {
+        Some(super::Pick::Mode(e)) if ui.screen == Screen::ModeSetup => e.theirs().map_or(Vec::new(), |x| setup_rows(x, &content)),
+        _ => Vec::new(),
+    };
+    match ui.screen {
+        Screen::CharSelect if menu.0.page != Page::Select => menu.0.open_select(&ctx.0),
+        Screen::ModeSetup if menu.0.page != Page::Setup => menu.0.open_setup(&ctx.0),
+        Screen::CharSelect | Screen::ModeSetup => {}
+        _ if matches!(menu.0.page, Page::Select | Page::Setup) => menu.0.close_select(),
+        _ => {}
     }
+}
+
+/// The setup page's rows for a mode (its `start_setup` options; arenas on courses of games not imported are locked).
+pub fn setup_rows(id: crate::experiments::ExperimentId, content: &crate::content::AvailableContent) -> Vec<model::SetupRow> {
+    crate::experiments::start_setup::rows(id, &|course| content.course_missing(course).is_none())
+        .into_iter()
+        .map(|r| model::SetupRow { label: r.label.to_string(), values: r.values, value: r.value, locked: r.locked, enabled: r.enabled })
+        .collect()
 }
 
 /// Which characters the picked level / mode takes (a level takes everyone; Mario-only modes only Mario).
@@ -294,7 +334,7 @@ pub fn resize(
         return;
     }
     let Ok(w) = windows.single() else { return };
-    let next = LowRes::for_page(w.width(), w.height(), menu.0.page == Page::Select);
+    let next = LowRes::for_page(w.width(), w.height(), matches!(menu.0.page, Page::Select | Page::Grid | Page::Setup));
     if next == *low {
         return;
     }
@@ -331,9 +371,10 @@ fn hit_at(hits: &Hits, p: Vec2) -> Option<Hit> {
 pub fn input(
     active: Res<RetroActive>,
     mut menu: ResMut<MenuRes>,
-    ctx: Res<CtxRes>,
+    mut ctx: ResMut<CtxRes>,
     hits: Res<Hits>,
     low: Res<LowRes>,
+    area: Res<SafeArea>,
     mut anim: ResMut<Anim>,
     mut nav: MessageReader<NavCmd>,
     windows: Query<&Window, With<PrimaryWindow>>,
@@ -351,8 +392,14 @@ pub fn input(
         return;
     }
     let Ok(window) = windows.single() else { return };
+    // Up / down on the grid step by the columns the layout has right now.
+    let sa = insets(window, &low, &area);
+    for wing in 0..2 {
+        ctx.0.cols[wing] = grid::layout(low.w, low.h, sa, ctx.0.tiles[wing].len()).cols;
+    }
     let mut events: Vec<In> = Vec::new();
-    let selecting = menu.0.page == Page::Select;
+    // The select and the setup page are screens of the shell's stack: Back pops it (`nav::apply_nav`), Start confirms.
+    let selecting = matches!(menu.0.page, Page::Select | Page::Setup);
     for cmd in nav.read() {
         match *cmd {
             NavCmd::Move(d) => events.push(In::Move(d)),
@@ -390,8 +437,12 @@ pub fn input(
     for t in touches.iter_just_released() {
         let start = anim.touch_start.take().unwrap_or(t.position());
         let moved = t.position() - start;
-        if moved.x.abs() > 44.0 && moved.x.abs() > moved.y.abs() * 1.5 && matches!(menu.0.page, Page::Hub | Page::Select) {
+        let swipe = moved.x.abs() > 44.0 && moved.x.abs() > moved.y.abs() * 1.5;
+        if swipe && menu.0.page == Page::Select {
             events.push(In::Move(IVec2::new(if moved.x < 0.0 { 1 } else { -1 }, 0)));
+        } else if swipe && menu.0.page == Page::Grid {
+            // A sideways swipe on the grid flips between GAMES and LAB.
+            events.push(In::Wing(if moved.x < 0.0 { 1 } else { -1 }));
         } else if moved.length() < 18.0 {
             if let Some(h) = hit_at(&hits, to_fb(window, &low, t.position())) {
                 events.push(In::Click(h));
@@ -466,9 +517,9 @@ fn row_label(row: TitleRow, ctx: &Ctx) -> String {
 
 fn row_hint(row: TitleRow, ctx: &Ctx) -> String {
     match row {
-        TitleRow::Games => format!("ENTER THE HUB ROOM: {} GAMES BEHIND THE DOORS", ctx.doors[0].len()),
+        TitleRow::Games => format!("{} GAMES TO CHOOSE FROM", ctx.tiles[0].len()),
         TitleRow::Levels => "PICK A COURSE AND A MISSION, THEN YOUR HERO".into(),
-        TitleRow::Lab => format!("{} EXPERIMENTS AND TOYS IN THE LAB WING", ctx.doors[1].len()),
+        TitleRow::Lab => format!("{} EXPERIMENTS AND TOYS IN THE LAB", ctx.tiles[1].len()),
         TitleRow::File => "CHOOSE A SAVE FILE".into(),
         TitleRow::Options => if crate::byor::importer_available() { "DISPLAY, SOUND, CAMERA AND ROM IMPORT".into() } else { "DISPLAY, SOUND AND CAMERA".into() },
         TitleRow::Controls => "SEE AND REBIND THE CONTROLS".into(),
@@ -479,10 +530,16 @@ fn input_hint(pad: bool) -> &'static str {
     if cfg!(any(target_os = "ios", target_os = "android")) {
         "TAP TO CHOOSE"
     } else if pad {
-        "D-PAD MOVE   A SELECT   B BACK   L/R WING"
+        "D-PAD MOVE   A SELECT   B BACK   L/R TAB"
     } else {
-        "ARROWS MOVE   ENTER SELECT   ESC BACK   TAB WING"
+        "ARROWS MOVE   ENTER SELECT   ESC BACK   TAB SWITCH"
     }
+}
+
+/// Safe-area insets in framebuffer px.
+fn insets(window: &Window, low: &LowRes, area: &SafeArea) -> Insets {
+    let k = low.w as f32 / window.width().max(1.0);
+    Insets { l: (area.left * k).round() as i32, r: (area.right * k).round() as i32, t: (area.top * k).round() as i32, b: (area.bottom * k).round() as i32 }
 }
 
 fn draw_dialog(f: &mut Fb, r: IRect) {
@@ -557,156 +614,11 @@ fn draw_title(f: &mut Fb, menu: &Menu, ctx: &Ctx, hits: &mut Hits, anim: &mut An
     }
 }
 
-fn wing_tab(f: &mut Fb, r: IRect, label: &str, sel: bool) {
-    if sel {
-        f.slab(r, rgb(0xffd23a), rgb(0xe08a18), rgb(0xfff1a8), rgb(0x8a4a08), rgb(0x3a1a04));
-        f.text_centered(r.x + r.w / 2, r.y + 4, label, 1, rgb(0x3a1a04));
-    } else {
-        f.slab(r, rgb(0x33449a), rgb(0x1a2468), rgb(0x5b70c8), rgb(0x0a1040), rgb(0x040720));
-        f.text_centered(r.x + r.w / 2, r.y + 4, label, 1, rgb(0xdfe6ff));
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn draw_hub(f: &mut Fb, menu: &Menu, ctx: &Ctx, cam: &scene::CamState, hits: &mut Hits, anim: &mut Anim, t: f32, sa: Insets, pad: bool) {
-    let (w, h) = (f.w, f.h);
-    let doors = menu.doors(ctx);
-    let n = doors.len();
-    let sel = menu.cur_door();
-    let intro = scene::CamState { ..*cam }.intro;
-    let fade_in = intro >= 1.0;
-
-    // Door signs (back to front by depth), only when the camera is not diving into a door.
-    if menu.pending.is_none() || menu.enter_progress() < 0.5 {
-        let mut order: Vec<(f32, usize)> = (0..n).filter_map(|i| cam.project(scene::sign_anchor(menu.wing, i, n), w as f32, h as f32).map(|p| (p.2, i))).collect();
-        order.sort_by(|a, b| b.0.total_cmp(&a.0));
-        for (_, i) in order {
-            let Some((sx, sy, _)) = cam.project(scene::sign_anchor(menu.wing, i, n), w as f32, h as f32) else { continue };
-            let base = scene::dir_of(scene::door_angle(i, n)) * (scene::ring_radius(menu.wing) - 0.3);
-            let (left, right) = {
-                let a = scene::door_angle(i, n);
-                let rv = Vec3::new(a.cos(), 0.0, -a.sin()) * scene::DOOR_HALF_W;
-                (cam.project(base - rv, w as f32, h as f32), cam.project(base + rv, w as f32, h as f32))
-            };
-            let floor = cam.project(base, w as f32, h as f32).map_or(sy + 40.0, |p| p.1);
-            let name = clean(&sign_name(doors[i].id));
-            let lines = sign_lines(&name, 8);
-            let tw = lines.iter().map(|l| Fb::text_width(l, 1)).max().unwrap_or(30);
-            // The mode's pixel icon sits at the left end of its sign.
-            let (bw, bh) = (tw + 8 + icons::BADGE + 3, (lines.len() as i32 * 9 + 5).max(icons::BADGE + 4));
-            let r = IRect::new(sx.round() as i32 - bw / 2, sy.round() as i32 - bh / 2, bw, bh);
-            // Keep signs clear of the top bar.
-            if r.x > w || r.x + r.w < 0 || r.y < 24 + sa.t {
-                continue;
-            }
-            let selected = i == sel;
-            let accent = icons::accent(doors[i].id);
-            let (face_a, face_b) = if selected { (mix(accent, WHITE, 0.25), mix(accent, rgb(0), 0.1)) } else { (mix(accent, rgb(0), 0.1), mix(accent, rgb(0), 0.45)) };
-            f.rect(r.inflate(2), if selected { mix(GOLD, WHITE, ((t * 6.0).sin() * 0.5 + 0.5) * 0.5) } else { rgb(0x2a2a30) });
-            f.vgrad(r, face_a, face_b);
-            f.frame(r, rgb(0x0a0a14));
-            f.blit(&icons::badge(doors[i].id), r.x + 2, r.y + (bh - icons::BADGE) / 2, 1);
-            let (tx, ty) = (r.x + icons::BADGE + 3 + (r.w - icons::BADGE - 3) / 2, r.y + (bh - (lines.len() as i32 * 9 - 2)) / 2);
-            for (k, l) in lines.iter().enumerate() {
-                f.text_centered(tx, ty + k as i32 * 9, l, 1, if doors[i].enabled { WHITE } else { rgb(0xb0b0b8) });
-            }
-            hits.0.push((r.inflate(2), Hit::Door(i)));
-            let (dl, dr) = (left.map_or(r.x, |p| p.0 as i32), right.map_or(r.x + r.w, |p| p.0 as i32));
-            hits.0.push((IRect::new(dl.min(dr), r.y + r.h + 2, (dr - dl).abs().max(8), (floor as i32 - r.y - r.h - 2).max(8)), Hit::Door(i)));
-        }
-    }
-
-    // Top bar: BACK, wing tabs, position.
-    let top = 6 + sa.t;
-    let back = IRect::new(8 + sa.l, top, 38, 15);
-    f.slab(back, rgb(0xd04a3a), rgb(0x8a1a12), rgb(0xff9a8a), rgb(0x500a06), rgb(0x2a0603));
-    f.text_centered(back.x + back.w / 2, back.y + 4, "BACK", 1, WHITE);
-    hits.0.push((back.inflate(2), Hit::Back));
-    let (tg, tl) = (IRect::new(w / 2 - 50, top, 48, 15), IRect::new(w / 2 + 2, top, 48, 15));
-    wing_tab(f, tg, "GAMES", menu.wing == Wing::Games);
-    wing_tab(f, tl, "LAB", menu.wing == Wing::Lab);
-    hits.0.push((tg.inflate(2), Hit::Wing(Wing::Games)));
-    hits.0.push((tl.inflate(2), Hit::Wing(Wing::Lab)));
-    let count = format!("{}/{}", sel + 1, n);
-    f.text(w - 10 - sa.r - Fb::text_width(&count, 1), top + 4, &count, 1, WHITE);
-
-    // Side arrows (also the touch controls for stepping around the ring).
-    for (left_side, hit) in [(true, Hit::Prev), (false, Hit::Next)] {
-        let x = if left_side { 4 + sa.l } else { w - 24 - sa.r };
-        let r = IRect::new(x, h / 2 - 34, 20, 40);
-        let (cx, cy) = ((x + 10) as f32, (h / 2 - 14) as f32);
-        let dir = if left_side { -1.0 } else { 1.0 };
-        let pulse = ((t * 5.0).sin() * 1.5) as f32 * dir;
-        f.poly(&[(cx - 6.0 * dir + pulse + 1.0, cy + 1.0), (cx + 6.0 * dir + pulse + 1.0, cy - 9.0 + 1.0), (cx + 6.0 * dir + pulse + 1.0, cy + 9.0 + 1.0)], rgb(0x050a22));
-        f.poly(&[(cx - 6.0 * dir + pulse, cy), (cx + 6.0 * dir + pulse, cy - 9.0), (cx + 6.0 * dir + pulse, cy + 9.0)], GOLD);
-        hits.0.push((r, hit));
-    }
-
-    // Dialog box with the selected mode.
-    let box_r = IRect::new(8 + sa.l, h - 52 - sa.b, w - 16 - sa.l - sa.r, 46);
-    draw_dialog(f, box_r);
-    if let Some(d) = doors.get(sel) {
-        // The mode's pixel icon at 2x on its vignette's colour.
-        f.rect(IRect::new(box_r.x + 5, box_r.y + 7, 52, 34), rgb(0x040720));
-        f.vgrad(IRect::new(box_r.x + 6, box_r.y + 8, 50, 32), mix(icons::accent(d.id), rgb(0), 0.35), mix(icons::accent(d.id), rgb(0), 0.75));
-        f.blit(&icons::badge(d.id), box_r.x + 15, box_r.y + 8, 2);
-        let title = crate::shell::ExperimentId::title(d.id).to_ascii_uppercase();
-        let name = clean(&sign_name(d.id));
-        let _ = title;
-        f.text(box_r.x + 64, box_r.y + 6, &name, 2, GOLD);
-        let tag = clean(d.id.tagline());
-        let typed: usize = ((t - anim.since).max(0.0) * 60.0) as usize;
-        let max_chars = ((box_r.w - 64 - 60) / 6).max(10) as usize;
-        let shown: String = tag.chars().take(typed).collect();
-        let wrapped = wrap_text(&shown, max_chars);
-        for (k, l) in wrapped.iter().take(3).enumerate() {
-            f.text(box_r.x + 64, box_r.y + 23 + k as i32 * 8, l, 1, WHITE);
-        }
-        let enter = IRect::new(box_r.x + box_r.w - 52, box_r.y + 8, 46, 16);
-        if d.enabled {
-            let pulse = (t * 5.0).sin() * 0.5 + 0.5;
-            f.slab(enter, mix(rgb(0x4ad060), rgb(0x8aff8a), pulse * 0.5), rgb(0x1a8a30), rgb(0xc8ffc8), rgb(0x0a4a18), rgb(0x03220a));
-            f.text_centered(enter.x + enter.w / 2, enter.y + 5, "ENTER", 1, rgb(0x04300c));
-        } else {
-            f.slab(enter, rgb(0x6a6a78), rgb(0x3a3a46), rgb(0x9a9aa8), rgb(0x20202a), rgb(0x0a0a10));
-            f.text_centered(enter.x + enter.w / 2, enter.y + 5, "LOCKED", 1, rgb(0xc0c0cc));
-        }
-        hits.0.push((enter.inflate(2), Hit::Enter));
-        // Modes that only take Mario say so (the character select greys the others out).
-        if select_allowed(Some(super::Pick::Mode(d.id))).iter().filter(|b| **b).count() == 1 {
-            let tag = "MARIO ONLY";
-            f.text(box_r.x + box_r.w - 6 - Fb::text_width(tag, 1), enter.y + enter.h + 7, tag, 1, rgb(0x9fe0ff));
-        }
-    }
-    let hint = input_hint(pad);
-    f.text(w - 8 - sa.r - Fb::text_width(hint, 1), box_r.y - 9, hint, 1, rgb(0xe8e8f0));
-    let _ = (fade_in, intro);
-}
-
-fn wrap_text(s: &str, max: usize) -> Vec<String> {
-    let mut lines = Vec::new();
-    let mut cur = String::new();
-    for word in s.split(' ') {
-        if !cur.is_empty() && cur.len() + 1 + word.len() > max {
-            lines.push(std::mem::take(&mut cur));
-        }
-        if !cur.is_empty() {
-            cur.push(' ');
-        }
-        cur.push_str(word);
-    }
-    if !cur.is_empty() {
-        lines.push(cur);
-    }
-    lines
-}
-
 #[allow(clippy::too_many_arguments)]
 pub fn draw(
     active: Res<RetroActive>,
     menu: Res<MenuRes>,
     ctx: Res<CtxRes>,
-    cam: Res<scene::CamState>,
     low: Res<LowRes>,
     mut hits: ResMut<Hits>,
     mut anim: ResMut<Anim>,
@@ -723,39 +635,26 @@ pub fn draw(
     }
     let Ok(window) = windows.single() else { return };
     let (t, dt) = (time.elapsed_secs(), time.delta_secs().min(0.1));
-    let k = low.w as f32 / window.width().max(1.0);
-    let sa = Insets { l: (area.left * k).round() as i32, r: (area.right * k).round() as i32, t: (area.top * k).round() as i32, b: (area.bottom * k).round() as i32 };
+    let sa = insets(window, &low, &area);
     let m = &menu.0;
-    let key = (m.page, m.wing, m.row, m.cur_door());
+    let key = (m.page, m.wing, m.row, m.cur_tile());
     if anim.sel != Some(key) {
         anim.sel = Some(key);
         anim.since = t;
     }
-    if anim.last_wing != Some(m.wing) {
-        if anim.last_wing.is_some() {
-            anim.wing_flash = 1.0;
-        }
-        anim.last_wing = Some(m.wing);
-    }
-    anim.wing_flash = (anim.wing_flash - dt * 4.0).max(0.0);
     let mut f = Fb::new(low.w, low.h);
     hits.0.clear();
     let pad = !pads.is_empty();
     match m.page {
         Page::Title => draw_title(&mut f, m, &ctx.0, &mut hits, &mut anim, t, dt, sa, pad, !cfg!(target_os = "ios")),
-        Page::Hub => draw_hub(&mut f, m, &ctx.0, &cam, &mut hits, &mut anim, t, sa, pad),
+        Page::Setup => setup::draw_setup(&mut f, m, &ctx.0, &mut hits, t, sa, setup::hint(pad)),
+        Page::Grid => grid::draw_grid(&mut f, m, &ctx.0, &mut hits, &anim, t, sa, input_hint(pad), |id| select_allowed(Some(super::Pick::Mode(id))).iter().filter(|b| **b).count() == 1),
         Page::Select => {
             let lay = select::layout(low.w, low.h, sa);
             let cam = select::cam_for(low.w, low.h);
             let spots = select::slot_positions(&lay, &cam, low.w, low.h);
             select::draw_select(&mut f, m, &ctx.0, &cam, &spots, select::pops(&stage), &mut hits, &mut anim, t, sa, pad);
         }
-    }
-    // Dive into the door: fade to white-hot, and a short flash when switching wings.
-    let dive = ((m.enter_progress() - 0.55) / 0.45).clamp(0.0, 1.0);
-    let flash = anim.wing_flash.max(dive);
-    if flash > 0.0 {
-        f.rect(IRect::new(0, 0, low.w, low.h), [10, 8, 20, (flash * 255.0) as u8]);
     }
     if let Some(mut img) = images.get_mut(&images_res.overlay) {
         if img.width() as i32 == low.w && img.height() as i32 == low.h {
@@ -776,6 +675,10 @@ mod tests {
         assert!(wide.w > 400 && wide.w % 4 == 0);
         assert!(LowRes::for_window(3000.0, 600.0).aspect() <= 2.21);
         assert_eq!(LowRes::for_window(0.0, 0.0).w, 320);
+        // The grid and the select get a portrait canvas on a portrait window; the title keeps the landscape one.
+        assert_eq!(LowRes::for_page(820.0, 1180.0, true).w, 240);
+        assert!(LowRes::for_page(820.0, 1180.0, true).h > 240);
+        assert_eq!(LowRes::for_page(820.0, 1180.0, false), LowRes::for_window(820.0, 1180.0));
     }
 
     #[test]
@@ -786,6 +689,7 @@ mod tests {
         assert!(!wants(false, AppState::Menu, Screen::Title));
         // The character select is always drawn here, also with the classic title; never while playing or paused.
         assert!(wants(false, AppState::Menu, Screen::CharSelect) && wants(true, AppState::Menu, Screen::CharSelect));
+        assert!(wants(false, AppState::Menu, Screen::ModeSetup) && !wants(true, AppState::Playing, Screen::ModeSetup));
         assert!(!wants(true, AppState::Playing, Screen::CharSelect) && !wants(true, AppState::Transition, Screen::CharSelect));
     }
 
@@ -814,25 +718,6 @@ mod tests {
     }
 
     #[test]
-    fn hub_hit_zones_exist_for_every_control() {
-        let ctx = Ctx::from_registry(Character::Mario, [true; 4], |_| true);
-        let mut menu = Menu::default();
-        menu.page = Page::Hub;
-        let (eye, target) = scene::hub_camera(Wing::Games, 0.0, 1.0, 0.0);
-        let cam = scene::CamState { eye, target, aspect: 4.0 / 3.0, ..Default::default() };
-        let mut f = Fb::new(320, 240);
-        let mut hits = Hits::default();
-        let mut anim = Anim::default();
-        draw_hub(&mut f, &menu, &ctx, &cam, &mut hits, &mut anim, 1.0, Insets::default(), false);
-        for want in [Hit::Back, Hit::Prev, Hit::Next, Hit::Enter, Hit::Wing(Wing::Games), Hit::Wing(Wing::Lab), Hit::Door(0)] {
-            assert!(hits.0.iter().any(|(_, h)| *h == want), "missing hit zone {want:?}");
-        }
-        // The selected door's sign sits in the middle of the screen.
-        let (r, _) = hits.0.iter().find(|(_, h)| *h == Hit::Door(0)).unwrap();
-        assert!((r.center().0 - 160).abs() < 30);
-    }
-
-    #[test]
     fn title_draw_registers_rows_and_paints_pixels() {
         let ctx = Ctx::from_registry(Character::Mario, [true; 4], |_| true);
         let menu = Menu::default();
@@ -846,7 +731,9 @@ mod tests {
     }
 
     #[test]
-    fn wrap_breaks_on_words() {
-        assert_eq!(wrap_text("ONE TWO THREE", 7), vec!["ONE TWO", "THREE"]);
+    fn title_hints_count_the_tiles() {
+        let ctx = Ctx::from_registry(Character::Mario, [true; 4], |_| true);
+        assert!(row_hint(TitleRow::Games, &ctx).starts_with(&ctx.tiles[0].len().to_string()));
+        assert!(row_hint(TitleRow::Lab, &ctx).starts_with(&ctx.tiles[1].len().to_string()));
     }
 }
