@@ -139,17 +139,65 @@ pub enum Character {
     YoungLink,
     Banjo,
     Bowser,
+    /// A Super Smash Bros. fighter (a skin on Mario, `characters::smash`).
+    Smash(characters::smash::Fighter),
+}
+
+/// The roster groups of the character select, by the game each character comes from.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Group {
+    Sm64,
+    Oot,
+    Bk,
+    Smash,
+}
+
+impl Group {
+    pub const ALL: [Group; 4] = [Group::Sm64, Group::Oot, Group::Bk, Group::Smash];
+    pub fn label(self) -> &'static str {
+        match self {
+            Group::Sm64 => "SM64",
+            Group::Oot => "OOT",
+            Group::Bk => "BK",
+            Group::Smash => "SMASH",
+        }
+    }
 }
 
 impl Character {
-    pub const ALL: [Character; 5] = [Character::Mario, Character::AdultLink, Character::YoungLink, Character::Banjo, Character::Bowser];
-    /// Number of playable characters (the select lineup's slots).
+    /// Every character: the five of the earlier lineup, then the twelve Smash fighters (the roster groups them by game,
+    /// [`Character::group`]).
+    pub const ALL: [Character; 17] = {
+        let mut all = [Character::Mario; 17];
+        let first = [Character::Mario, Character::AdultLink, Character::YoungLink, Character::Banjo, Character::Bowser];
+        let mut i = 0;
+        while i < 5 {
+            all[i] = first[i];
+            i += 1;
+        }
+        let mut k = 0;
+        while k < characters::smash::Fighter::COUNT {
+            all[5 + k] = Character::Smash(characters::smash::Fighter::ALL[k]);
+            k += 1;
+        }
+        all
+    };
+    /// Number of playable characters (the select roster's slots).
     pub const COUNT: usize = Self::ALL.len();
 
-    /// Left out of the lineup (not shown locked) when the installed data lacks the model: Bowser's comes with the required
-    /// SM64 import, so a missing one is a broken install, not a game left to import.
+    /// Left out of the roster (not shown locked) when the installed data lacks the model: Bowser's comes with the required
+    /// SM64 import, so a missing one is a broken install; a Smash fighter is there only once Smash is imported.
     pub fn hidden_when_missing(self) -> bool {
-        self == Character::Bowser
+        matches!(self, Character::Bowser | Character::Smash(_))
+    }
+
+    pub fn group(self) -> Group {
+        match self {
+            Character::Mario | Character::Bowser => Group::Sm64,
+            Character::AdultLink | Character::YoungLink => Group::Oot,
+            Character::Banjo => Group::Bk,
+            Character::Smash(_) => Group::Smash,
+        }
     }
 
     pub fn id(self) -> &'static str {
@@ -159,6 +207,7 @@ impl Character {
             Character::YoungLink => "young-link",
             Character::Banjo => "banjo",
             Character::Bowser => "bowser",
+            Character::Smash(f) => f.id(),
         }
     }
 
@@ -170,6 +219,7 @@ impl Character {
             Character::YoungLink => "YOUNG LINK",
             Character::Banjo => "BANJO",
             Character::Bowser => "BOWSER",
+            Character::Smash(f) => f.label(),
         }
     }
 
@@ -180,11 +230,12 @@ impl Character {
             Character::YoungLink => "Young Link",
             Character::Banjo => "Banjo-Kazooie",
             Character::Bowser => "Bowser",
+            Character::Smash(f) => f.name(),
         }
     }
 
     pub fn from_id(id: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|c| c.id() == id)
+        Self::ALL.into_iter().find(|c| c.id() == id).or_else(|| characters::smash::Fighter::from_id(id).map(Character::Smash))
     }
 
     /// The `characters` module's resource value for this choice.
@@ -195,6 +246,7 @@ impl Character {
             Character::YoungLink => characters::Character::YoungLink,
             Character::Banjo => characters::Character::Banjo,
             Character::Bowser => characters::Character::Bowser,
+            Character::Smash(f) => characters::Character::Smash(f),
         }
     }
 
@@ -205,6 +257,7 @@ impl Character {
             characters::Character::YoungLink => Character::YoungLink,
             characters::Character::Banjo => Character::Banjo,
             characters::Character::Bowser => Character::Bowser,
+            characters::Character::Smash(f) => Character::Smash(f),
         }
     }
 }
@@ -845,7 +898,7 @@ fn run_script(
                     if let Some(action) = crate::bindings::Action::KEYBOARD.iter().find(|x| format!("{x:?}").to_lowercase() == a) {
                         actions.write(nav::UiActionEvent(UiAction::Rebind(*action)));
                     }
-                } else if let Some(c) = other.strip_prefix("char:").and_then(|n| Character::ALL.into_iter().find(|c| c.id() == n)) {
+                } else if let Some(c) = other.strip_prefix("char:").and_then(|n| Character::from_id(n)) {
                     // The PLAY AS row of the hub: the same action a tap on a character card sends.
                     actions.write(nav::UiActionEvent(UiAction::Character(c)));
                 } else if let Some(t) = other.strip_prefix("tab:").and_then(Tab::from_name) {
@@ -854,7 +907,7 @@ fn run_script(
                     actions.write(nav::UiActionEvent(UiAction::Launch(Pick::Mode(e))));
                 } else if let Some(e) = other.strip_prefix("gomode:").and_then(ExperimentId::from_id) {
                     actions.write(nav::UiActionEvent(UiAction::Experiment(e)));
-                } else if let Some(c) = other.strip_prefix("pick:").and_then(|n| Character::ALL.into_iter().find(|c| c.id() == n)) {
+                } else if let Some(c) = other.strip_prefix("pick:").and_then(|n| Character::from_id(n)) {
                     // Highlight a character on the select screen (no confirm).
                     picks.write(retro::PickCmd(c));
                 } else if let Some(id) = other.strip_prefix("course:").and_then(courses::info) {
@@ -879,6 +932,7 @@ fn boot(
     fx: Option<ResMut<fxd::DisplaySettings>>,
     character: Option<ResMut<characters::Character>>,
     mut summaries: ResMut<SaveSlotSummaries>,
+    content: Option<Res<crate::content::AvailableContent>>,
 ) {
     let (s, screen) = detect_launch();
     *state = s;
@@ -900,7 +954,8 @@ fn boot(
     }
     if let Some(mut character) = character {
         if !env_set(&["JUMPMAN_CHARACTER"]) {
-            if let Some(c) = Character::from_id(&settings.character) {
+            // A remembered skin whose model is gone (Smash or Bowser no longer installed) falls back to Mario.
+            if let Some(c) = Character::from_id(&settings.character).filter(|c| content.as_ref().is_none_or(|k| k.character_ok(*c))) {
                 *character = c.theirs();
             }
         }

@@ -1,5 +1,5 @@
 {
- "_note": "Per-character voice sets read by native/src/audio/sfx.rs. Each action maps to layers [name, variants]: a name from sounds.json plays through the SM64 sound engine; a name starting with voices/ is a ROM-extracted clip, assets/audio/<name>_<i>.wav for i < variants, one picked at random (scripts/export-character-voices.py: Link and young Link from Ocarina of Time NA_SE_VO_LI_*, Banjo and Kazooie from Banjo-Kazooie sfx_e). Bowser, a skin on Mario, uses SM64's own Bowser effects from the sound bank (laugh, fire, defeat). Actions with no fitting sample stay empty; clips missing from a build without that ROM are silent. Non-voice effects (footsteps, landing, swim, coin...) are not character specific and stay in Sfx. Mario's SM64 voice clips may only appear in the mario set. MENU_STAR_SOUND is a jingle, not a voice.",
+ "_note": "Per-character voice sets read by native/src/audio/sfx.rs. Each action maps to layers [name, variants]: a name from sounds.json plays through the SM64 sound engine; a name starting with voices/ is a ROM-extracted clip, assets/audio/<name>_<i>.wav for i < variants, one picked at random (scripts/export-character-voices.py: Link and young Link from Ocarina of Time NA_SE_VO_LI_*, Banjo and Kazooie from Banjo-Kazooie sfx_e). Bowser, a skin on Mario, uses SM64's own Bowser effects from the sound bank (laugh, fire, defeat). The Smash fighters (ssb64) have no exported voices: the silent set (the SM64 hit sound and the star jingle). Actions with no fitting sample stay empty; clips missing from a build without that ROM are silent. Non-voice effects (footsteps, landing, swim, coin...) are not character specific and stay in Sfx. Mario's SM64 voice clips may only appear in the mario set. MENU_STAR_SOUND is a jingle, not a voice.",
  "sets": {
   "mario": {
    "jump": [["MARIO_YAH_WAH_HOO", 3]],
@@ -105,6 +105,6 @@
    "star": [["MENU_STAR_SOUND", 1]]
   }
  },
- "characters": { "sm64": "mario", "procedural": "mario", "link": "link", "young-link": "young_link", "banjo": "banjo", "bowser": "bowser" },
+ "characters": { "sm64": "mario", "procedural": "mario", "link": "link", "young-link": "young_link", "banjo": "banjo", "bowser": "bowser", "ssb64": "silent" },
  "default": "silent"
 }

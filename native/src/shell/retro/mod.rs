@@ -397,6 +397,8 @@ pub fn input(
     for wing in 0..2 {
         ctx.0.cols[wing] = grid::layout(low.w, low.h, sa, ctx.0.tiles[wing].len()).cols;
     }
+    // The character roster's rows follow its layout too.
+    ctx.0.roster_cols = select::layout(low.w, low.h, sa, &ctx.0.shown_slots()).cols;
     let mut events: Vec<In> = Vec::new();
     // The select and the setup page are screens of the shell's stack: Back pops it (`nav::apply_nav`), Start confirms.
     let selecting = matches!(menu.0.page, Page::Select | Page::Setup);
@@ -628,7 +630,7 @@ pub fn draw(
     pads: Query<&Gamepad>,
     images_res: Res<Images>,
     mut images: ResMut<Assets<Image>>,
-    stage: Res<select::Stage>,
+    _stage: Res<select::Stage>,
 ) {
     if !active.0 {
         return;
@@ -650,10 +652,7 @@ pub fn draw(
         Page::Setup => setup::draw_setup(&mut f, m, &ctx.0, &mut hits, t, sa, setup::hint(pad)),
         Page::Grid => grid::draw_grid(&mut f, m, &ctx.0, &mut hits, &anim, t, sa, input_hint(pad), |id| select_allowed(Some(super::Pick::Mode(id))).iter().filter(|b| **b).count() == 1),
         Page::Select => {
-            let lay = select::layout(low.w, low.h, sa, &ctx.0.shown_slots());
-            let cam = select::cam_for(low.w, low.h);
-            let spots = select::slot_positions(&lay, &cam, low.w, low.h);
-            select::draw_select(&mut f, m, &ctx.0, &cam, &spots, select::pops(&stage), &mut hits, &mut anim, t, sa, pad);
+            select::draw_select(&mut f, m, &ctx.0, &mut hits, &mut anim, t, sa, pad);
         }
     }
     if let Some(mut img) = images.get_mut(&images_res.overlay) {

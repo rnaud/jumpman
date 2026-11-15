@@ -812,6 +812,7 @@ impl GemClashExperiment {
             Act::GetUp => ACT_FORWARD_GROUND_KB,
             Act::Dead => ACT_DEATH_ON_BACK,
         };
+        host.brawl.hero_act = Some(crate::characters::smash::HeroAct { act: f.act, air, rising: f.vel[1] > 0.0, moving, jumps: f.jumps });
         let m = &mut host.sim.mario;
         if self.mario_act != (act, arg) {
             m.set_action(act, arg);

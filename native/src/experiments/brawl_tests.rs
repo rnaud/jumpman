@@ -1322,7 +1322,8 @@ fn link_clips_follow_the_combo_and_the_spin() {
 fn gem_clash_supports_every_character_and_mario_only_modes_say_so() {
     use crate::characters::Character as C;
     use crate::experiments::ExperimentId as E;
-    assert_eq!(E::Brawl.supported_characters(), &[C::Mario, C::Link, C::YoungLink, C::Banjo, C::Bowser]);
+    assert_eq!(E::Brawl.supported_characters(), &C::ALL);
+    assert_eq!(&C::ALL[..5], &[C::Mario, C::Link, C::YoungLink, C::Banjo, C::Bowser]);
     assert_eq!(E::Kart.supported_characters(), &[C::Mario]);
     for h in HEROES {
         let c = match h {
@@ -1335,4 +1336,8 @@ fn gem_clash_supports_every_character_and_mario_only_modes_say_so() {
     }
     // Bowser fights with Mario's moves (a skin on Mario).
     assert_eq!(Hero::from_character(C::Bowser), Hero::Mario);
+    // So do the Smash fighters (their clips follow the hero's states, `characters::smash::gem_clash_clip`).
+    for f in crate::characters::smash::Fighter::ALL {
+        assert_eq!(Hero::from_character(C::Smash(f)), Hero::Mario);
+    }
 }

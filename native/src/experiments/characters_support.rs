@@ -14,6 +14,7 @@
 //! Bowser is only a model on Mario's controller (`characters::bowser`): every mode that takes Mario's moves takes him, and the
 //! modes map him to their Mario hero (Swarm, Deck, Relic, Gem Clash). He is left out exactly where Mario's own model is not
 //! the player either: the kart (an MK64 racer drives), Party (crowd bodies) and Halls (Mario's ability progression).
+//! The twelve Smash fighters (`characters::smash`) are skins on Mario's controller too and follow Bowser exactly.
 //!
 //! Why the Mario-only modes are Mario-only:
 //! * Kart: the player drives one of the eight MK64 racers; the on-foot part afterwards is Mario's "kart anywhere" world.
@@ -51,7 +52,7 @@ pub fn note(id: ExperimentId) -> &'static str {
     if supported(id).len() == 1 {
         "Mario only"
     } else {
-        "Plays as Mario, Link, Young Link, Banjo or Bowser"
+        "Plays as Mario, Link, Young Link, Banjo, Bowser or a Smash fighter"
     }
 }
 
@@ -156,7 +157,7 @@ mod tests {
             assert!(!s.is_empty(), "{id:?}");
             assert_eq!(s[0], Character::Mario, "{id:?}");
             assert!(!note(id).is_empty());
-            for c in [Character::Mario, Character::Link, Character::YoungLink, Character::Banjo, Character::Bowser] {
+            for c in Character::ALL {
                 assert!(is_supported(id, resolve(id, c)), "{id:?} {c:?}");
             }
         }
@@ -191,6 +192,20 @@ mod tests {
             assert_eq!(resolve(id, Character::Bowser), Character::Mario, "{id:?}");
         }
         assert!(note(ExperimentId::Brawl).contains("Bowser"));
+    }
+
+    /// The Smash fighters are skins on Mario like Bowser: the same modes take them, the same three swap them for Mario.
+    #[test]
+    fn smash_fighters_play_where_bowser_does() {
+        use crate::characters::smash::Fighter;
+        for f in Fighter::ALL {
+            let c = Character::Smash(f);
+            for id in EXPERIMENT_IDS {
+                assert_eq!(is_supported(id, c), is_supported(id, Character::Bowser), "{id:?} {f:?}");
+                assert_eq!(resolve(id, c) == c, resolve(id, Character::Bowser) == Character::Bowser, "{id:?} {f:?}");
+            }
+        }
+        assert!(note(ExperimentId::Swarm).contains("Smash"));
     }
 
     #[test]

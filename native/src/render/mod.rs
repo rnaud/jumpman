@@ -58,7 +58,13 @@ pub fn glb_animation_count(path: &Path) -> usize {
 }
 
 pub fn scene(assets: &AssetServer, path: &str) -> WorldAssetRoot {
-    WorldAssetRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(path.to_owned())))
+    let label = GltfAssetLabel::Scene(0).from_asset(path.to_owned());
+    // Models of the `public/` tree (the Smash fighters) sit beside the asset root, not under it.
+    if path.starts_with("../") {
+        WorldAssetRoot(assets.load_builder().override_unapproved().load(label))
+    } else {
+        WorldAssetRoot(assets.load(label))
+    }
 }
 
 pub struct RenderPlugin;

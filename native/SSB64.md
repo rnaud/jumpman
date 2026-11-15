@@ -89,38 +89,37 @@ Counts (costume 0, high poly): 22-29 joints, 256-474 triangles, 139-186 clips pe
   files must be byte-identical (they are).
 - `byor/check-manifest.py --trace --ssb64 ROM --strict-unused`: the import reads exactly the 16 manifest files.
 
-## Making them playable (plan, not started)
+## Playable fighters
 
-1. **Movement**: drive a fighter with the existing SM64 sim (`jumpman_sim`, Mario's actions and physics), exactly as
-   `characters/gltf_view.rs` drives the Quaternius rig: it already resolves SM64 action ids to a `ClipKey` and the
-   `ClipKey` to a clip name through `ClipAliases`. A Smash fighter is a `GltfRig` whose aliases come from `fighters.json`
-   (motion name -> clip): Idle = Wait, Walk = WalkMiddle (WalkSlow / WalkFast by speed, the clips are 90 / 60 / 40-frame
-   cycles that scale with stick), Jog = Dash, Sprint = Run, JumpStart = KneeBend then JumpF (JumpAerialF for the double
-   jump, Kirby / Jigglypuff JumpAerialF1-5), JumpLoop = Fall, JumpLand = the LandingLight clip (it is KneeBend), Roll =
-   EscapeF, CrouchIdle = SquatWait, PunchJab = Attack11, PunchCross = Attack12 (Attack13 for the third hit), Interact =
-   LightGet. New keys worth adding to `ClipKey`: Kick -> AttackS3 / AttackHi4, GroundPound -> AttackAirLw, Dive ->
-   AttackDash, Hurt -> DamageN1, KnockedDown -> DownBounceD, GetUp -> DownStandD, Taunt -> Appeal, Ledge -> CliffCatch
-   / CliffWait, Swim -> (none: SSB64 has no swimming; use Fall). Scale: fit the bind-pose height to Mario's 160 SM64 units
-   (`gltf_view::visual_adjust`); feet are at y = 0 and the rig faces +Z, so no rotation offset. Speeds stay Mario's (the
-   sim), optionally scaled per fighter from `attributes` (run_speed / Mario's 44, jump_height_base / 26, gravity / 2.4).
-2. **Character slot**: add `Character::Smash(Fighter)` (or one variant per fighter), gated in `content.rs` by a
-   `Game::Ssb64` probe of `../public/models/ssb64/fighters.json` (a new probe is safe: `full_build_has_everything` must
-   then skip SSB64 or the checkout needs the export). Sounds: SSB64 voices are not exported yet (they are in the FGM bank,
-   `src/sys/audio.c`, `MUSIC_AND_SFX_DISCOVERIES.md`).
-3. **Gem Clash** (`experiments/brawl*.rs`): add `Hero::Smash(id)` with a `HeroStyle` from `attributes` (hp ~100,
-   speed = run_speed / 44, weight from `weight`, scale from the height) and map `brawl_core::Act` to clips: Idle Wait,
-   Air JumpF / Fall, Punch(0..2) Attack11 / Attack12 / AttackS3 (or Attack13), Dive AttackDash (air: AttackAirF), PoundWind
-   / Pound / PoundLand AttackAirLw / LandingAirLw, Swing AttackS4, Spin AttackHi4 (Link SpecialHi), Shoot SpecialN, Toss
-   ThrowF, Nova SpecialLw, Beam SpecialN, Hurt DamageN1, Down DownBounceD, GetUp DownStandD, Dead DamageFlyRoll. Timing:
-   the clips are the game's (an Attack11 is 15-20 frames at 60 fps), so `HeroStyle.combo` windows can be taken from the
-   clip lengths. Master Hand fits as a Gauntlet boss (its 22 clips: Slap, Poke, Walk, GunShoot, Punch, Dying...).
-4. Effort: the generic rig + alias table is one piece of work (~1-2 days including the scale/feet tuning and tests);
-   after that each fighter is data (~1-2 hours: check the aliases, specials and sounds); Gem Clash heroes ~0.5 day each for
-   the move feel. Kirby and Jigglypuff need the multi-jump mapping, Link and Samus their item / weapon models (not exported).
+The twelve fighters are playable as skins on Mario's sim, like the playable Bowser (`native/src/characters/smash.rs`;
+Master Hand is not playable):
+
+- **One implementation, data-driven**: `Character::Smash(Fighter)`. Each frame Mario's action picks a `smash::Move`
+  (the table at the top of `smash.rs`: Wait, WalkSlow / WalkMiddle / WalkFast / Run by speed, JumpF then Fall,
+  JumpAerialF (Kirby / Jigglypuff JumpAerialF1-3) for the double / triple jump and backflip, LandingLight, SquatWait,
+  Attack11 / Attack12 / Attack13 (else AttackS3) down Mario's punch sequence, AttackAirN for the jump kick, AttackAirF for
+  the dive, AttackDash for the slide kick, AttackAirLw / LandingAirLw for the ground pound, DamageN1, DownBounceU / D,
+  DamageFlyN / Roll, DamageE, WallDamage, Appeal for the star dance, CliffWait / CliffClimb*, LightGet / LightThrowF;
+  swimming plays Fall tilted forward, flight JumpF tilted). A move is a list of decomp motion names; the fighter's
+  `fighters.json` motion table resolves the first one it has to its clip, so nothing is written per fighter. The glb is
+  driven by the object views' `AnimRig` in seek mode on the module's own clock.
+- **Size**: one common scale (Smash Mario = SM64 Mario's 160 units), so the fighters keep Smash's relative sizes; Donkey
+  Kong is trimmed to 0.72 (about 1.8x Mario). The hitbox stays Mario's. The follow camera backs off for the big ones
+  (`Fighter::camera_scale`, up to 1.4x); in Gem Clash everyone is drawn 0.8x-1.25x Mario.
+- **Speeds and jumps** stay Mario's (`ATTRIBUTE_SPEEDS` is off: the courses are built around Mario's numbers).
+- **Where**: SM64 courses and every mode that takes more than Mario (Swarm, Deck, Relic, Gem Clash, Gate, Last Stand map
+  them to their Mario hero); Kart, Halls and Party stay Mario-only. Gem Clash maps its hero states straight to motions
+  (`smash::gem_clash_clip`). `JUMPMAN_CHARACTER=ssb-mario|ssb-luigi|ssb-dk|ssb-link|ssb-samus|ssb-yoshi|ssb-kirby|ssb-fox|
+  ssb-pikachu|ssb-jigglypuff|ssb-falcon|ssb-ness`, the V cycle and the character select's SMASH group; a fighter whose glb
+  is missing is left out. `JUMPMAN_SMASH_CLIP=<motion or clip>` holds one clip for headless checks.
+- **Sounds**: no voices are exported; the fighters use the `silent` voice set (SM64's hit sound, the star jingle).
+- **Looks**: Link's sword and shield and Samus's arm cannon are joints of their models and come with them. Effects,
+  projectiles, items and hand / face swaps are not drawn.
+
+Not done: per-fighter move feel (Gem Clash heroes from `attributes`), specials as moves, voices, Master Hand as a boss.
 
 ## Not done yet
 
-- Not playable (plan above).
 - Costumes other than 0, face (texture part) swaps, hand model parts (open / closed fists), low-poly models, the polygon /
   metal / giant variants (NMario, MMario, GDonkey), accessories (Pikachu's hat, Jigglypuff's bow), hitboxes and the
   motion event scripts (sounds, effects, hitbox timing in `*MainMotion` files), item and weapon models, stages.

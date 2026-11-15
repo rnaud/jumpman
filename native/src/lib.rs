@@ -300,9 +300,10 @@ pub fn main() {
     }
     // `JUMPMAN_STICK="2:0,64;5:-40,64;8:0,0"` holds the stick at x,y (-64..64) from each of those times on: a
     // scripted run on foot or in the summoned kart, without the jump taps of `JUMPMAN_WALK`. A step written `9:a`
-    // presses A once at that time instead (menus, doors).
+    // presses A once at that time instead (menus, doors), `9:b` presses B (punches).
     if let Ok(script) = std::env::var("JUMPMAN_STICK") {
         let taps: Vec<f32> = script.split(';').filter_map(|s| s.trim().strip_suffix(":a")?.trim().parse().ok()).collect();
+        let b_taps: Vec<f32> = script.split(';').filter_map(|s| s.trim().strip_suffix(":b")?.trim().parse().ok()).collect();
         let steps: Vec<(f32, Vec2)> = script
             .split(';')
             .filter_map(|s| {
@@ -313,7 +314,7 @@ pub fn main() {
             .collect();
         app.add_systems(
             PreUpdate,
-            (move |mut input: ResMut<input::PlayerInput>, time: Res<Time>, mut tapped: Local<usize>| {
+            (move |mut input: ResMut<input::PlayerInput>, time: Res<Time>, mut tapped: Local<usize>, mut b_tapped: Local<usize>| {
                 let now = time.elapsed_secs();
                 if let Some((_, stick)) = steps.iter().rev().find(|(t, _)| now >= *t) {
                     input.stick = *stick;
@@ -323,6 +324,11 @@ pub fn main() {
                 if due > *tapped {
                     *tapped = due;
                     input.script_tap_a();
+                }
+                let due_b = b_taps.iter().filter(|t| now >= **t).count();
+                if due_b > *b_tapped {
+                    *b_tapped = due_b;
+                    input.script_tap_b();
                 }
             })
             .after(input::read_input),

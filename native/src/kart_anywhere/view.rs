@@ -37,6 +37,7 @@ pub fn kart_scale(who: Character) -> f32 {
         Character::Banjo => 1.3,
         Character::Link => 1.45,
         Character::Bowser => 1.6,
+        Character::Smash(f) => f.height_ratio().clamp(0.8, 1.6),
     }
 }
 
@@ -411,7 +412,7 @@ pub fn seat_driver(
         Character::YoungLink => YOUNG_SEAT_DROP,
         // Banjo's sitting slide is drawn a little lower than the others: lift him out of the bodywork.
         Character::Banjo => -BANJO_LIFT,
-        Character::Mario | Character::Bowser => 0.,
+        Character::Mario | Character::Bowser | Character::Smash(_) => 0.,
     };
     let driver = match *who {
         Character::Mario => mario.iter_mut().next(),

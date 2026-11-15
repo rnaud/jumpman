@@ -351,7 +351,7 @@ fn hero_of(c: crate::characters::Character) -> Hero {
     use crate::characters::Character as C;
     match c {
         // Bowser plays Mario's moves (a skin on Mario's controller).
-        C::Mario | C::Bowser => Hero::Mario,
+        C::Mario | C::Bowser | C::Smash(_) => Hero::Mario,
         C::Link | C::YoungLink => Hero::Link,
         C::Banjo => Hero::Banjo,
     }
@@ -2182,6 +2182,7 @@ mod tests {
         assert_eq!(hero_of(C::YoungLink), Hero::Link);
         assert_eq!(hero_of(C::Banjo), Hero::Banjo);
         assert_eq!(hero_of(C::Bowser), Hero::Mario);
+        assert_eq!(hero_of(C::Smash(crate::characters::smash::Fighter::Kirby)), Hero::Mario);
         for h in [Hero::Mario, Hero::Link, Hero::Banjo] {
             assert!(!hero_name(h).is_empty());
         }

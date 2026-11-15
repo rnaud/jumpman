@@ -22,7 +22,7 @@ out of scope: `byor.rs` compiles there, but only macOS, iOS and Android are pack
    | Mario Kart 64 (US 1.0) | Mario Kart mode (Luigi Raceway, karts, HUD) |
    | Ocarina of Time (US 1.2) | Zelda courses, Link and Young Link |
    | Banjo-Kazooie (US 1.0) | Banjo-Kazooie character |
-   | Super Smash Bros. (US) | the 12 fighters and Master Hand as rigged, animated glTF (`public/models/ssb64`, see `SSB64.md`; not playable yet) |
+   | Super Smash Bros. (US) | the 12 fighters and Master Hand as rigged, animated glTF (`public/models/ssb64`, see `SSB64.md`; playable as skins on Mario) |
 
 3. Press Enter. `byor/pipeline.py` extracts into the per-user data dir (`~/Library/Application Support/Jumpman`;
    `$XDG_DATA_HOME/jumpman`, `%APPDATA%\Jumpman`; override with `JUMPMAN_DATA_DIR`). SM64 takes a few minutes.

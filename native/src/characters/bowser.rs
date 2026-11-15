@@ -440,9 +440,9 @@ mod tests {
     fn missing_model_is_not_installed_and_the_cycle_skips_him() {
         let empty = std::env::temp_dir().join("jumpman-no-bowser");
         assert!(!installed(&empty));
-        assert_eq!(Character::Banjo.next_available(false), Character::Mario);
-        assert_eq!(Character::Banjo.next_available(true), Character::Bowser);
-        assert_eq!(Character::Bowser.next_available(false), Character::Mario);
+        assert_eq!(Character::Banjo.next_available(|_| false), Character::Mario);
+        assert_eq!(Character::Banjo.next_available(|c| c == Character::Bowser), Character::Bowser);
+        assert_eq!(Character::Bowser.next_available(|c| c == Character::Bowser), Character::Mario);
     }
 
     /// Selecting him without the model: a toast, no entity, and it is not retried every frame.

@@ -3,7 +3,7 @@
 //! choices, for the modes that have some) and the character select that sits between choosing a
 //! level / mode and starting it. Nothing is loaded until READY on the character select.
 //! Input goes in as [`In`]; the result is a list of [`Out`] (menu actions and sounds).
-use crate::shell::{Character, ExperimentId, MenuSfx, Screen, UiAction};
+use crate::shell::{Character, ExperimentId, Group, MenuSfx, Screen, UiAction};
 use bevy::prelude::IVec2;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -13,7 +13,8 @@ pub enum Page {
     Grid,
     /// MODE SETUP: the chosen mode's start options (arena, difficulty...), then on to the character select.
     Setup,
-    /// Character select (fighting-game style): a lineup of the playable characters, READY starts the run.
+    /// Character select (fighting-game style): a roster grid of the playable characters grouped by game, the highlighted
+    /// one large on a pedestal; READY starts the run.
     Select,
 }
 
@@ -144,6 +145,21 @@ pub struct Ctx {
     pub target: Target,
     /// The start options of the picked mode (the setup page).
     pub setup: Vec<SetupRow>,
+    /// Columns of the character roster: the front end sets them from its layout (a group longer than this wraps).
+    pub roster_cols: usize,
+}
+
+/// The roster of the character select: per game group (in [`Group::ALL`] order, empty groups left out) its rows of slots
+/// (indices into [`Character::ALL`]), each group starting a new row and wrapping after `cols` tiles.
+pub fn roster(shown: &[bool; Character::COUNT], cols: usize) -> Vec<(Group, Vec<Vec<usize>>)> {
+    let cols = cols.max(1);
+    Group::ALL
+        .into_iter()
+        .filter_map(|g| {
+            let members: Vec<usize> = (0..Character::COUNT).filter(|i| shown[*i] && Character::ALL[*i].group() == g).collect();
+            (!members.is_empty()).then(|| (g, members.chunks(cols).map(|c| c.to_vec()).collect()))
+        })
+        .collect()
 }
 
 /// The level or mode the character select belongs to.
@@ -171,11 +187,11 @@ impl Ctx {
                 })
                 .collect()
         };
-        Self { tiles: [list(crate::shell::Tab::Games), list(crate::shell::Tab::Experiments)], cols: [4, 4], hero, hero_ok, allowed: [true; Character::COUNT], target: Target::default(), setup: Vec::new() }
+        Self { tiles: [list(crate::shell::Tab::Games), list(crate::shell::Tab::Experiments)], cols: [4, 4], hero, hero_ok, allowed: [true; Character::COUNT], target: Target::default(), setup: Vec::new(), roster_cols: 6 }
     }
 
-    /// Whether slot `i` stands in the lineup: a character whose model is missing is shown locked, except the ones left out
-    /// entirely ([`Character::hidden_when_missing`]: Bowser).
+    /// Whether slot `i` stands in the roster: a character whose model is missing is shown locked, except the ones left out
+    /// entirely ([`Character::hidden_when_missing`]: Bowser, the Smash fighters).
     pub fn shown(&self, i: usize) -> bool {
         Character::ALL.get(i).is_some_and(|c| !c.hidden_when_missing() || self.hero_ok[i])
     }
@@ -195,17 +211,46 @@ impl Ctx {
         (0..Character::ALL.len()).map(|k| (from + k) % Character::ALL.len()).find(|i| self.pickable(*i)).unwrap_or(from)
     }
 
-    /// The shown slot `d` steps from `from` along the lineup (wrapping, hidden slots skipped).
+    /// The roster as laid out now (groups of rows, [`roster`]).
+    pub fn roster(&self) -> Vec<(Group, Vec<Vec<usize>>)> {
+        roster(&self.shown_slots(), self.roster_cols)
+    }
+
+    /// The roster's rows, top to bottom.
+    pub fn rows(&self) -> Vec<Vec<usize>> {
+        self.roster().into_iter().flat_map(|(_, rows)| rows).collect()
+    }
+
+    /// The shown slots in reading order (row by row).
+    pub fn order(&self) -> Vec<usize> {
+        self.rows().into_iter().flatten().collect()
+    }
+
+    /// The shown slot `d` steps from `from` in reading order (wrapping from the last tile to the first; hidden slots skipped).
     pub fn step_slot(&self, from: usize, d: i32) -> usize {
-        let n = Character::ALL.len() as i32;
-        let mut i = from as i32;
-        for _ in 0..n {
-            i = (i + d.signum()).rem_euclid(n);
-            if self.shown(i as usize) {
-                return i as usize;
-            }
+        let order = self.order();
+        match order.iter().position(|i| *i == from) {
+            Some(k) if !order.is_empty() => order[(k as i32 + d.signum()).rem_euclid(order.len() as i32) as usize],
+            _ => order.first().copied().unwrap_or(from),
         }
-        from
+    }
+
+    /// The slot one roster row up (`d` < 0) or down, in the same column (the last tile of a shorter row; wrapping).
+    pub fn step_row(&self, from: usize, d: i32) -> usize {
+        let rows = self.rows();
+        let Some((r, c)) = rows.iter().enumerate().find_map(|(r, row)| row.iter().position(|i| *i == from).map(|c| (r, c))) else {
+            return self.step_slot(from, 1);
+        };
+        let next = &rows[(r as i32 + d.signum()).rem_euclid(rows.len() as i32) as usize];
+        next[c.min(next.len() - 1)]
+    }
+
+    /// The first slot of the next (`d` > 0) or previous game group (wrapping): the shoulder buttons jump between groups.
+    pub fn step_group(&self, from: usize, d: i32) -> usize {
+        let groups = self.roster();
+        let Some(g) = groups.iter().position(|(_, rows)| rows.iter().flatten().any(|i| *i == from)) else { return self.step_slot(from, 1) };
+        let next = &groups[(g as i32 + d.signum()).rem_euclid(groups.len() as i32) as usize];
+        next.1[0][0]
     }
 }
 
@@ -226,6 +271,10 @@ pub fn char_info(c: Character) -> CharInfo {
         Character::YoungLink => CharInfo { name: "YOUNG LINK", moves: "SWORD, SHIELD, ITEMS", blurb: "THE KID HERO: SMALL BUT QUICK", collects: "RUPEES" },
         Character::Banjo => CharInfo { name: "BANJO", moves: "CLAW, BARGE, PECK", blurb: "BEAR AND BIRD: FLAP FLIP, BEAK BARGE", collects: "NOTES" },
         Character::Bowser => CharInfo { name: "BOWSER", moves: "FIRE BREATH, KICK, GROUND POUND", blurb: "KING OF THE KOOPAS: MARIO'S MOVES, TWICE THE SIZE", collects: "COINS" },
+        Character::Smash(f) => {
+            let (moves, blurb) = f.blurb();
+            CharInfo { name: f.label(), moves, blurb, collects: "COINS" }
+        }
     }
 }
 
@@ -238,6 +287,7 @@ pub fn lock_reason(c: Character, hero_ok: bool, allowed: bool) -> Option<&'stati
             Character::AdultLink | Character::YoungLink => "IMPORT OCARINA OF TIME",
             Character::Banjo => "IMPORT BANJO-KAZOOIE",
             Character::Mario | Character::Bowser => "NOT INSTALLED",
+            Character::Smash(_) => "IMPORT SUPER SMASH BROS.",
         })
     } else {
         None
@@ -519,14 +569,11 @@ impl Menu {
                 _ => {}
             },
             Page::Select => match ev {
-                In::Move(d) => {
-                    let step = if d.x != 0 { d.x.signum() } else { d.y.signum() };
-                    if step != 0 {
-                        self.set_sel(ctx.step_slot(self.sel, step), &mut out);
-                    }
-                }
-                // The shoulder buttons step the lineup too.
-                In::Wing(d) if d != 0 => self.set_sel(ctx.step_slot(self.sel, d), &mut out),
+                // Left / right walk the roster in reading order, up / down move a row in the same column.
+                In::Move(d) if d.x != 0 => self.set_sel(ctx.step_slot(self.sel, d.x), &mut out),
+                In::Move(d) if d.y != 0 => self.set_sel(ctx.step_row(self.sel, d.y), &mut out),
+                // The shoulder buttons jump between the game groups.
+                In::Wing(d) if d != 0 => self.set_sel(ctx.step_group(self.sel, d), &mut out),
                 In::Activate | In::Click(Hit::Ready) => self.confirm_select(ctx, &mut out),
                 In::Back | In::Click(Hit::Back) => out.push(Out::Action(UiAction::Back)),
                 In::Hover(Hit::Slot(i)) => self.set_sel(i, &mut out),
@@ -608,8 +655,18 @@ pub fn sign_lines(name: &str, max: usize) -> Vec<String> {
 mod tests {
     use super::*;
 
+    /// Slot of a character in [`Character::ALL`].
+    pub(crate) fn slot(c: Character) -> usize {
+        Character::ALL.iter().position(|x| *x == c).unwrap()
+    }
+
+    /// Mario, Link, Banjo installed; Young Link's data missing; no Bowser, no Smash import.
     fn ctx() -> Ctx {
-        Ctx::from_registry(Character::Mario, [true, true, false, true, false], |_| true)
+        let mut ok = [false; Character::COUNT];
+        for c in [Character::Mario, Character::AdultLink, Character::Banjo] {
+            ok[slot(c)] = true;
+        }
+        Ctx::from_registry(Character::Mario, ok, |_| true)
     }
 
     #[test]
@@ -681,52 +738,108 @@ mod tests {
     }
 
     #[test]
-    fn select_moves_through_the_lineup_including_locked_slots() {
+    fn select_moves_through_the_roster_including_locked_slots() {
         let c = select_ctx();
         let mut m = Menu::default();
         m.open_select(&c);
         assert_eq!(m.sel, 0);
+        // Reading order: SM64 (Mario), OOT (Link, Young Link), BK (Banjo).
         m.input(In::Move(IVec2::new(1, 0)), &c);
         assert_eq!(m.selected_hero(), Character::AdultLink);
         m.input(In::Move(IVec2::new(1, 0)), &c);
         assert_eq!(m.selected_hero(), Character::YoungLink, "locked slots can be looked at");
         m.input(In::Wing(1), &c);
-        assert_eq!(m.selected_hero(), Character::Banjo);
+        assert_eq!(m.selected_hero(), Character::Banjo, "a shoulder button jumps to the next group");
         m.input(In::Move(IVec2::new(1, 0)), &c);
         assert_eq!(m.selected_hero(), Character::Mario, "wraps");
         m.input(In::Move(IVec2::new(-1, 0)), &c);
         assert_eq!(m.selected_hero(), Character::Banjo);
+        // Up / down change rows (each group starts its own row).
+        m.input(In::Move(IVec2::new(0, -1)), &c);
+        assert_eq!(m.selected_hero(), Character::AdultLink);
+        m.input(In::Move(IVec2::new(0, 1)), &c);
+        assert_eq!(m.selected_hero(), Character::Banjo);
+        m.input(In::Move(IVec2::new(0, 1)), &c);
+        assert_eq!(m.selected_hero(), Character::Mario, "down from the last row wraps to the top");
         // Hover (mouse) highlights.
         assert_eq!(m.input(In::Hover(Hit::Slot(1)), &c), vec![Out::Sfx(MenuSfx::MOVE)]);
         assert_eq!(m.selected_hero(), Character::AdultLink);
     }
 
-    /// Bowser stands at the end of the lineup when his model is installed and is left out (not locked) when it is not.
+    /// Bowser stands next to Mario (the SM64 group) when his model is installed and is left out (not locked) when it is not.
     #[test]
-    fn bowser_joins_the_lineup_only_with_his_model() {
+    fn bowser_joins_the_roster_only_with_his_model() {
         let mut c = select_ctx();
-        assert!(!c.shown(4) && !c.pickable(4), "no glb: not in the lineup");
+        let b = slot(Character::Bowser);
+        assert!(!c.shown(b) && !c.pickable(b), "no glb: not in the roster");
         let mut m = Menu::default();
         m.open_select(&c);
-        m.sel = 3;
+        m.sel = slot(Character::Banjo);
         m.input(In::Move(IVec2::new(1, 0)), &c);
         assert_eq!(m.selected_hero(), Character::Mario, "Banjo wraps to Mario past the hidden slot");
         c.hero = Character::Bowser;
         m.open_select(&c);
         assert_eq!(m.selected_hero(), Character::Mario, "a hidden last pick falls back to the first playable one");
-        // Installed: the fifth slot, reachable both ways, and READY takes him.
-        c.hero_ok[4] = true;
-        assert!(c.shown(4) && c.pickable(4));
+        // Installed: right after Mario, reachable both ways, and READY takes him.
+        c.hero_ok[b] = true;
+        assert!(c.shown(b) && c.pickable(b));
+        assert_eq!(c.rows()[0], vec![0, b], "the SM64 row: Mario, Bowser");
         m.close_select();
         m.open_select(&c);
         assert_eq!(m.selected_hero(), Character::Bowser);
         m.input(In::Move(IVec2::new(1, 0)), &c);
-        assert_eq!(m.selected_hero(), Character::Mario);
+        assert_eq!(m.selected_hero(), Character::AdultLink);
         m.input(In::Move(IVec2::new(-1, 0)), &c);
         assert_eq!(m.selected_hero(), Character::Bowser);
         assert_eq!(m.input(In::Activate, &c)[0], Out::Action(UiAction::Character(Character::Bowser)));
         assert_eq!(char_info(Character::Bowser).name, "BOWSER");
         assert_eq!(lock_reason(Character::Bowser, true, false), Some("MARIO ONLY"));
+    }
+
+    /// The Smash fighters: a SMASH group that wraps at the roster's columns, each fighter there only with its glb.
+    #[test]
+    fn smash_fighters_fill_their_own_group() {
+        use crate::characters::smash::Fighter;
+        let mut c = select_ctx();
+        assert!(c.roster().iter().all(|(g, _)| *g != Group::Smash), "no import: no SMASH group");
+        for f in Fighter::ALL {
+            c.hero_ok[slot(Character::Smash(f))] = f != Fighter::Ness;
+        }
+        assert!(!c.shown(slot(Character::Smash(Fighter::Ness))), "a missing glb hides that fighter only");
+        c.roster_cols = 4;
+        let groups = c.roster();
+        assert_eq!(groups.iter().map(|(g, _)| *g).collect::<Vec<_>>(), [Group::Sm64, Group::Oot, Group::Bk, Group::Smash]);
+        let smash = &groups[3].1;
+        assert_eq!(smash.iter().map(Vec::len).collect::<Vec<_>>(), [4, 4, 3], "11 fighters in rows of 4");
+        assert_eq!(smash[0][0], slot(Character::Smash(Fighter::Mario)));
+        // Navigation: Banjo -> right -> Smash Mario; down a row keeps the column; the short last row clamps.
+        let mut m = Menu::default();
+        m.open_select(&c);
+        m.sel = slot(Character::Banjo);
+        m.input(In::Move(IVec2::new(1, 0)), &c);
+        assert_eq!(m.selected_hero(), Character::Smash(Fighter::Mario));
+        // Rows: [Mario Luigi DK Link] [Samus Yoshi Kirby Fox] [Pikachu Puff Falcon].
+        m.sel = slot(Character::Smash(Fighter::Link));
+        m.input(In::Move(IVec2::new(0, 1)), &c);
+        assert_eq!(m.selected_hero(), Character::Smash(Fighter::Fox), "same column, next row");
+        m.input(In::Move(IVec2::new(0, 1)), &c);
+        assert_eq!(m.selected_hero(), Character::Smash(Fighter::Captain), "the short last row: its last tile");
+        m.input(In::Move(IVec2::new(0, 1)), &c);
+        assert_eq!(m.selected_hero(), Character::Mario, "down from the bottom wraps to the SM64 row");
+        m.input(In::Wing(-1), &c);
+        assert_eq!(m.selected_hero(), Character::Smash(Fighter::Mario), "the shoulder wraps from SM64 back to SMASH");
+        m.input(In::Wing(1), &c);
+        assert_eq!(m.selected_hero(), Character::Mario, "and from SMASH on to SM64");
+        m.input(In::Wing(-1), &c);
+        assert_eq!(m.input(In::Activate, &c)[0], Out::Action(UiAction::Character(Character::Smash(Fighter::Mario))));
+        assert_eq!(char_info(Character::Smash(Fighter::Mario)).name, "SMASH MARIO");
+        assert_eq!(lock_reason(Character::Smash(Fighter::Fox), false, true), Some("IMPORT SUPER SMASH BROS."));
+        // Every shown slot is in exactly one row; no hidden slot is.
+        let order = c.order();
+        assert_eq!(order.len(), (0..Character::COUNT).filter(|i| c.shown(*i)).count());
+        for i in 0..Character::COUNT {
+            assert_eq!(order.contains(&i), c.shown(i));
+        }
     }
 
     #[test]
@@ -748,8 +861,8 @@ mod tests {
         let c = select_ctx();
         let mut m = Menu::default();
         m.open_select(&c);
-        m.sel = 2;
-        assert!(!c.pickable(2));
+        m.sel = slot(Character::YoungLink);
+        assert!(!c.pickable(m.sel));
         assert_eq!(m.input(In::Activate, &c), vec![Out::Sfx(MenuSfx::DENIED)]);
         assert_eq!(m.input(In::Click(Hit::Ready), &c), vec![Out::Sfx(MenuSfx::DENIED)]);
         assert!(m.pending.is_none());
@@ -762,7 +875,7 @@ mod tests {
     fn mario_only_modes_grey_out_everyone_else() {
         let mut c = select_ctx();
         c.hero = Character::Banjo;
-        c.allowed = [true, false, false, false, false];
+        c.allowed = std::array::from_fn(|i| i == 0);
         c.target = Target { kind: "MODE", name: "PAINTED HALLS".into(), mario_only: true };
         let mut m = Menu::default();
         m.open_select(&c);
@@ -780,10 +893,11 @@ mod tests {
         let c = select_ctx();
         let mut m = Menu::default();
         m.open_select(&c);
-        assert_eq!(m.input(In::Click(Hit::Slot(3)), &c), vec![Out::Sfx(MenuSfx::MOVE)]);
+        let b = slot(Character::Banjo);
+        assert_eq!(m.input(In::Click(Hit::Slot(b)), &c), vec![Out::Sfx(MenuSfx::MOVE)]);
         assert_eq!(m.selected_hero(), Character::Banjo);
         assert!(m.pending.is_none());
-        let o = m.input(In::Click(Hit::Slot(3)), &c);
+        let o = m.input(In::Click(Hit::Slot(b)), &c);
         assert_eq!(o[0], Out::Action(UiAction::Character(Character::Banjo)));
         assert!(m.pending.is_some());
     }

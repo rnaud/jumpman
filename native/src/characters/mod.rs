@@ -12,6 +12,7 @@ pub mod banjo_pose_ext;
 pub mod bowser;
 pub mod gltf_view;
 pub mod link_pose;
+pub mod smash;
 
 use crate::game::runner::GameSim;
 use crate::hud::Toast;
@@ -41,6 +42,8 @@ pub enum Character {
     Banjo,
     /// SM64's Bowser: a skin on Mario's controller and physics (`bowser.rs`), drawn from the user's SM64 import.
     Bowser,
+    /// A Super Smash Bros. fighter: a skin on Mario's controller and physics (`smash.rs`), drawn from the user's Smash import.
+    Smash(smash::Fighter),
 }
 
 impl Character {
@@ -51,7 +54,7 @@ impl Character {
             "young-link" => Some(Self::YoungLink),
             "banjo" => Some(Self::Banjo),
             "bowser" => Some(Self::Bowser),
-            _ => None,
+            other => smash::Fighter::from_id(other).map(Self::Smash),
         }
     }
 
@@ -63,6 +66,8 @@ impl Character {
             Self::YoungLink => "young-link",
             Self::Banjo => "banjo",
             Self::Bowser => "bowser",
+            // No Smash voices are exported: SM64 sound-bank hits only (`character-sounds.json` set `ssb64`).
+            Self::Smash(_) => "ssb64",
         }
     }
 
@@ -70,7 +75,7 @@ impl Character {
     pub fn theme(self) -> jumpman_sim::collectible_theme::Theme {
         use jumpman_sim::collectible_theme::Theme;
         match self {
-            Self::Mario | Self::Bowser => Theme::Coin,
+            Self::Mario | Self::Bowser | Self::Smash(_) => Theme::Coin,
             Self::Link | Self::YoungLink => Theme::Rupee,
             Self::Banjo => Theme::Note,
         }
@@ -83,30 +88,71 @@ impl Character {
             Self::YoungLink => "YOUNG LINK",
             Self::Banjo => "BANJO-KAZOOIE",
             Self::Bowser => "BOWSER",
+            Self::Smash(f) => f.label(),
         }
     }
+
+    /// Every playable character, in cycle and roster order.
+    pub const ALL: [Character; 17] = {
+        let mut all = [Character::Mario; 17];
+        let first = [Character::Mario, Character::Link, Character::YoungLink, Character::Banjo, Character::Bowser];
+        let mut i = 0;
+        while i < 5 {
+            all[i] = first[i];
+            i += 1;
+        }
+        let mut k = 0;
+        while k < smash::Fighter::COUNT {
+            all[5 + k] = Character::Smash(smash::Fighter::ALL[k]);
+            k += 1;
+        }
+        all
+    };
 
     pub fn next(self) -> Self {
+        let i = Self::ALL.iter().position(|c| *c == self).unwrap_or(0);
+        Self::ALL[(i + 1) % Self::ALL.len()]
+    }
+
+    /// The next character whose model the installed data has (`installed`: Bowser's glb, a Smash fighter's glb; the rest are
+    /// always offered, as before).
+    pub fn next_available(self, installed: impl Fn(Character) -> bool) -> Self {
+        let mut c = self.next();
+        for _ in 0..Self::ALL.len() {
+            if !c.optional_model() || installed(c) {
+                return c;
+            }
+            c = c.next();
+        }
+        Self::Mario
+    }
+
+    /// A skin whose model may be missing from the installed data (left out rather than locked).
+    pub fn optional_model(self) -> bool {
+        matches!(self, Self::Bowser | Self::Smash(_))
+    }
+
+    /// Whether this skin's model is installed (always true for the others).
+    pub fn model_installed(self, root: &std::path::Path) -> bool {
         match self {
-            Self::Mario => Self::Link,
-            Self::Link => Self::YoungLink,
-            Self::YoungLink => Self::Banjo,
-            Self::Banjo => Self::Bowser,
-            Self::Bowser => Self::Mario,
+            Self::Bowser => bowser::installed(root),
+            Self::Smash(f) => smash::installed(root, f),
+            _ => true,
         }
     }
 
-    /// The next character whose model the installed data has (`bowser_installed`: his glb is in the SM64 import).
-    pub fn next_available(self, bowser_installed: bool) -> Self {
-        match self.next() {
-            Self::Bowser if !bowser_installed => Self::Bowser.next(),
-            other => other,
-        }
-    }
-
-    /// Plays Mario's game: Mario's controller, physics, moves, HUD and voice slots (Bowser is a skin on Mario).
+    /// Plays Mario's game: Mario's controller, physics, moves, HUD and voice slots (Bowser and the Smash fighters are skins on Mario).
     pub fn plays_as_mario(self) -> bool {
-        matches!(self, Self::Mario | Self::Bowser)
+        matches!(self, Self::Mario | Self::Bowser | Self::Smash(_))
+    }
+
+    /// Follow-camera distance factor for the model's size (Bowser, the big Smash fighters); 1 for the others.
+    pub fn camera_scale(self) -> f64 {
+        match self {
+            Self::Bowser => bowser::CAMERA_DISTANCE,
+            Self::Smash(f) => f.camera_scale(),
+            _ => 1.0,
+        }
     }
 
     /// Drawn by a CPU-skinned rig of [`Rigs`] (the N64 JSON models of Link and Banjo).
@@ -134,6 +180,7 @@ impl Character {
             Self::Banjo => "B CLAW - R1 CROUCH - R2 R - D-PAD C BUTTONS",
             Self::Mario => "A = JUMP - HOLD FOR HEIGHT",
             Self::Bowser => "A = JUMP - B = FIRE BREATH",
+            Self::Smash(_) => "A = JUMP - B = ATTACK - Z = POUND",
         }
     }
 
@@ -143,6 +190,7 @@ impl Character {
             Self::Banjo => "J CLAW - K+SPACE FLAP FLIP - K+J BEAK BARGE",
             Self::Mario => "A = JUMP - HOLD FOR HEIGHT",
             Self::Bowser => "A = JUMP - B = FIRE BREATH",
+            Self::Smash(_) => "A = JUMP - B = ATTACK - Z = POUND",
         }
     }
 }
@@ -156,7 +204,7 @@ impl Plugin for CharactersPlugin {
             .init_resource::<Rigs>()
             .init_resource::<crate::experiments::characters_support::CharacterFallback>()
             .add_systems(Startup, spawn_marker.in_set(crate::progress::PersistentSpawn))
-            .add_plugins((gltf_view::GltfRigPlugin, bowser::BowserPlugin))
+            .add_plugins((gltf_view::GltfRigPlugin, bowser::BowserPlugin, smash::SmashPlugin))
             .add_systems(Update, (crate::experiments::characters_support::enforce, cycle_character, apply_character, update_rigs, update_marker).chain().before(crate::CameraSet));
     }
 }
@@ -167,7 +215,7 @@ fn cycle_character(slot: Res<crate::experiments::ExperimentSlot>, keys: Res<Butt
         return;
     }
     if keys.just_pressed(KeyCode::KeyV) {
-        *current = current.next_available(root.is_some_and(|r| bowser::installed(&r.0)));
+        *current = current.next_available(|c| root.as_ref().is_some_and(|r| c.model_installed(&r.0)));
         toast.show(format!("NOW PLAYING - {}", current.label()), 1.6);
     }
 }
@@ -344,7 +392,7 @@ pub(crate) fn spawn_rig(
             let parts = asset.batches.iter().map(|b| b.part.clone()).collect();
             kind = RigKind::Banjo { anim: Box::new(BanjoAnimator::new(&asset)), asset, parts };
         }
-        Character::Mario | Character::Bowser => return Err(format!("{which:?} has no CPU-skinned rig")),
+        Character::Mario | Character::Bowser | Character::Smash(_) => return Err(format!("{which:?} has no CPU-skinned rig")),
         link => {
             let young = link == Character::YoungLink;
             let mut link_asset = assets::load_link(&root.0, if young { "young-link" } else { "link" })?;
@@ -561,12 +609,28 @@ mod tests {
         assert_eq!(Character::from_name("bowser"), Some(Character::Bowser));
         let mut c = Character::Mario;
         let mut seen = vec![];
-        for _ in 0..5 {
+        for _ in 0..Character::ALL.len() {
             c = c.next();
             seen.push(c);
         }
         assert_eq!(c, Character::Mario);
-        assert_eq!(seen, [Character::Link, Character::YoungLink, Character::Banjo, Character::Bowser, Character::Mario]);
+        assert_eq!(seen[..5], [Character::Link, Character::YoungLink, Character::Banjo, Character::Bowser, Character::Smash(smash::Fighter::Mario)]);
+        assert_eq!(seen[15..], [Character::Smash(smash::Fighter::Ness), Character::Mario]);
+        // The Smash fighters: parsed from their ids, skins on Mario, labelled apart from SM64 Mario and OoT Link.
+        assert_eq!(Character::from_name("ssb-pikachu"), Some(Character::Smash(smash::Fighter::Pikachu)));
+        assert_eq!(Character::from_name("ssb-dk"), Some(Character::Smash(smash::Fighter::Donkey)));
+        assert_eq!(Character::from_name("ssb-boss"), None);
+        let smash_mario = Character::Smash(smash::Fighter::Mario);
+        assert!(smash_mario.plays_as_mario() && !smash_mario.has_cpu_rig() && !smash_mario.is_link() && smash_mario.optional_model());
+        assert_eq!((smash_mario.label(), smash_mario.sound_id()), ("SMASH MARIO", "ssb64"));
+        assert_eq!(Character::Smash(smash::Fighter::Link).label(), "SMASH LINK");
+        assert_eq!(smash_mario.theme(), jumpman_sim::collectible_theme::Theme::Coin);
+        assert!(Character::Smash(smash::Fighter::Donkey).camera_scale() > 1.0 && Character::Smash(smash::Fighter::Kirby).camera_scale() == 1.0);
+        // The V cycle skips the skins whose model is missing.
+        assert_eq!(Character::Banjo.next_available(|_| false), Character::Mario);
+        assert_eq!(Character::Bowser.next_available(|c| c == Character::Smash(smash::Fighter::Fox)), Character::Smash(smash::Fighter::Fox));
+        assert_eq!(Character::Smash(smash::Fighter::Fox).next_available(|_| false), Character::Mario);
+        assert_eq!(Character::Smash(smash::Fighter::Fox).next_available(|_| true), Character::Smash(smash::Fighter::Pikachu));
         assert!(Character::Link.is_link() && !Character::Banjo.is_link() && !Character::Bowser.is_link());
         // Bowser is a skin on Mario: Mario's game, coins, voice id of his own, no CPU rig.
         assert!(Character::Bowser.plays_as_mario() && !Character::Bowser.has_cpu_rig() && !Character::Banjo.plays_as_mario());

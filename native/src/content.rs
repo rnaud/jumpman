@@ -65,6 +65,8 @@ pub struct AvailableContent {
     have: [bool; 3],
     /// Bowser's model (`characters::bowser::MODEL`) is in the SM64 export.
     bowser: bool,
+    /// Each Smash fighter's glb (and the import's `fighters.json`) is installed (`characters::smash::installed`).
+    smash: [bool; crate::characters::smash::Fighter::COUNT],
 }
 
 impl Default for AvailableContent {
@@ -76,7 +78,7 @@ impl Default for AvailableContent {
 impl AvailableContent {
     /// Everything available (the full build, tests).
     pub fn all() -> Self {
-        Self { courses: None, have: [true; 3], bowser: true }
+        Self { courses: None, have: [true; 3], bowser: true, smash: [true; crate::characters::smash::Fighter::COUNT] }
     }
 
     /// Probe an asset root (`<root>/courses/*.json`, `<root>/../public/...`).
@@ -96,8 +98,11 @@ impl AvailableContent {
             .map(|d| d.flatten().filter_map(|e| e.file_name().to_str().and_then(|n| n.strip_suffix(".json")).map(str::to_string)).collect())
             .ok();
         // `JUMPMAN_MISSING_GAMES=bowser` hides him too (menu checks).
-        let bowser = crate::characters::bowser::installed(root) && !std::env::var("JUMPMAN_MISSING_GAMES").is_ok_and(|l| l.split(',').any(|x| x.trim() == "bowser"));
-        Self { courses, have, bowser }
+        let hidden = |id: &str| std::env::var("JUMPMAN_MISSING_GAMES").is_ok_and(|l| l.split(',').any(|x| x.trim() == id));
+        let bowser = crate::characters::bowser::installed(root) && !hidden("bowser");
+        // The Smash fighters follow their glbs (`JUMPMAN_MISSING_GAMES=ssb64` hides them all, `ssb-pikachu` one of them).
+        let smash = crate::characters::smash::Fighter::ALL.map(|f| crate::characters::smash::installed(root, f) && !hidden("ssb64") && !hidden(f.id()));
+        Self { courses, have, bowser, smash }
     }
 
     pub fn has(&self, game: Game) -> bool {
@@ -124,6 +129,8 @@ impl AvailableContent {
             Banjo => (!self.has(Game::Bk)).then_some(Game::Bk),
             // Part of the required SM64 import: never "import a game", only present or not (see `bowser_installed`).
             Bowser => None,
+            // An optional import that adds characters: present or left out of the roster (see `smash_installed`).
+            Smash(_) => None,
         }
     }
 
@@ -132,9 +139,20 @@ impl AvailableContent {
         self.bowser
     }
 
+    /// Whether this Smash fighter's model is installed (the roster leaves it out otherwise).
+    pub fn smash_installed(&self, f: crate::characters::smash::Fighter) -> bool {
+        self.smash[f.index()]
+    }
+
     /// Whether the installed data can draw this character.
     pub fn character_ok(&self, c: crate::shell::Character) -> bool {
-        self.character_missing(c).is_none() && (c != crate::shell::Character::Bowser || self.bowser)
+        use crate::shell::Character::*;
+        self.character_missing(c).is_none()
+            && match c {
+                Bowser => self.bowser,
+                Smash(f) => self.smash_installed(f),
+                _ => true,
+            }
     }
 
     pub fn experiment_missing(&self, e: crate::shell::ExperimentId) -> Option<Game> {
@@ -214,6 +232,26 @@ mod tests {
         let c = AvailableContent::probe(&root);
         assert!(c.bowser_installed() && c.character_ok(Character::Bowser));
         assert!(AvailableContent::all().character_ok(Character::Bowser));
+        let _ = std::fs::remove_dir_all(root.parent().unwrap());
+    }
+
+    /// Each Smash fighter follows its own glb plus the import's index: missing, it is not ok (and never "import a game").
+    #[test]
+    fn smash_fighters_follow_their_models() {
+        use crate::characters::smash::{self, Fighter};
+        let root = fake_root("smash", &["courses/bob.json"]);
+        let c = AvailableContent::probe(&root);
+        for f in Fighter::ALL {
+            assert!(!c.smash_installed(f) && !c.character_ok(Character::Smash(f)));
+            assert_eq!(c.character_missing(Character::Smash(f)), None);
+        }
+        touch(&root, &Fighter::Pikachu.model());
+        assert!(!AvailableContent::probe(&root).smash_installed(Fighter::Pikachu), "a glb without fighters.json is not enough");
+        touch(&root, smash::INDEX);
+        let c = AvailableContent::probe(&root);
+        assert!(c.smash_installed(Fighter::Pikachu) && c.character_ok(Character::Smash(Fighter::Pikachu)));
+        assert!(!c.character_ok(Character::Smash(Fighter::Donkey)), "only the glbs that exist");
+        assert!(Fighter::ALL.iter().all(|f| AvailableContent::all().character_ok(Character::Smash(*f))));
         let _ = std::fs::remove_dir_all(root.parent().unwrap());
     }
 

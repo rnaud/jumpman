@@ -166,7 +166,7 @@ impl Hero {
     pub fn from_character(c: crate::characters::Character) -> Hero {
         use crate::characters::Character as C;
         match c {
-            C::Mario | C::Bowser => Hero::Mario,
+            C::Mario | C::Bowser | C::Smash(_) => Hero::Mario,
             C::Link => Hero::Link,
             C::YoungLink => Hero::YoungLink,
             C::Banjo => Hero::Banjo,

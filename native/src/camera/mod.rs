@@ -133,7 +133,7 @@ fn update_camera(
     character: Option<Res<crate::characters::Character>>,
     mut original_was_on: Local<bool>,
 ) {
-    rig.size_scale = if character.is_some_and(|c| *c == crate::characters::Character::Bowser) { crate::characters::bowser::CAMERA_DISTANCE } else { 1.0 };
+    rig.size_scale = character.map_or(1.0, |c| c.camera_scale());
     let m = &sim.mario;
     let t = fixed.overstep_fraction() as f64;
     let (pos, yaw) = sim.mario_at(t);

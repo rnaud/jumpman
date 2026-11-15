@@ -800,7 +800,7 @@ mod tests {
     fn every_character_resolves_every_voice_action_without_mario_clips() {
         let data = CharacterSounds::load();
         let (s, _rx) = sfx();
-        for id in ["sm64", "procedural", "link", "young-link", "banjo", "bowser", "cc0", "custom-gltf"] {
+        for id in ["sm64", "procedural", "link", "young-link", "banjo", "bowser", "ssb64", "cc0", "custom-gltf"] {
             let set = data.set_for(id);
             let actions = data.sets.get(set).unwrap_or_else(|| panic!("{id}: no set {set}"));
             for key in VOICE_KEYS {
@@ -820,6 +820,8 @@ mod tests {
         assert_eq!(data.set_for("young-link"), "young_link");
         assert_eq!(data.set_for("cc0"), "silent");
         assert_eq!(data.set_for(crate::characters::Character::Bowser.sound_id()), "bowser");
+        // No Smash voices are exported: the fighters use the silent set (the SM64 hit sound and the star jingle).
+        assert_eq!(data.set_for(crate::characters::Character::Smash(crate::characters::smash::Fighter::Fox).sound_id()), "silent");
     }
 
     /// Every ROM clip a set names exists in the full asset tree, belongs to that set's own folder, decodes, and is audible.

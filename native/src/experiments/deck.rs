@@ -364,7 +364,7 @@ fn env_seed() -> u64 {
 
 fn hero_of(c: Character) -> Hero {
     match c {
-        Character::Mario | Character::Bowser => Hero::Mario,
+        Character::Mario | Character::Bowser | Character::Smash(_) => Hero::Mario,
         Character::Link => Hero::Link,
         Character::YoungLink => Hero::YoungLink,
         Character::Banjo => Hero::Banjo,

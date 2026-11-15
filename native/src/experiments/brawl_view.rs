@@ -227,6 +227,8 @@ pub struct BrawlBridge {
     /// The camera eye and the fighters' chests (render units), for hiding trees and bushes in the line of sight.
     pub cam_eye: Vec3,
     pub cam_targets: Vec<Vec3>,
+    /// The player's hero state this frame, for the skins that pick their clips from it (the Smash fighters).
+    pub hero_act: Option<crate::characters::smash::HeroAct>,
 }
 
 impl Default for BrawlBridge {
@@ -261,6 +263,7 @@ impl Default for BrawlBridge {
             wind_origin: Vec3::ZERO,
             cam_eye: Vec3::ZERO,
             cam_targets: vec![],
+            hero_act: None,
         }
     }
 }

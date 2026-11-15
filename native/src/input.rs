@@ -147,6 +147,12 @@ impl PlayerInput {
         self.down |= A_BUTTON;
     }
 
+    /// One scripted B press (punch), like [`Self::script_tap_a`].
+    pub fn script_tap_b(&mut self) {
+        self.pending_b = true;
+        self.down |= B_BUTTON;
+    }
+
     pub fn script_walk(&mut self, seconds: f32) {
         if seconds < 1.5 {
             return;
