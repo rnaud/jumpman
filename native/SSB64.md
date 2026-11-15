@@ -145,6 +145,11 @@ kick, punches (Mario's `MARIO_PUNCH_*` grunts answered by name) and kicks, hurt,
 - `cargo test -p jumpman smash_audio` (`native/src/characters/smash_audio.rs`): the table covers every fighter, names only
   exported clips, equals the `ssb_*` sets of `character-sounds.json`; with the clips in `assets/audio/voices/ssb64` they
   decode and are audible (skipped without them).
+- `python3 -m unittest byor/test_ssb64_weapons.py`, `cargo test -p byor-rs weapons` and `--test ssb64_weapons_rom`: with
+  `BYOR_TEST_SSB64_ROM` every model / item sound is written; with `BYOR_TEST_SSB64_WEAPONS_REF` (a
+  `scripts/export-ssb64-weapons.py --out <dir>/models/ssb64 --sound-out <dir>/sounds` folder) all 84 files are
+  byte-identical (they are). `cargo test -p jumpman-sim items` (pick-up, swing, throw, food, Star, Bob-omb, Ray Gun,
+  spawner) and `cargo test -p jumpman smash_models`.
 - `byor/check-manifest.py --trace --ssb64 ROM --strict-unused`: the import reads exactly the 17 manifest files.
 
 ## Playable fighters
@@ -234,14 +239,95 @@ units; app side `native/src/characters/smash.rs` (clips, input), `smash_fx.rs` (
 | Captain Falcon | Falcon Punch: wind-up, lunge 129 (root motion), 25% fire on frames 53-60 | Falcon Dive: +561 / 141 forward (root motion), grabs a body on the way up, 10% blast and a jump off, helpless (0.72) | Falcon Kick: ground dash of 988 (root motion), 15% then 9%; from the air a dive forward and down to the floor and `LandingDownSpecial` |
 | Ness | PK Fire: spark (73 / 95, -3.6 / -38 degrees) that becomes a pillar of fire (multi-hit) on a body or the floor | PK Thunder: steered ball (6 degrees a frame: stick left / right turns, up / down pitches; 160 frames, 8%); steered into Ness: PK Thunder 2 launches him along its heading (25%), helpless | PSI Magnet: held while special is held (30 frames min), absorbs enemy energy shots and heals |
 
-Not done: the ROM's weapon / effect models (fireball, Charge Shot, PK Thunder... are particles), hitbox timing and damage
+Not done: weapon / effect animations (the ROM models are drawn static, see "Weapons, effects and items"), hitbox timing and damage
 from the motion event scripts, knockback and percent on the fighters themselves, shields, the specials in Gem Clash, a
 touch special button.
+
+## Weapons, effects and items
+
+The import also writes the specials' weapon models, the main special effects and the item models from the ROM, and the
+item sounds: `scripts/export-ssb64-weapons.py` (reference) and its byte-identical port `native/byor-rs/src/ssb64_weapons.rs`
+(`ssb64::weapons`, run by `ssb64::run` and the pipeline after the sounds). It draws with the fighters' `Mesh` (display
+lists, MObj materials, the combiner), so the material rules are the fighters'. Output (data dir):
+`public/models/ssb64/objects/<name>.glb` (48 static models, about 0.4 MB), `public/models/ssb64/objects.json` and 34
+item sounds `assets/audio/voices/ssb64/FGM*_0.wav` + `manifest-ssb64-items.json`. Python ~2 s, Rust < 0.5 s.
+
+| What | Where in the decomp | Format |
+|---|---|---|
+| Weapons | `WPDesc` (`src/wp/wp<fighter>/*.c`, flags: 1 = DObjDesc tree, 2 = DLLinks) -> `WPAttributes` (`src/wp/wptypes.h`) in the fighter's `Main` / `Special1` file | `{data, p_mobjsubs, anim_joints, p_matanim_joints, ...}`: `data` is a DObjDesc tree or one display list (`wpManagerMakeWeapon`). Offsets from the `@ 0x....` notes of `src/relocData/2xx_*.c` (Mario / Luigi `Special1` + 0, Samus / Link / Ness / Pikachu / Yoshi `Main` + 0xC / 0x40, Kirby `Main` + 8, Pikachu `Special1` + 0 / 0x34). |
+| Items | `ITAttributes` (`src/it/ittypes.h`), `itManagerMakeItem` (`src/it/itmanager.c`) | the same four pointers first; the common items in `ITCommonData` (file 251, the `ItemAttributes @` offsets of `251_ITCommonData.c`), models in `ITCommonObject` (86); Link's bomb `LinkMain` + 0x40, PK Fire's pillar `NessSpecial1` + 0x34. |
+| Effects | `EFDesc` (`src/ef/eftypes.h`), `efManagerMakeEffect` (`src/ef/efmanager.c`) | file + offsets of the DObjDesc tree (flags & 4) or display list, the `MObjSub ***`, AnimJoint and MatAnimJoint tables (the `ll*` symbols: their offsets read from the `src/relocData/<file>.c` layouts and checked against the data). |
+| Trees | `gcSetupCustomDObjs` / `gcSetupCustomDObjsWithMObj` (`src/sys/objanim.c`) | 44-byte `DObjDesc` like the fighters' (`id & 0xFFF` = depth, end id 18); a DObj's `dl` may be a `DObjDLLink` array (`{list_id, dl}` up to id 4, the XLU renderers). One `MObjSub **` list per DObj; the material script (MatAnimJoint) is applied at frame 0. |
+| Renderer state | `itDisplayColAnimOPA`, `wpYoshiEggThrowProcDisplay` | they clear the environment colour first (`env0` in the table: Hammer, Bob-omb, Link's bomb, Yoshi's egg); `palette`: the Luigi fireball (palette 1, `wpMarioFireballMakeWeapon`) and the green shell (1) vs the red (0) share one model. |
+
+Models (48): weapons `fireball`, `fireball_luigi`, `blaster`, `charge_shot`, `samus_bomb`, `boomerang`, `spin_attack`,
+`final_cutter`, `pk_fire`, `pk_thunder`, `pk_thunder_trail`, `thunder_head`, `thunder_jolt`, `thunder_jolt_air`,
+`yoshi_egg`, `yoshi_star` (also the Star Rod's star), `ray_gun_shot`; items `capsule`, `maxim_tomato`, `heart`, `star`,
+`beam_sword`, `bat`, `fan`, `ray_gun`, `fire_flower`, `hammer`, `motion_bomb`, `bob_omb`, `star_rod`, `green_shell`,
+`red_shell`, `crate`, `barrel`, `bumper`, `poke_ball`, `egg`, `link_bomb`, `pk_fire_pillar`; effects `falcon_punch`,
+`falcon_kick`, `reflector`, `psi_magnet`, `sing`, `spin_attack_trail`, `thunder_shock`, `egg_lay`, `hit_slash`.
+
+`<name>.glb`: one node, one mesh (a primitive per material), the bind pose baked in, positions in UNIT (0.004) per SSB64
+unit, no skin and no animation. Many SSB64 items and weapons are sprite quads (`plane` in the index: the axis the model is
+flat along). Vertex colours keep their alpha only where the combiner reads the shade alpha (sprites carry alpha 0 there).
+Effects whose material script fades in from alpha 0 (`solid`: Sing, Spin Attack) are exported at full alpha.
+`objects.json`: per model `kind` (weapon / item / effect), `file`, `source`, `joints`, `triangles`, `materials`,
+`billboard` (the game draws it facing the camera), `plane`, `min` / `max`; `hands`: per fighter the joints that hold
+items (`FTAttributes.joint_itemlight_id` +0x33C / `joint_itemheavy_id` +0x334, the `joint_NN` nodes of the fighter glb).
+
+Not exported: joint animations (AnimJoint: the Reflector's spin-up, Bob-omb's walk, the egg-shell pieces sit at their
+bind pose), texture flip-books after frame 0 (Falcon Punch's three frames), the particle-bank effects (explosions, fire
+flower flames, sparks, smoke: `efcommon` `.scb` / `.txb`, see the decomp's `PARTICLE_BANK_DISCOVERIES.md`), Kirby's copy
+hats, the Pokémon.
+
+**In the game** (`native/src/characters/smash_models.rs`): the projectiles of `sim.mario.smash.projectiles` are drawn
+with their model (camera-facing for the sprites, the boomerang spinning, Thunder's bolt as stacked heads, PK Thunder with
+its tail, the Charge Shot sized by level), the running special's effect (Falcon Punch's bird and Falcon Kick's fire turned
+about the facing toward the camera, the Reflector hexagon and PSI Magnet pulsing, Sing's notes, Link's spin, Pikachu's
+Thunder), and an SSB64 hit spark on each hit. Weapons, effects and sprite items are unlit (pre-lit in SSB64), the solid
+items lit. Anything without a model (no import, explosions, Fire Flower flames, blasts) keeps the particles of
+`smash_fx.rs` (`SmashModels::covers`).
+
+### Items (play)
+
+`native/sim/src/smash_items.rs` (`jumpman_sim::smash::items`, engine-free, hooked like the specials: `step_smash` runs it
+when no special runs, `after_step` steps the items; numbers from `src/it/itvars.h` and `251_ITCommonData.c`):
+
+- **Spawning**: on the SM64 courses a Smash fighter plays (`Items::enabled`, set by the app; `JUMPMAN_SMASH_ITEMS=0`
+  turns it off), an item drops from 300 units above a random floor point 200-700 units from the fighter every 11 s, up to
+  4 on the field; untouched items blink and vanish after 30 s. `JUMPMAN_SMASH_ITEM=<name>` drops one in front at start.
+- **Pick up**: B (attack) standing next to an item (`LightGet` / `HeavyGet`). Maxim Tomato (+4 wedges, SSB64 heals 100%)
+  and Heart Container (full) are eaten; the Star is taken on touch: 10 s of invincibility (`ITSTAR_INVINCIBLE_TIME`,
+  `SmashExt::armor`), sparkles. The Hammer is worn: 12 s (`ITHAMMER_TIME`) of `HammerWait` / `HammerWalk` with a hitbox
+  coming down in front every 12 ticks (10%), B does nothing else.
+- **Use** (B, stick near neutral): Beam Sword / Home-Run Bat / Fan / Star Rod swing (`*Swing1`, `*Swing3` while walking,
+  `*Swing4` with Z held; damage 10 / 14 / 22 sword, 12 / 15 / 30 bat (the home run knocks hard), 2-4 fan, 6-9 star rod,
+  approximate: the swing hitboxes are in the motion event scripts); the Star Rod's tilt / smash also shoot a star (8% /
+  12%, 20 stars); Ray Gun shoots (`LGunShoot`, 16 shots, 10%); Fire Flower breathes fire while B is held (60 frames of
+  fuel, 3% fire, particles).
+- **Throw** (B with the stick pushed hard; heavy items, bombs, shells, Bumper, Poké Ball and containers on any B): the
+  item flies toward the stick (`LightThrowF` / `LightThrowAirF` / `HeavyThrowF`) and hits the first body it meets with its
+  ITAttributes damage. Bob-omb: explodes on contact / landing (30%, `ITAttackEvent` size 350); left on the ground it walks
+  after 3 s and blows up on contact or after 5 s. Motion-Sensor Bomb: sticks where it lands, arms, explodes on the first
+  body in its 180-unit sensor. Green / red shell: slides (18% / 10%), bounces off walls and bodies, stops. Bumper: stays
+  and bumps (4%, every 10 ticks). Poké Ball: bursts open (12% burst; the Pokémon are not exported). Capsule / Crate /
+  Barrel: break and drop another item.
+- **Hits** go through the specials' path: thrown items, armed bombs, shells and the Bumper are `ProjKind::Item`
+  projectiles kept on the item, swings and the hammer `Hitbox`es, shots projectiles, all with `SpecialMove::Item`;
+  `smash::resolve` applies them to every `SmashTargets` (SM64 objects, goombas, Hold the Gate, Star Swarm), so a mode's
+  knockback / percent applies to items unchanged.
+- **Looks and sounds**: items on the field (sprite items face the camera, thrown ones spin), the held item on the
+  fighter's item joint (`hands` of `objects.json`), the item motions (`LightGet`, `SwordSwing4`, `LGunShoot`,
+  `HammerWalk`...) through `SmashExt::motion`; the item FGM clips on the item events (`smash_models::item_sounds`: get,
+  throw, swings, shots, empty, bat / fan / shell hits, landing, explosion, container smash, Poké Ball, Motion-Sensor Bomb,
+  heal, Star). No HUD change. Not done: the Star and Hammer music, items in Gem Clash / the minigames' own spawners, the
+  red shell's homing, Bob-omb's flashing, per-fighter throw strength, smash throws, catching thrown items.
 
 ## Not done yet
 
 - Costumes other than 0, face (texture part) swaps, hand model parts (open / closed fists), low-poly models, the polygon /
   metal / giant variants (NMario, MMario, GDonkey), accessories (Pikachu's hat, Jigglypuff's bow), hitboxes and the
-  motion event scripts (when each sound plays, effects, hitbox timing in `*MainMotion` files); music, stage / item / menu
-  sounds and the announcer, item and weapon models, stages.
+  motion event scripts (when each sound plays, effects, hitbox timing in `*MainMotion` files); music, stage / menu
+  sounds and the announcer, the weapon / effect / item joint animations and particle effects (see "Weapons, effects and
+  items"), stages.
 - The `TraI` spline track is ignored (no exported motion uses it visibly).

@@ -175,7 +175,7 @@ class PipelineEntry(unittest.TestCase):
         label, algo, digests = pipeline.ROMS['ssb64']
         self.assertEqual((algo, digests), ('sha1', {ex.SHA1}))
         self.assertIn('ssb64', pipeline.DO)
-        self.assertEqual(pipeline.GAME_SCRIPTS['ssb64'], ['export-ssb64.py', 'export-ssb64-sounds.py'])
+        self.assertEqual(pipeline.GAME_SCRIPTS['ssb64'], ['export-ssb64.py', 'export-ssb64-sounds.py', 'export-ssb64-weapons.py'])
         self.assertEqual(pipeline.LINKED['ssb64'], 'reference/ssb64')
 
     def test_identified_in_any_byte_order(self):

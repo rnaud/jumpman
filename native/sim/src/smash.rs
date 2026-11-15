@@ -185,6 +185,8 @@ pub enum SpecialMove {
     PkFire,
     PkThunder,
     PsiMagnet,
+    /// Not a special: a held / thrown item's hit (`items`).
+    Item,
 }
 
 /// Where a special is in its course (each move uses the ones it needs).
@@ -369,6 +371,8 @@ pub enum ProjKind {
     PkThunder,
     /// A short-lived blast (bombs, eggs, Thunder's burst, Falcon Dive's throw).
     Blast,
+    /// An item's hit volume (thrown item, sliding shell, armed bomb): moved by `items`, not stepped here.
+    Item,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -470,12 +474,14 @@ pub struct SmashExt {
     hit_log: Vec<(u32, u64, u64)>,
     /// Hits of the running special that landed since its last tick: (source, outcome).
     landed: Vec<(u32, HitKind, HitOutcome)>,
+    /// The SSB64 items (`items`).
+    pub items: items::Items,
 }
 
 impl SmashExt {
     /// Kirby's Stone and Jigglypuff's Rest... nothing hurts the fighter.
     pub fn armor(&self) -> bool {
-        self.special.as_ref().is_some_and(|s| s.mv == SpecialMove::Stone && matches!(s.phase, Phase::Hold | Phase::Travel | Phase::Landing))
+        self.special.as_ref().is_some_and(|s| s.mv == SpecialMove::Stone && matches!(s.phase, Phase::Hold | Phase::Travel | Phase::Landing)) || self.items.star > 0
     }
     pub fn reflecting(&self) -> bool {
         self.special.as_ref().is_some_and(|s| s.mv == SpecialMove::Reflector && matches!(s.phase, Phase::Start | Phase::Hold))
@@ -497,7 +503,7 @@ impl SmashExt {
     /// The decomp motion names that play the running special, best first (the app resolves them through the import's
     /// motion table), the seconds into that motion, and whether it loops.
     pub fn motion(&self) -> Option<(Vec<String>, f32, bool)> {
-        self.special.as_ref().map(special_motion)
+        self.special.as_ref().map(special_motion).or_else(|| self.items.motion(false))
     }
 
     fn new_id(&mut self) -> u32 {
@@ -508,7 +514,9 @@ impl SmashExt {
     /// Drop everything (the fighter changed, the course reloaded).
     pub fn reset(&mut self) {
         let fighter = self.fighter;
+        let enabled = self.items.enabled;
         *self = SmashExt { fighter, ..Default::default() };
+        self.items.enabled = enabled;
     }
 
     /// Clear the per-tick outputs. Events stay until the app drains them (`std::mem::take(&mut smash.events)`), capped so
@@ -688,6 +696,7 @@ fn special_motion(sp: &Special) -> (Vec<String>, f32, bool) {
             air("SpecialLwHold", "SpecialAirLwHold")
         }
         (PsiMagnet, _) => air("SpecialLwEnd", "SpecialAirLwEnd"),
+        (Item, _) => vec!["Wait"],
     };
     let secs = if since_start { sp.total as f32 / 30.0 } else { secs };
     let names = match sp.copied {
@@ -793,6 +802,9 @@ pub fn step_smash(m: &mut MarioRuntime) -> bool {
             return false;
         }
         return run(m);
+    }
+    if items::step(m) {
+        return true;
     }
     if !pressed(m) || !can_start(m) {
         return false;
@@ -1201,6 +1213,7 @@ fn tick(m: &mut MarioRuntime, sp: &mut Special) -> Flow {
         PkFire => pk_fire(m, sp),
         PkThunder => pk_thunder(m, sp),
         PsiMagnet => psi_magnet(m, sp),
+        Item => Flow::Handed,
     }
 }
 
@@ -2669,6 +2682,7 @@ pub fn after_step(m: &mut MarioRuntime) {
     m.smash.tick += 1;
     m.smash.center = [m.pos[0], m.pos[1] + 70.0, m.pos[2]];
     m.smash.yaw = m.face_angle[1];
+    items::after(m);
     step_projectiles(m);
     let mut ext = std::mem::take(&mut m.smash);
     resolve(&mut ext, &mut Sm64Objects { objects: &mut m.objects });
@@ -2773,7 +2787,7 @@ fn step_projectiles(m: &mut MarioRuntime) {
                 p.pos[k] += p.vel[k];
             }
             // Walls.
-            if !matches!(p.kind, ProjKind::Thunderbolt | ProjKind::PkFirePillar) {
+            if !matches!(p.kind, ProjKind::Thunderbolt | ProjKind::PkFirePillar | ProjKind::Item) {
                 let mut probe = p.pos;
                 let walls = m.world.f32_find_wall_collision(&mut probe, 0.0, p.radius.min(40.0));
                 if walls > 0 {
@@ -2966,7 +2980,7 @@ pub fn resolve(ext: &mut SmashExt, t: &mut dyn SmashTargets) {
         return;
     }
     let fighter = ext.special.map(|s| s.copied.unwrap_or(s.fighter)).or(ext.fighter).unwrap_or(SmashFighter::Mario);
-    let mv = ext.special.map(|s| s.mv);
+    let mv = ext.special.map(|s| s.mv).or((!ext.hitboxes.is_empty()).then_some(SpecialMove::Item));
     let center = ext.center;
     let mut log = std::mem::take(&mut ext.hit_log);
     log.retain(|(_, _, at)| now.saturating_sub(*at) < 400);
@@ -3121,3 +3135,7 @@ impl SmashTargets for Sm64Objects<'_> {
         HitOutcome::Miss
     }
 }
+
+/// SSB64 items for the Smash fighters (`smash_items.rs`).
+#[path = "smash_items.rs"]
+pub mod items;
