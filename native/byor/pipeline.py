@@ -42,7 +42,7 @@ GAME_SCRIPTS = {
             'oot-residents.py', 'oot-scenery.py', 'export-character-voices.py', 'export-oot-sfx.py'],
     'bk': ['bk-maps.py', 'data/bk-catalogue.json', 'export-bk-banjo.py', 'export-bk-levels.py', 'export-bk-enemies.py', 'export-bk-setup.py',
            'export-character-voices.py', 'export-bk-sfx.py'],
-    'ssb64': ['export-ssb64.py', 'export-ssb64-sounds.py'],
+    'ssb64': ['export-ssb64.py', 'export-ssb64-sounds.py', 'export-ssb64-stages.py', 'export-ssb64-music.py'],
 }
 GAME_TREE = {'sm64': 'sm64', 'mk64': 'mk64', 'oot': 'oot', 'bk': 'banjo-kazooie', 'ssb64': 'ssb64'}
 
@@ -300,13 +300,17 @@ def do_bk(stg, rom, game='bk'):
 
 
 def do_ssb64(stg, rom, game='ssb64'):
-    # the fighters (skinned glTF + every motion), fighters.json and the fighters' voices / special-move sounds;
+    # the fighters (skinned glTF + every motion), fighters.json, the fighters' voices / special-move sounds, the stages and the music;
     # names come from reference/ssb64 (native/SSB64.md)
     (stg / 'reference/roms/ssb64-us.z64').write_bytes(rom)
     prog(game, 5, 'Exporting Super Smash Bros. fighters')
     run([sys.executable, 'scripts/export-ssb64.py'], stg, game, 5, 97)
     prog(game, 97, 'Exporting Super Smash Bros. voices')
-    run([sys.executable, 'scripts/export-ssb64-sounds.py'], stg, game, 97, 100)
+    run([sys.executable, 'scripts/export-ssb64-sounds.py'], stg, game, 97, 98)
+    prog(game, 98, 'Exporting Super Smash Bros. stages')
+    run([sys.executable, 'scripts/export-ssb64-stages.py'], stg, game, 98, 99)
+    prog(game, 99, 'Exporting Super Smash Bros. music')
+    run([sys.executable, 'scripts/export-ssb64-music.py'], stg, game, 99, 100)
 
 
 DO = {'sm64': do_sm64, 'mk64': do_mk64, 'oot': do_oot, 'bk': do_bk, 'ssb64': do_ssb64}

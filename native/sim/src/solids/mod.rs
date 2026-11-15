@@ -26,6 +26,7 @@ use std::sync::Arc;
 
 pub mod bowser_arena;
 pub mod platforms;
+pub mod ssb64;
 pub mod ttc;
 
 /// `Surface::object` tag base of the surface objects (the older `MovingPlatform`s use 0x4000_0000).
@@ -380,6 +381,7 @@ pub fn make_behavior(spec: &SolidSpec, ttc_speed: i32) -> Option<Box<dyn Behavio
     ttc::make(spec, ttc_speed)
         .or_else(|| platforms::make(spec))
         .or_else(|| bowser_arena::make(spec))
+        .or_else(|| ssb64::make(spec))
 }
 
 impl Solids {

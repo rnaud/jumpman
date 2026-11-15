@@ -41,7 +41,16 @@ pub fn spawn_course(
         Some(s) => crate::fx::sky::SkyPalette { top: s.top, mid: s.mid, bottom: s.bottom, clouds: 0.0 },
         None => match crate::game::mk64::look(&root.0, &course.request.id) {
             Some(l) => crate::fx::sky::SkyPalette::from_hex(l.sky[0], l.sky[1], l.sky[2]),
-            None => crate::fx::sky::SkyPalette::default(),
+            // Smash stages: the stage's fog colour (its background tint), a little darker at the top.
+            None => match crate::game::ssb64::is_stage(&course.request.id).then(|| crate::game::ssb64::stage(&root.0, &course.request.id)).flatten() {
+                Some(s) => {
+                    let [r, g, b] = s.fog.map(u32::from);
+                    let fog = (r << 16) | (g << 8) | b;
+                    let top = ((r * 3 / 5) << 16) | ((g * 3 / 5) << 8) | (b * 3 / 5);
+                    crate::fx::sky::SkyPalette::from_hex(top, fog, fog)
+                }
+                None => crate::fx::sky::SkyPalette::default(),
+            },
         },
     });
     match &course.visual {

@@ -387,6 +387,8 @@ pub struct Player {
     loops: u32,
     /// Per-channel volume the game's `func_8025F510` sets (127 = on), `chan_mix`
     pub missing_sounds: u32,
+    /// Rate a sample at pitch 1.0 plays at: [`OUTPUT_RATE`] for Banjo-Kazooie, 32000 for Super Smash Bros. (`ssb64_music`).
+    pub output_rate: f64,
 }
 
 fn cents_to_ratio(c: f64) -> f64 {
@@ -395,7 +397,7 @@ fn cents_to_ratio(c: f64) -> f64 {
 
 impl Player {
     pub fn new(bank: Arc<Bank>) -> Player {
-        let mut p = Player { bank, cache: HashMap::new(), seq: None, chans: Vec::new(), voices: Vec::new(), tempo_us: 500_000.0, now: 0.0, mask: 0xFFFF, volume: 0.5, paused: false, age: 0, loops: 0, missing_sounds: 0 };
+        let mut p = Player { bank, cache: HashMap::new(), seq: None, chans: Vec::new(), voices: Vec::new(), tempo_us: 500_000.0, now: 0.0, mask: 0xFFFF, volume: 0.5, paused: false, age: 0, loops: 0, missing_sounds: 0, output_rate: OUTPUT_RATE };
         p.reset_channels();
         p
     }
@@ -508,7 +510,7 @@ impl Player {
         }
         let cents = (key as f64 - sound.keys.key_base as f64) * 100.0 + sound.keys.detune as f64;
         // libultra ignores the bank's sampleRate: pitch 1.0 reads one sample per output sample of the 22 kHz output (`code_1D00.c`)
-        let base_ratio = cents_to_ratio(cents) * OUTPUT_RATE / RATE as f64;
+        let base_ratio = cents_to_ratio(cents) * self.output_rate / RATE as f64;
         self.age += 1;
         let off_at = (duration != 0).then(|| self.now + duration as f64);
         self.voices.push(Voice { sample, pos: 0.0, step: base_ratio, chan, key, vel, pan_sound: sound.pan, volume_sound: sound.volume, level: 0.0, stage: Stage::Attack, env: sound.env, off_at, base_ratio, age: self.age, done: false });

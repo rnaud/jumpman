@@ -8,6 +8,8 @@ pub enum Series {
     Zelda,
     /// Banjo-Kazooie worlds exported by `scripts/export-bk-levels.py`.
     Banjo,
+    /// Super Smash Bros. stages exported by `scripts/export-ssb64-stages.py` (`game::ssb64`).
+    Smash,
 }
 
 #[derive(Clone, Copy, Debug)]

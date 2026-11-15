@@ -346,6 +346,10 @@ pub struct CourseData {
     pub whirlpools: Vec<WhirlpoolData>,
     #[serde(default)]
     pub horizontal_boundary: Option<f64>,
+    /// Height below which Mario dies, when the course sets it (the SSB64 stages' bottom blast zone); otherwise 500
+    /// below the lowest collision vertex.
+    #[serde(default)]
+    pub death_height: Option<f64>,
     /// Sky gradient and distance fog of worlds that are not the default daylight (Banjo-Kazooie).
     #[serde(default)]
     pub sky: Option<Sky>,
