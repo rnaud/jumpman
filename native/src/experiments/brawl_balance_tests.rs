@@ -32,7 +32,7 @@ pub fn roster() -> Vec<Who> {
     v
 }
 
-fn scripts() -> Option<Arc<MotionEvents>> {
+pub(crate) fn scripts() -> Option<Arc<MotionEvents>> {
     let p = std::env::var_os("JUMPMAN_SMASH_MOTION_EVENTS")?;
     let text = std::fs::read_to_string(p).ok()?;
     MotionEvents::from_json(&text).ok().map(Arc::new)

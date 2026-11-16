@@ -619,6 +619,8 @@ pub struct Brawl {
     mon_blast: bool,
     /// Audit / perf hook: skip the solid-body pass (`brawl_body.rs`), to measure what it changes and costs.
     pub bodies_off: bool,
+    /// Bots hold off a reeling or just-hit human (`brawl_ai::hold_fire_on_human`); off only to measure without it.
+    pub fair_to_humans: bool,
     /// The Smash fighters' seats: Mario's sim that runs their specials (`brawl_smash.rs`).
     pub seats: [Option<Box<Seat>>; MAXF],
     /// The motion event scripts (hitboxes) the Smash fighters use: the registered table at creation (`smash_hitbox`).
@@ -683,6 +685,7 @@ impl Brawl {
             mon_kos: 0,
             mon_blast: false,
             bodies_off: false,
+            fair_to_humans: true,
             seats: Default::default(),
             scripts: jumpman_sim::smash_hitbox::registered(),
         };
@@ -2873,3 +2876,7 @@ mod tests;
 #[cfg(test)]
 #[path = "brawl_balance_tests.rs"]
 pub(crate) mod balance_tests;
+
+#[cfg(test)]
+#[path = "brawl_human_tests.rs"]
+mod human_tests;

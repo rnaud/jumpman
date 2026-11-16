@@ -384,7 +384,11 @@ SSB64 moveset:
   = down. H is still SEEK BEAM in the power form (it wins that tick).
 - **Normal attacks**: the punch chain, the dive, the ground pound and its landing play `Attack11` / `Attack12` /
   `Attack13`, `AttackAirF`, `AttackAirLw`, `LandingAirLw` with the motion scripts' hitboxes, damage and knockback (the
-  punch chain's length from the script's end), when the import has them; else Mario's blows.
+  punch chain's length from the script's end), when the import has them; else Mario's blows. A scripted normal deals at
+  least the Gem Clash blow it stands in for (`normal_damage_floor`: Mario's punch chain 6 / 6 / 10, dive 9, ground pound
+  13; harder SSB64 moves keep their own damage, the knockback stays the script's). At SSB64's own 2-5% jabs a Smash
+  player's B button dealt a third of everyone else's (`human_experience` with the import's scripts: 167 damage a minute as
+  Smash Mario against Easy bots, 366 as Gem Clash Mario; now 379), which made the bots look unbeatable.
 - **Knockback**: the victim's percent is its lost health (`Fighter::percent`); a launch sets `Fighter::kvel` (decaying
   1.7 a frame), hitstun (Hurt, or Down when launched), hitlag on both. A launched fighter flies over the invisible rim and
   is knocked out beyond the blast zones (the rim / floor half size + 520, 2600 above the floor, the void below). Health
@@ -394,6 +398,15 @@ SSB64 moveset:
   a stunned foe), recover with their up special when off the floor with the jumps spent, release charges (Giant Punch,
   Charge Shot) at the foe, reflect / absorb incoming shots. The app's Gem Clash opponents stay its own cast (Goombas,
   Koopas...); Smash bots exist in the core (tests, balance) but the app does not draw them.
+- **Fair play against a human** (`brawl_ai.rs` `hold_fire_on_human`, all bots, only when the foe is a human, so the
+  AI-vs-AI balance is untouched): a bot does not start a blow, shot, throw or special on a human who is still reeling (hurt,
+  knocked down, getting up), and leaves a human that another bot just hit alone for a moment (Easy 0.8 s, Normal 0.67 s,
+  Hard 0.33 s; `human_grace`), so two bots do not trade the player between them. Measured by `brawl_human_tests.rs` (a scripted ordinary / passive player against the
+  app's line-up of two bots with monsters; `human_experience` prints the table, `bots_leave_the_player_room` guards it):
+  against Easy bots the bots' damage a minute drops from 202 to 151 (Gem Clash Mario) and their hits on a reeling player
+  from 12% to 5%, hits right after another bot's from 16% to 10%; Normal and Hard keep their numbers (novice wins: Easy
+  83% -> 94%, Normal 46% -> 45%, Hard 23% -> 24%). The Smash combat itself did not make Gem Clash's bots more aggressive
+  (a Mario player meets the same numbers with or without the SSB64 items); the weak scripted normals above did.
 - **Names**: cards and banners say the fighter's name ("JIGGLYPUFF POWER!", "PLAYING AS C. FALCON") instead of "You" /
   "MARIO".
 - **SSB64 items** (`brawl_items.rs`, on in the app when the import has the object models; `JUMPMAN_BRAWL_SMASH_ITEMS=0|1`):
@@ -460,7 +473,8 @@ Captain Falcon 0.8, Ness 0.85 (area multi-hitters down: Hand Slap, Yoshi Bomb, T
 first; the knockback grows only up to ~100% here), they are covered by tests. `smash_balance_regression` (always on)
 runs each Smash fighter against Mario and another fighter (12 duels each) and the swarm scores: no fighter below 8% or
 above 92%, no swarm score above 1.35x the median with the scripts (2.5x on the approximate fallback hitboxes).
-`balance_full` / `balance_swarm_slots` (`--ignored --nocapture`) print the tables.
+`balance_full` / `balance_swarm_slots` (`--ignored --nocapture`) print the tables. After the normal-attack damage floor ("Gem Clash"
+above), with the scripts: 42-56% without items, 42-54% with them (Fox lowest, Kirby highest; the four heroes 49-52%).
 
 ## Stages
 

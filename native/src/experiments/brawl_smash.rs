@@ -155,6 +155,20 @@ pub fn normal_motion(act: Act) -> Option<(&'static [&'static str], f32)> {
     })
 }
 
+/// The least a scripted normal attack deals in Gem Clash: the blow of the hero it stands in for (Mario's punch chain 6 / 6 /
+/// 10, dive 9, ground pound 13). SSB64's jabs are 2-5% each, balanced there by shields, grabs and smash attacks Gem Clash
+/// does not have: at their own numbers a Smash fighter's B button did a third of the damage of every other Gem Clash
+/// fighter's, and a player had little to answer the bots with. Moves that hit harder in SSB64 keep their own damage; the
+/// knockback stays the script's.
+pub fn normal_damage_floor(style: &HeroStyle, act: Act) -> f32 {
+    match act {
+        Act::Punch(step) => style.blow(step).dmg,
+        Act::Dive => style.dive.dmg,
+        Act::PoundWind | Act::Pound | Act::PoundLand => style.pound.dmg,
+        _ => 0.0,
+    }
+}
+
 impl Brawl {
     /// Test / harness hook: the motion event scripts the Smash fighters use (also their seats'); the app keeps the
     /// registered table the match was created with.
@@ -485,6 +499,7 @@ impl Brawl {
             }
         }
         let sf = me.smash.unwrap_or(SmashFighter::Mario);
+        let floor = normal_damage_floor(me.hero.style(), act);
         for (kb, c, r, first) in hits {
             for j in 0..self.n {
                 let o = self.f[j];
@@ -499,7 +514,7 @@ impl Brawl {
                 self.f[i].hit_mask |= 1 << j;
                 let d = norm2([o.pos[0] - me.pos[0], o.pos[2] - me.pos[2]], dir_of(me.yaw));
                 let hit = SmashHit {
-                    damage: kb.damage as f32,
+                    damage: (kb.damage as f32).max(floor),
                     kind: jumpman_sim::smash::hit_kind(kb.element),
                     dir: [d[0] as f64 * 0.8, 0.6, d[1] as f64 * 0.8],
                     knock: 10.0 + kb.damage as f64,

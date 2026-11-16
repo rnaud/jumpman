@@ -59,6 +59,16 @@ struct Params {
     whiff: f32,
 }
 
+/// Fair play against a human, per difficulty, in 30 Hz ticks (`Brawl::hold_fire_on_human`): how long a bot leaves a human
+/// alone after its own hit on them, and after another bot's hit.
+pub fn human_grace(diff: Diff) -> (u32, u32) {
+    match diff {
+        Diff::Easy => (0, 24),
+        Diff::Normal => (6, 20),
+        Diff::Hard => (8, 10),
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Goal {
     Wander,
@@ -309,11 +319,44 @@ impl Brawl {
             self.bot_smash(i, &mut b.rng, &mut cd, (p.atk_p * 2.5).min(1.5), &mut inp);
             b.smash_cd = cd;
         }
+        if self.hold_fire_on_human(i, b.diff) {
+            inp.attack = false;
+            inp.s1 = false;
+            inp.s2 = false;
+            inp.special = false;
+            if me.held >= 0 {
+                // a throw or a shot
+                inp.grab = false;
+                inp.z = false;
+            }
+        }
         if inp.attack && b.rng.chance(p.whiff) {
             inp.attack = false;
         }
         inp.jump_held = inp.jump || (!me.grounded && me.vel[1] > 0.0);
         inp
+    }
+
+    /// Fair play against a human (bots against bots are untouched, so the AI-vs-AI balance stays as measured): a bot does
+    /// not start a blow, shot, throw or special on a human who is still reeling (hurt, knocked down, getting up), waits a
+    /// moment after its own hit on them, and leaves a human who was just hit by another bot alone for a while, so two bots
+    /// do not trade a human between them. [`human_grace`] holds the windows.
+    pub(crate) fn hold_fire_on_human(&self, i: usize, diff: Diff) -> bool {
+        let me = &self.f[i];
+        let Some((j, d)) = self.nearest_foe(i) else { return false };
+        let o = &self.f[j];
+        if !self.fair_to_humans || !o.human || d > 900.0 {
+            return false;
+        }
+        let starting = !matches!(me.act, Act::Punch(_));
+        let reeling = matches!(o.act, Act::Hurt | Act::Down | Act::GetUp);
+        if reeling && starting {
+            return true;
+        }
+        let (own, other) = human_grace(diff);
+        let since = self.tick.saturating_sub(o.hit_tick);
+        let window = if o.last_hit_by == i as i8 { own } else { other };
+        starting && o.hit_tick > 0 && since < window
     }
 
     fn random_point(&self, rng: &mut Rng) -> V2 {

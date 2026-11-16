@@ -499,22 +499,46 @@ pub(crate) fn no_pipelined_rendering(group: bevy::app::PluginGroupBuilder) -> be
     group
 }
 
+/// Android: keep the renderer off storage buffers and compute (`JUMPMAN_WGPU_NOSTORAGE=0|1` overrides; off elsewhere).
+///
+/// On the Retroid Pocket Nova (Adreno 740, Qualcomm's Vulkan driver of 12/2023) two of Bevy's storage-buffer paths draw
+/// wrong, with no error logged: skinned meshes (the Smash fighters' glbs: blown up across the screen on the character
+/// select, invisible in the modes) and the transparent pass under GPU culling (every effect drawn with the `fx::n64`
+/// material, the gems and the select screen's spotlight disappear). Bevy already falls back to CPU preprocessing on
+/// Adreno 730 and older; the 740's driver needs more. Without storage buffers Bevy takes its WebGL2-class path (mesh and
+/// joint data in uniform buffers, instance data built on the CPU), which draws everything right there at the same frame
+/// rate (Star Swarm at 2:30 with orbit blades, sword and flames: 82-90 fps either way on the device).
+pub(crate) fn wgpu_without_storage() -> bool {
+    std::env::var("JUMPMAN_WGPU_NOSTORAGE").map_or(cfg!(target_os = "android"), |v| v == "1")
+}
+
 /// `DefaultPlugins`, with the renderer asked for Solari's wgpu features when this launch is ray traced.
-fn default_plugins_for(rt: bool) -> bevy::app::PluginGroupBuilder {
+pub(crate) fn default_plugins_for(rt: bool) -> bevy::app::PluginGroupBuilder {
     let mut group = no_pipelined_rendering(DefaultPlugins.build());
     // `JUMPMAN_THREADS=N`: cap the task pools to N threads in total (profiling: N=1 approximates a phone build, which runs
     // the schedule on one thread; 2-4 approximate a big.LITTLE phone's performance cores).
     if let Some(n) = std::env::var("JUMPMAN_THREADS").ok().and_then(|v| v.parse::<usize>().ok()).filter(|n| *n > 0) {
         group = group.set(bevy::app::TaskPoolPlugin { task_pool_options: bevy::app::TaskPoolOptions::with_num_threads(n) });
     }
+    let mut wgpu = bevy::render::settings::WgpuSettings::default();
     if rt {
-        group.set(bevy::render::RenderPlugin {
-            render_creation: bevy::render::settings::WgpuSettings { features: bevy::solari::SolariPlugins::required_wgpu_features(), ..default() }.into(),
-            ..default()
-        })
-    } else {
-        group
+        wgpu.features = bevy::solari::SolariPlugins::required_wgpu_features();
     }
+    if wgpu_without_storage() {
+        // Upper bounds: everything the adapter has but storage buffers / textures and compute (Bevy then leaves out the
+        // plugins that need them and builds the mesh instance data on the CPU).
+        let mut l = bevy::render::settings::WgpuLimits::unlimited();
+        l.max_storage_buffers_per_shader_stage = 0;
+        l.max_storage_textures_per_shader_stage = 0;
+        l.max_compute_workgroup_storage_size = 0;
+        l.max_compute_invocations_per_workgroup = 0;
+        l.max_compute_workgroup_size_x = 0;
+        l.max_compute_workgroup_size_y = 0;
+        l.max_compute_workgroup_size_z = 0;
+        l.max_compute_workgroups_per_dimension = 0;
+        wgpu.constrained_limits = Some(l);
+    }
+    group.set(bevy::render::RenderPlugin { render_creation: wgpu.into(), ..default() })
 }
 
 /// An asset source reading plain files below `dir` (also on Android, whose platform default reads the APK instead).

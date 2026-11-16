@@ -140,7 +140,11 @@ fn the_jab_is_the_scripted_attack11() {
     for _ in 0..8 {
         b.tick(&idle());
     }
-    assert!((b.f[1].hp - (100.0 - 2.0 * super::tuning(SmashFighter::Mario).power)).abs() < 0.01, "a 2% jab: {}", b.f[1].hp);
+    // SSB64's 2% jab, raised to the Gem Clash punch it stands in for (`normal_damage_floor`)
+    let floor = super::normal_damage_floor(Hero::Mario.style(), Act::Punch(0));
+    assert_eq!(floor, 6.0);
+    assert!((b.f[1].hp - (100.0 - 2.0f32.max(floor) * super::tuning(SmashFighter::Mario).power)).abs() < 0.01, "the jab: {}", b.f[1].hp);
+    assert!(b.f[1].kvel != [0.0; 3] || matches!(b.f[1].act, Act::Hurt | Act::Down), "an SSB64 launch, not Gem Clash's blow");
     // without scripts: Mario's blow
     let mut b = duel(SmashFighter::Mario, None, 90.0, false);
     b.tick(&inp);

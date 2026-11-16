@@ -13,6 +13,14 @@ handheld. **Not run on a real device or emulator yet** (see "Not verified").
 Bevy 0.20.1, `android-game-activity` (GameActivity, as in Bevy's `examples/mobile`), wgpu 30 on **Vulkan**, audio through
 rodio/cpal (AAudio, min SDK 26), arm64-v8a only, `minSdk 26`, `targetSdk 34`.
 
+**No storage buffers on Android** (`lib.rs` `wgpu_without_storage`, `JUMPMAN_WGPU_NOSTORAGE=0|1` overrides): on the
+Retroid Pocket Nova (Adreno 740, Qualcomm Vulkan driver of 12/2023) Bevy's storage-buffer paths draw wrong without any
+error: skinned glbs (the Smash fighters: blown up across the character select, invisible in the modes) and the transparent
+pass under GPU culling (every `fx::n64` effect, the Star Swarm weapons and gems, the select's spotlight). The renderer is
+asked for no storage buffers and no compute, so Bevy takes its WebGL2-class path (uniform-buffer joints and mesh data,
+CPU-built instance data); verified on that device: fighters, effects and gems draw, Star Swarm at 2:30 runs 82-90 fps
+either way. `wgpu`'s GL backend is not in the build.
+
 ## Get the APK
 
 GitHub > Actions > "Android APK (BYOR)" > a run > Artifacts > `jumpman-android-<sha>.apk` (a zip holding
