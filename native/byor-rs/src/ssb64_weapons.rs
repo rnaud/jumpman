@@ -241,7 +241,7 @@ fn glb(mesh: &Mesh, name: &str) -> R<(Vec<u8>, [f64; 3], [f64; 3])> {
             if !keep_alpha {
                 c[3] = 1.0;
             }
-            col.push(c.iter().map(|&x| f32r(x)).collect::<Vec<_>>());
+            col.push(linear(c).iter().map(|&x| f32r(x)).collect::<Vec<_>>());
         }
         let mut attrs = Map::new();
         attrs.insert("POSITION".into(), json!(g.accessor(Rows::F(&pos), "VEC3", Some(34962), true)));
@@ -255,7 +255,7 @@ fn glb(mesh: &Mesh, name: &str) -> R<(Vec<u8>, [f64; 3], [f64; 3])> {
         let ind: Vec<usize> = idx.iter().map(|i| remap[i]).collect();
         let indices = g.accessor(Rows::Idx(&ind, vids.len() >= 65536), "SCALAR", Some(34963), false);
         let mut pbr = Map::new();
-        pbr.insert("baseColorFactor".into(), json!(mat.color.map(f32r)));
+        pbr.insert("baseColorFactor".into(), json!(linear(mat.color).map(f32r)));
         pbr.insert("metallicFactor".into(), json!(0.0));
         pbr.insert("roughnessFactor".into(), json!(1.0));
         let mut extra = Map::new();

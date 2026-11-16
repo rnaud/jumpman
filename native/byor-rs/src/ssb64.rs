@@ -74,6 +74,13 @@ pub(crate) fn f32r(x: f64) -> f64 {
     x as f32 as f64
 }
 
+/// An RGBA colour in display (sRGB) space, as the RDP blends it, to glTF's linear factors / COLOR_0; alpha unchanged
+/// (`linear` in export-ssb64.py). The texture PNGs stay sRGB, so flat parts and textured parts match.
+pub(crate) fn linear(c: [f64; 4]) -> [f64; 4] {
+    let l = |x: f64| if x <= 0.04045 { x / 12.92 } else { ((x + 0.055) / 1.055).powf(2.4) };
+    [l(c[0]), l(c[1]), l(c[2]), c[3]]
+}
+
 // ------------------------------------------------------------------------------------------------ relocData files
 
 /// `syDmaDecodeVpk0` (src/sys/dma.c).
@@ -1711,7 +1718,7 @@ fn export_fighter(files: &Files, names: &HashMap<String, usize>, cmotions: &BTre
             uv.push(vert.uv.iter().map(|&x| f32r(x)).collect::<Vec<_>>());
             jt.push([vert.joint as u8, 0, 0, 0]);
             wt.push(vec![1.0, 0.0, 0.0, 0.0]);
-            col.push(vert.col.unwrap_or([1.0; 4]).iter().map(|&x| f32r(x)).collect::<Vec<_>>());
+            col.push(linear(vert.col.unwrap_or([1.0; 4])).iter().map(|&x| f32r(x)).collect::<Vec<_>>());
         }
         let mut attrs = Map::new();
         attrs.insert("POSITION".into(), json!(g.accessor(Rows::F(&pos), "VEC3", Some(34962), true)));
@@ -1727,7 +1734,7 @@ fn export_fighter(files: &Files, names: &HashMap<String, usize>, cmotions: &BTre
         let ind: Vec<usize> = idx.iter().map(|i| remap[i]).collect();
         let indices = g.accessor(Rows::Idx(&ind, vids.len() >= 65536), "SCALAR", Some(34963), false);
         let mut pbr = Map::new();
-        pbr.insert("baseColorFactor".into(), json!(mat.color.map(f32r)));
+        pbr.insert("baseColorFactor".into(), json!(linear(mat.color).map(f32r)));
         pbr.insert("metallicFactor".into(), json!(0.0));
         pbr.insert("roughnessFactor".into(), json!(1.0));
         let mut m = Map::new();
@@ -1986,6 +1993,18 @@ mod tests {
         assert!((rx[4] - 0.0).abs() < 1e-9, "{rx:?}");
         assert!((rx[6] - 0.5).abs() < 1e-9, "{rx:?}");
         assert!((rx[8] - 1.0).abs() < 1e-9, "{rx:?}");
+    }
+
+    /// Factors and vertex colours go to glTF's linear space (the textures stay sRGB): Captain Falcon's costume-0 suit
+    /// prim 0x73428C is a dark violet-blue factor, not the washed-out lavender it was as raw sRGB values.
+    #[test]
+    fn colour_factors_are_linear() {
+        assert_eq!(linear([0.0, 1.0, 0.0, 0.25]), [0.0, 1.0, 0.0, 0.25]);
+        let c = linear([0x73 as f64 / 255.0, 0x42 as f64 / 255.0, 0x8C as f64 / 255.0, 1.0]);
+        for (got, want) in c.iter().zip([0.1714, 0.0545, 0.2623, 1.0]) {
+            assert!((got - want).abs() < 1e-3, "{c:?}");
+        }
+        assert!(c[2] > c[0] && c[0] > c[1]);
     }
 
     #[test]

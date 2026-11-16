@@ -233,14 +233,14 @@ def glb(mesh, name):
             nrm.append([ex.f32(x / ln) for x in n])
             uv.append([ex.f32(x) for x in t])
             c = c or [1.0, 1.0, 1.0, 1.0]
-            col.append([ex.f32(x) for x in (c if keep_alpha else c[:3] + [1.0])])
+            col.append([ex.f32(x) for x in ex.linear(c if keep_alpha else c[:3] + [1.0])])
         attrs = {'POSITION': g.accessor(pos, 'VEC3', target=34962, minmax=True), 'NORMAL': g.accessor(nrm, 'VEC3', target=34962)}
         if 'image' in mat:
             attrs['TEXCOORD_0'] = g.accessor(uv, 'VEC2', target=34962)
         if mat['vcol']:
             attrs['COLOR_0'] = g.accessor(col, 'VEC4', target=34962)
         indices = g.accessor([remap[i] for i in idx], 'SCALAR', 5123 if len(vids) < 65536 else 5125, 34963)
-        m = {'name': f'mat{mi:03d}', 'pbrMetallicRoughness': {'baseColorFactor': [ex.f32(x) for x in mat['color']], 'metallicFactor': 0.0, 'roughnessFactor': 1.0}}
+        m = {'name': f'mat{mi:03d}', 'pbrMetallicRoughness': {'baseColorFactor': [ex.f32(x) for x in ex.linear(mat['color'])], 'metallicFactor': 0.0, 'roughnessFactor': 1.0}}
         if mat['double']:
             m['doubleSided'] = True
         if mat['alpha'] != 'OPAQUE':

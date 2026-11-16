@@ -67,7 +67,9 @@ JumpAerialF; their multi-jumps are their own JumpAerialF1-5).
 - nodes 2..: `joint_NN` (NN = DObjDesc index), in tree order;
 - materials: the colour combiner is evaluated per texel (prim, env, light colour as shade) into the base-colour texture or
   factor (metallic 0, roughness 1); environment-mapped parts (Link's blade) get the texture's mean colour; alpha cut-outs are
-  MASK. Wrap modes follow the tile's clamp / mirror / mask.
+  MASK. Wrap modes follow the tile's clamp / mirror / mask. The RDP blends in display (sRGB) space: the textures are sRGB
+  PNGs, and the flat factors and vertex colours are converted to glTF's linear space (weapons too), else the untextured
+  parts (Captain Falcon's suit) come out washed out against the textured ones (import stamp 5).
 - animations: one clip per distinct animation file, named after the first common motion that plays it (`Wait`, `WalkSlow`,
   `Run`, `KneeBend` (also the landing), `JumpF`, `Fall`, `Attack11`, `AttackS4`, `DamageHi1`, ...), fighter-specific
   motions after the file (`FireballGround`, `SuperJumpPunchAir`, ...). 60 fps, LINEAR, every joint keyed on translation,
