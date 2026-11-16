@@ -2,7 +2,7 @@
 // Builds a static changelog page (one entry per commit on main) from git history.
 // Usage: node scripts/build-changelog.mjs [outDir]   (default: changelog-site)
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync, readFileSync, existsSync, copyFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const outDir = process.argv[2] ?? 'changelog-site';
@@ -23,54 +23,9 @@ const commits = raw.split(SEP).map((r) => r.trim()).filter(Boolean).map((r) => {
   return { hash, author, date, subject, body: cleanBody };
 });
 
-// Screenshots: images added/changed in a commit under changelog/ are attached to it.
-// `<name>-before.<ext>` + `<name>-after.<ext>` become a before/after slider; others show as plain images.
-const IMG = /^changelog\/.+\.(png|jpe?g|webp|gif)$/i;
-for (const c of commits) {
-  const files = execFileSync('git', ['show', '--name-only', '--diff-filter=AM', '--format=', c.hash], { encoding: 'utf8' })
-    .split('\n').filter((f) => IMG.test(f));
-  const saved = new Map();
-  for (const f of files) {
-    const rel = `img/${c.hash.slice(0, 8)}/${path.basename(f)}`;
-    mkdirSync(`${outDir}/${path.dirname(rel)}`, { recursive: true });
-    writeFileSync(`${outDir}/${rel}`, execFileSync('git', ['show', `${c.hash}:${f}`], { maxBuffer: 64 * 1024 * 1024 }));
-    saved.set(path.basename(f).replace(/\.[^.]+$/, ''), rel);
-  }
-  c.pairs = []; c.singles = [];
-  for (const [stem, rel] of saved) {
-    const m = stem.match(/^(.*)-before$/);
-    if (m && saved.has(`${m[1]}-after`)) c.pairs.push({ name: m[1], before: rel, after: saved.get(`${m[1]}-after`) });
-    else if (!/-after$/.test(stem) || !saved.has(stem.replace(/-after$/, '-before'))) c.singles.push({ name: stem, src: rel });
-  }
-}
-
-// Backfilled screenshots: changelog/shots.json maps a commit hash (prefix) to [{name, before, after}] with
-// paths relative to the repo root (read from the working tree, so old commits can get images later).
-if (existsSync('changelog/shots.json')) {
-  const manifest = JSON.parse(readFileSync('changelog/shots.json', 'utf8'));
-  for (const c of commits) {
-    const key = Object.keys(manifest).find((k) => c.hash.startsWith(k));
-    for (const p of key ? manifest[key] : []) {
-      const [b, a] = [p.before, p.after].map((f) => {
-        const rel = `img/${c.hash.slice(0, 8)}/${path.basename(f)}`;
-        mkdirSync(`${outDir}/${path.dirname(rel)}`, { recursive: true });
-        copyFileSync(f, `${outDir}/${rel}`);
-        return rel;
-      });
-      c.pairs.push({ name: p.name, before: b, after: a });
-    }
-  }
-}
-
-const media = (c) => [
-  ...c.pairs.map((p) => `<figure class="cmp" style="--pos:50%">
-    <img src="${p.after}" alt="After: ${esc(p.name)}" loading="lazy">
-    <img class="before" src="${p.before}" alt="Before: ${esc(p.name)}" loading="lazy">
-    <span class="tag b">Before</span><span class="tag a">After</span>
-    <input type="range" min="0" max="100" value="50" aria-label="Before/after slider: ${esc(p.name)}">
-  </figure>`),
-  ...c.singles.map((s) => `<figure><img src="${s.src}" alt="${esc(s.name)}" loading="lazy"></figure>`),
-].join('');
+// No screenshots: the repo and the site carry no game imagery (the games' art is Nintendo's/Rare's and only ever comes
+// from the user's own ROM import), so commits are listed as text only.
+const media = () => '';
 
 const byDay = new Map();
 for (const c of commits) {
