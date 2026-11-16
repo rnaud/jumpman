@@ -44,6 +44,7 @@ pub mod hints;
 mod mk64_music;
 mod perf;
 mod progress;
+mod record;
 mod safe_area;
 mod objects;
 mod render;
@@ -360,7 +361,10 @@ pub fn main() {
             if state.is_none() {
                 let mut img = Image::new_fill(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, &[0, 0, 0, 255], TextureFormat::Rgba8UnormSrgb, default());
                 img.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT;
-                *state = Some(images.add(img));
+                let handle = images.add(img);
+                // The frame recorder (`JUMPMAN_RECORD`, record.rs) captures this image.
+                commands.insert_resource(record::OffscreenTarget(handle.clone()));
+                *state = Some(handle);
             }
             let handle = state.clone().unwrap();
             for (e, mut rt) in &mut cams {
@@ -390,6 +394,10 @@ pub fn main() {
                 }
             }
         });
+    }
+    // Developer-only frame recorder for trailers and clips (`JUMPMAN_RECORD=<dir>`, see record.rs).
+    if let Some(config) = record::RecordConfig::parse(|k| std::env::var(k).ok()) {
+        app.add_plugins(record::RecordPlugin(config));
     }
     if let Some(seconds) = exit_after {
         app.add_systems(Update, move |time: Res<Time>, mut exit: MessageWriter<AppExit>| {
