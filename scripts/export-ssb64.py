@@ -1057,6 +1057,12 @@ def f32(x):
     return struct.unpack('<f', struct.pack('<f', x))[0]
 
 
+def linear(c):
+    """An RGBA colour in display (sRGB) space, as the RDP blends it, to glTF's linear factors / COLOR_0; alpha unchanged.
+    The texture PNGs stay sRGB (the loader decodes them), so flat parts and textured parts match."""
+    return [x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in c[:3]] + list(c[3:])
+
+
 def export_fighter(files, names, cmotions, name, table, out_dir, clip_filter=None, log=print):
     fighter = Fighter(files, names, name, table)
     mesh = fighter.mesh()
@@ -1095,7 +1101,7 @@ def export_fighter(files, names, cmotions, name, table, out_dir, clip_filter=Non
             uv.append([f32(x) for x in t])
             jt.append([joint, 0, 0, 0])
             wt.append([1.0, 0.0, 0.0, 0.0])
-            col.append([f32(x) for x in (c or [1.0, 1.0, 1.0, 1.0])])
+            col.append([f32(x) for x in linear(c or [1.0, 1.0, 1.0, 1.0])])
         attrs = {'POSITION': g.accessor(pos, 'VEC3', target=34962, minmax=True), 'NORMAL': g.accessor(nrm, 'VEC3', target=34962),
                  'JOINTS_0': g.accessor(jt, 'VEC4', 5121, 34962), 'WEIGHTS_0': g.accessor(wt, 'VEC4', target=34962)}
         if 'image' in mat:
@@ -1103,7 +1109,7 @@ def export_fighter(files, names, cmotions, name, table, out_dir, clip_filter=Non
         if mat['vcol']:
             attrs['COLOR_0'] = g.accessor(col, 'VEC4', target=34962)
         indices = g.accessor([remap[i] for i in idx], 'SCALAR', 5123 if len(vids) < 65536 else 5125, 34963)
-        m = {'name': f'mat{mi:03d}', 'pbrMetallicRoughness': {'baseColorFactor': [f32(x) for x in mat['color']], 'metallicFactor': 0.0, 'roughnessFactor': 1.0}}
+        m = {'name': f'mat{mi:03d}', 'pbrMetallicRoughness': {'baseColorFactor': [f32(x) for x in linear(mat['color'])], 'metallicFactor': 0.0, 'roughnessFactor': 1.0}}
         if mat['double']:
             m['doubleSided'] = True
         if mat['alpha'] != 'OPAQUE':

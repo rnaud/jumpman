@@ -108,6 +108,69 @@ class Rdp(unittest.TestCase):
                 self.assertAlmostEqual(m[i][k], q[i][k])
 
 
+class Colours(unittest.TestCase):
+    """The RDP blends in display (sRGB) space; glTF factors and COLOR_0 are linear, the texture PNGs sRGB."""
+
+    def test_linear_factors(self):
+        self.assertEqual(ex.linear([0.0, 1.0, 0.0, 0.25]), [0.0, 1.0, 0.0, 0.25])  # ends fixed, alpha untouched
+        # Captain Falcon's suit (costume 0 prim 0x73428C) stays a dark violet-blue, not a washed-out lavender
+        r, g, b, a = ex.linear([0x73 / 255, 0x42 / 255, 0x8C / 255, 1.0])
+        self.assertAlmostEqual(r, 0.171, places=3)
+        self.assertAlmostEqual(g, 0.054, places=3)
+        self.assertAlmostEqual(b, 0.262, places=3)
+        self.assertEqual(a, 1.0)
+
+
+def _rom():
+    try:
+        return ex.ROM.is_file() and hashlib.sha1(ex.ROM.read_bytes()).hexdigest() == ex.SHA1
+    except OSError:
+        return False
+
+
+@unittest.skipUnless((ex.DECOMP / 'src/ft/ftdata.c').is_file() and _rom(), 'needs reference/ssb64 and a local ROM (never committed)')
+class FighterColours(unittest.TestCase):
+    """With the user's ROM only: the untextured parts' factors match the textured ones (faces) once both are displayed."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.files = ex.Files(ex.ROM.read_bytes())
+        cls.names = ex.file_names()
+        cls.tables = ex.fighter_tables(cls.names)
+
+    def flat_factors(self, name):
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            ex.export_fighter(self.files, self.names, ex.common_motions(), name, self.tables[name], Path(d), {'Wait'}, log=lambda *_: None)
+            glb = (Path(d) / f'{name.lower()}.glb').read_bytes()
+        n = struct.unpack_from('<I', glb, 12)[0]
+        pbr = [m['pbrMetallicRoughness'] for m in json.loads(glb[20:20 + n])['materials']]
+        return [p['baseColorFactor'] for p in pbr if 'baseColorTexture' not in p]
+
+    def test_kirby_body_matches_his_face(self):
+        """Kirby's pink body (prim 0xFFA4B8) and the pink around his eyes in the face texture are the same colour."""
+        import collections
+        mesh = ex.Fighter(self.files, self.names, 'Kirby', self.tables['Kirby']).mesh()
+        face = next(m['image'][2] for m in mesh.materials.values() if 'image' in m)
+        skin = collections.Counter(tuple(face[i:i + 3]) for i in range(0, len(face), 4)).most_common(1)[0][0]
+        want = ex.linear([c / 255 for c in skin] + [1.0])
+        pink = [c for c in self.flat_factors('Kirby') if c[0] > 0.9 and c[2] > c[1]]
+        self.assertTrue(pink)
+        for c in pink:
+            for k in range(3):
+                self.assertAlmostEqual(c[k], want[k], delta=0.08, msg=(c, want))  # as raw sRGB it was (1.0, 0.64, 0.72)
+
+    def test_falcon_suit_factor(self):
+        """Captain Falcon's untextured suit is a dark blue-violet linear factor."""
+        flat = self.flat_factors('Captain')
+        suit = [c for c in flat if c[2] > c[0] > c[1]]  # the violet-blue flat parts (torso, arms, legs)
+        self.assertTrue(suit, flat)
+        for c in suit:
+            self.assertLess(max(c[:3]), 0.35, c)  # a washed-out sRGB-as-linear factor would be ~0.55
+        # no stray costume colour (the MObj default, olive 0x8C9C29) on a flat part
+        self.assertFalse([c for c in flat if c[1] > c[0] and c[1] > c[2] and c[1] > 0.1], flat)
+
+
 @unittest.skipUnless((ex.DECOMP / 'src/ft/ftdata.c').is_file(), 'reference/ssb64 not checked out')
 class DecompTables(unittest.TestCase):
     def test_fighter_and_motion_tables(self):
