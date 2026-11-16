@@ -17,6 +17,12 @@ mod foes;
 mod hazard;
 #[path = "brawl_body.rs"]
 mod body;
+#[path = "brawl_smash.rs"]
+pub mod smash;
+#[path = "brawl_items.rs"]
+pub mod smash_items;
+pub use smash::Seat;
+pub use jumpman_sim::smash::{SmashFighter, SpecialSlot};
 pub use body::Solid;
 pub use hazard::{build_hazards, Hazard, HazardDef, HzKind, HzState, Look, Spec, Zone, HAZARD_GRACE, MAXH, CHOMP_SCALE};
 pub use foes::{roster, visual_radius, Mon, Monsters, MAXM, MON_RESPAWN};
@@ -193,10 +199,12 @@ pub struct Item {
     pub grace: u8,
     pub spin: f32,
     pub grounded: bool,
+    /// An SSB64 item riding this item's mechanics (`brawl_items.rs`).
+    pub ssb: Option<jumpman_sim::smash::items::ItemKind>,
 }
 
 impl Item {
-    const NONE: Item = Item { alive: false, kind: ItemKind::Crate, pos: [0.0; 3], vel: [0.0; 3], state: IState::Rest, uses: 0, fuse: 0, owner: -1, grace: 0, spin: 0.0, grounded: false };
+    pub const NONE: Item = Item { alive: false, kind: ItemKind::Crate, pos: [0.0; 3], vel: [0.0; 3], state: IState::Rest, uses: 0, fuse: 0, owner: -1, grace: 0, spin: 0.0, grounded: false, ssb: None };
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -221,10 +229,12 @@ pub struct Proj {
     pub mask: u8,
     /// Shell: where it will land.
     pub aim: [f32; 3],
+    /// A shot of an SSB64 item (Ray Gun, Fire Flower): its numbers and knockback.
+    pub ssb: Option<jumpman_sim::smash::items::ItemKind>,
 }
 
 impl Proj {
-    const NONE: Proj = Proj { alive: false, kind: PKind::Bullet, pos: [0.0; 3], vel: [0.0; 3], owner: -1, t: 0, mask: 0, aim: [0.0; 3] };
+    const NONE: Proj = Proj { alive: false, kind: PKind::Bullet, pos: [0.0; 3], vel: [0.0; 3], owner: -1, t: 0, mask: 0, aim: [0.0; 3], ssb: None };
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -267,6 +277,8 @@ pub enum Act {
     Toss,
     Nova,
     Beam,
+    /// A Smash fighter's special (`jumpman_sim::smash` on the fighter's seat, `brawl_smash.rs`).
+    Special,
     Hurt,
     Down,
     GetUp,
@@ -288,6 +300,11 @@ pub struct Input {
     pub grab: bool,
     pub s1: bool,
     pub s2: bool,
+    /// The Smash special button (N64 R): pressed this tick / held, and the slot the stick or A / Z pick (0 neutral,
+    /// 1 up, 2 down). Only Smash fighters use it.
+    pub special: bool,
+    pub special_held: bool,
+    pub slot: u8,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -346,6 +363,12 @@ pub struct Fighter {
     pub hit_tick: u32,
     /// Ticks stood in quicksand (the course's own surfaces) since the last time it spat this fighter out.
     pub sink: u16,
+    /// A Smash fighter (Mario's hero with that fighter's moveset, specials and SSB64 weight), `None` for the others.
+    pub smash: Option<SmashFighter>,
+    /// SSB64 knockback velocity (units a second), decaying along itself every tick (`smash_knockback`), on top of `vel`.
+    pub kvel: [f32; 3],
+    /// Ticks left of an SSB64 launch (tumble): the invisible rim does not hold the fighter and the blast zones KO.
+    pub launched: u16,
 }
 
 impl Fighter {
@@ -398,6 +421,9 @@ impl Fighter {
             shield: 0,
             hit_tick: 0,
             sink: 0,
+            smash: None,
+            kvel: [0.0; 3],
+            launched: 0,
         }
     }
     /// Kind's stats with the hero's style laid over them (the player's fighter).
@@ -411,8 +437,20 @@ impl Fighter {
             st.weight = h.weight;
             st.scale = h.scale;
             st.name = h.name;
+            if let Some(sf) = self.smash {
+                let t = smash::tuning(sf);
+                st.hp = t.hp;
+                st.speed = t.speed;
+                st.power = t.power;
+                st.weight = 1.0 / jumpman_sim::smash_knockback::weight(sf);
+                st.name = smash::name(sf);
+            }
         }
         st
+    }
+    /// SSB64 damage percent: the health this fighter has lost (scaled to a 100-point bar).
+    pub fn percent(&self) -> f32 {
+        ((self.max_hp - self.hp).max(0.0) * 100.0 / self.max_hp.max(1.0)).max(0.0)
     }
     pub fn radius(&self) -> f32 {
         RADIUS * self.size * (if self.kind == Kind::KingBomb { 1.5 } else { 1.0 })
@@ -515,11 +553,17 @@ pub struct Config {
     pub stage: usize,
     /// Neutral OoT / BK monsters roaming the arena (the setup screen's default is Few; the core's is Off).
     pub monsters: Monsters,
+    /// Smash fighters per slot (slot 0: the player's character); a `Kind::Mario` fighter only.
+    pub smash: [Option<SmashFighter>; MAXF],
+    /// Heroes of the other `Kind::Mario` slots (balance runs; slot 0 is `hero`).
+    pub heroes: [Option<Hero>; MAXF],
+    /// SSB64 items among the drops (`brawl_items.rs`).
+    pub smash_items: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { seed: 1, mode: Mode::Versus, arena: ArenaKind::Bumpers, humans: 1, bots: 1, diff: Diff::Normal, diffs: [None; MAXF], same_kind: None, hero: Hero::Mario, rounds_to_win: 2, stage: 0, monsters: Monsters::Off }
+        Self { seed: 1, mode: Mode::Versus, arena: ArenaKind::Bumpers, humans: 1, bots: 1, diff: Diff::Normal, diffs: [None; MAXF], same_kind: None, hero: Hero::Mario, rounds_to_win: 2, stage: 0, monsters: Monsters::Off, smash: [None; MAXF], heroes: [None; MAXF], smash_items: false }
     }
 }
 
@@ -575,6 +619,10 @@ pub struct Brawl {
     mon_blast: bool,
     /// Audit / perf hook: skip the solid-body pass (`brawl_body.rs`), to measure what it changes and costs.
     pub bodies_off: bool,
+    /// The Smash fighters' seats: Mario's sim that runs their specials (`brawl_smash.rs`).
+    pub seats: [Option<Box<Seat>>; MAXF],
+    /// The motion event scripts (hitboxes) the Smash fighters use: the registered table at creation (`smash_hitbox`).
+    pub scripts: Option<std::sync::Arc<jumpman_sim::smash_hitbox::MotionEvents>>,
 }
 
 fn pos_of(f: &Fighter) -> V2 {
@@ -635,6 +683,8 @@ impl Brawl {
             mon_kos: 0,
             mon_blast: false,
             bodies_off: false,
+            seats: Default::default(),
+            scripts: jumpman_sim::smash_hitbox::registered(),
         };
         b.setup_roster();
         b.begin_round();
@@ -658,7 +708,7 @@ impl Brawl {
                     let human = i < cfg.humans;
                     fi.kind = cfg.same_kind.unwrap_or(if i == 0 && human { Kind::Mario } else { pool[(off + i) % pool.len()] });
                     fi.human = human;
-                    fi.hero = if i == 0 { cfg.hero } else { Hero::Mario };
+                    fi.hero = if i == 0 { cfg.hero } else { cfg.heroes[i].unwrap_or(Hero::Mario) };
                     fi.team = i as u8;
                     if !human {
                         let d = cfg.diffs[i].unwrap_or(cfg.diff);
@@ -670,6 +720,7 @@ impl Brawl {
                 let (_, bots, _) = stage_def(self.stage);
                 f[0].kind = Kind::Mario;
                 f[0].hero = cfg.hero;
+                f[0].smash = cfg.smash[0];
                 f[0].human = true;
                 f[0].team = 0;
                 n = 1;
@@ -682,6 +733,9 @@ impl Brawl {
             }
         }
         for i in 0..n {
+            if cfg.mode == Mode::Versus && f[i].kind == Kind::Mario {
+                f[i].smash = cfg.smash[i];
+            }
             let st = f[i].stats();
             f[i].max_hp = st.hp;
             f[i].hp = st.hp;
@@ -721,12 +775,13 @@ impl Brawl {
             let s = self.arena.spawns[(i + if self.cfg.mode == Mode::Versus { rot } else { 0 }) % 4];
             let st = self.f[i].stats();
             let f = &mut self.f[i];
-            let (wins, kind, hero, team, human) = (f.wins, f.kind, f.hero, f.team, f.human);
+            let (wins, kind, hero, team, human, smash) = (f.wins, f.kind, f.hero, f.team, f.human, f.smash);
             let (kos, dmg, tr, gg) = (f.kos, f.dmg_dealt, f.transforms, f.gems_got);
             *f = Fighter::blank();
             f.wins = wins;
             f.kind = kind;
             f.hero = hero;
+            f.smash = smash;
             f.team = team;
             f.human = human;
             f.kos = kos;
@@ -745,11 +800,13 @@ impl Brawl {
                 b.reset();
             }
         }
+        self.smash_begin_round();
         // Initial items: five scattered around, weapons spaced out; gems follow after a beat.
         for k in 0..5 {
             let spot = self.arena.item_spots[(k * 3 + self.rng.below(3)) % self.arena.item_spots.len()];
             let kind = self.roll_item(k < 2);
-            self.spawn_item(kind, spot, false);
+            let slot = self.spawn_item(kind, spot, false);
+            self.maybe_smash_item(slot);
         }
         self.assign_gems(90);
         self.mons_begin_round();
@@ -802,7 +859,7 @@ impl Brawl {
 
     pub fn spawn_item(&mut self, kind: ItemKind, pos: [f32; 3], sky: bool) -> Option<usize> {
         let slot = self.items.iter().position(|i| !i.alive)?;
-        self.items[slot] = Item { alive: true, kind, pos: [pos[0], pos[1] + if sky { 700.0 } else { 2.0 }, pos[2]], vel: [0.0; 3], state: IState::Rest, uses: kind.uses(), fuse: 0, owner: -1, grace: 0, spin: 0.0, grounded: false };
+        self.items[slot] = Item { alive: true, kind, pos: [pos[0], pos[1] + if sky { 700.0 } else { 2.0 }, pos[2]], vel: [0.0; 3], state: IState::Rest, uses: kind.uses(), fuse: 0, owner: -1, grace: 0, spin: 0.0, grounded: false, ssb: None };
         Some(slot)
     }
 
@@ -891,6 +948,7 @@ impl Brawl {
         for i in 0..self.n {
             self.step_fighter(i, inputs[i]);
         }
+        self.smash_coast();
         if live {
             // Before the gems: a monster's blow can shake gems loose and they must be put right this tick.
             self.step_monsters();
@@ -935,6 +993,7 @@ impl Brawl {
             self.f[i].hitstop -= 1;
             return;
         }
+        self.smash_launch_tick(i);
         let st = self.f[i].stats();
         let target = self.target_size(i);
         {
@@ -993,6 +1052,8 @@ impl Brawl {
                 self.start_act(i, Act::Beam);
                 self.f[i].power = (self.f[i].power - BEAM_COST).max(0.2);
                 self.f[i].cd_s2 = 26;
+            } else if inp.special && self.f[i].smash.is_some() && self.smash_start(i, inp) {
+                return;
             } else if inp.attack {
                 self.begin_attack(i);
             } else if inp.grab || (inp.z && self.f[i].grounded) {
@@ -1006,6 +1067,14 @@ impl Brawl {
         }
         let act = self.f[i].act;
         let free = matches!(act, Act::Idle | Act::Air);
+        if act == Act::Special {
+            self.smash_drive(i, inp, false);
+            return;
+        }
+        if self.f[i].smash.is_some() {
+            // a scripted normal attack: its hitboxes replace the blow's (`smash_scripted`)
+            self.smash_normal(i);
+        }
 
         // ---- per-action motion ----
         match act {
@@ -1020,8 +1089,8 @@ impl Brawl {
                 let hero = self.f[i].hero.style();
                 let base = if self.f[i].kind == Kind::Mario { st.scale } else { 1.0 };
                 let b = hero.blow(step);
-                let (total, hit_at) = (b.total, b.hit_at);
-                if self.f[i].act_t == hit_at {
+                let (total, hit_at) = (self.smash_blow_total(i, step).unwrap_or(b.total), b.hit_at);
+                if self.f[i].act_t == hit_at && !self.smash_scripted(i) {
                     // Power form and the hero's size stretch the reach exactly as before.
                     let reach = b.reach + 12.0 * (self.f[i].size - base) * 6.0;
                     self.ev.push(Ev::Punch { id: i, step });
@@ -1065,8 +1134,14 @@ impl Brawl {
             Act::Swing => {
                 if self.f[i].act_t == 8 {
                     self.ev.push(Ev::Swing(i));
-                    let reach = 215.0 + (self.f[i].size - 1.0) * 60.0;
-                    self.melee(i, reach, 0.0, 22.0, 800.0, 380.0);
+                    let held = self.f[i].held;
+                    match (held >= 0).then(|| self.items[held as usize].ssb).flatten() {
+                        Some(s) => self.smash_item_swing(i, s),
+                        None => {
+                            let reach = 215.0 + (self.f[i].size - 1.0) * 60.0;
+                            self.melee(i, reach, 0.0, 22.0, 800.0, 380.0);
+                        }
+                    }
                     self.use_held(i);
                 }
                 self.f[i].vel[0] *= 0.8;
@@ -1092,7 +1167,9 @@ impl Brawl {
             Act::Dive => {
                 // Sliding belly-first through the air, hitting whatever it meets.
                 let d = self.f[i].hero.style().dive;
-                self.melee(i, d.reach, 0.2, d.dmg, d.kb, d.up);
+                if !self.smash_scripted(i) {
+                    self.melee(i, d.reach, 0.2, d.dmg, d.kb, d.up);
+                }
                 if self.f[i].grounded && self.f[i].act_t > 2 {
                     self.start_act(i, Act::DiveSlide);
                 }
@@ -1130,7 +1207,9 @@ impl Brawl {
                     let pd = self.f[i].hero.style().pound;
                     let r = pd.radius * (self.f[i].size / st.scale).max(1.0);
                     self.ev.push(Ev::PoundLand { pos, r });
-                    self.shockwave(i, r, pd.dmg, pd.kb, pd.up);
+                    if !self.smash_scripted_motion(i, &["LandingAirLw"]) {
+                        self.shockwave(i, r, pd.dmg, pd.kb, pd.up);
+                    }
                     self.start_act(i, Act::PoundLand);
                 }
             }
@@ -1201,7 +1280,7 @@ impl Brawl {
                     self.end_act(i);
                 }
             }
-            Act::Dead => {}
+            Act::Dead | Act::Special => {}
         }
 
         // ---- locomotion ----
@@ -1268,7 +1347,8 @@ impl Brawl {
     fn integrate(&mut self, i: usize) {
         let r = self.f[i].radius();
         let was_grounded = self.f[i].grounded;
-        let (dx, dy, dz) = (self.f[i].vel[0] * DT, self.f[i].vel[1] * DT, self.f[i].vel[2] * DT);
+        let kv = self.f[i].kvel;
+        let (dx, dy, dz) = ((self.f[i].vel[0] + kv[0]) * DT, (self.f[i].vel[1] + kv[1]) * DT, (self.f[i].vel[2] + kv[2]) * DT);
         let mut p = self.f[i].pos;
         // Ride the platform we stood on.
         if was_grounded && self.f[i].support >= 0 {
@@ -1281,7 +1361,14 @@ impl Brawl {
         p[2] += dz;
         p[1] += dy;
         let before = [p[0], p[2]];
-        self.arena.push_out(&mut p, r);
+        if self.f[i].launched > 0 {
+            // A launched fighter flies over the invisible rim (the blast zones beyond it KO, `smash_blast_check`).
+            let rim = self.arena.bounds.take();
+            self.arena.push_out(&mut p, r);
+            self.arena.bounds = rim;
+        } else {
+            self.arena.push_out(&mut p, r);
+        }
         // A launched fighter that is stopped dead by a wall splats: extra damage, a longer stun and a rebound.
         if self.f[i].splat > 0 && matches!(self.f[i].act, Act::Hurt | Act::Down) {
             let moved = len2([p[0] - before[0], p[2] - before[1]]);
@@ -1308,7 +1395,7 @@ impl Brawl {
         }
         // Vertical: land on the highest top within a step of the feet (the same rule as the walls).
         let prev_y = self.f[i].pos[1];
-        let vy = self.f[i].vel[1];
+        let vy = self.f[i].vel[1] + self.f[i].kvel[1];
         let sup = self.arena.support(p[0], p[2], prev_y + STEP);
         let f = &mut self.f[i];
         f.support = -1;
@@ -1361,8 +1448,16 @@ impl Brawl {
         }
         // The void.
         if self.f[i].alive && self.f[i].pos[1] < self.arena.void_y {
-            self.fall_out(i);
+            if self.f[i].launched > 0 || self.f[i].act == Act::Special {
+                // launched off (or a recovery that missed): the bottom blast zone
+                let by = self.f[i].last_hit_by;
+                self.ev.push(Ev::Fell(i));
+                self.ko(i, by);
+            } else {
+                self.fall_out(i);
+            }
         }
+        self.smash_blast_check(i);
     }
 
     /// Quicksand (from the course's surfaces) slows a fighter and, after two seconds, spits them out hurt; lava burns and bounces.
@@ -1639,7 +1734,13 @@ impl Brawl {
         let f = self.f[i];
         let d = dir_of(f.yaw);
         let pos = [f.pos[0] + d[0] * 60.0, f.pos[1] + 80.0 * f.size, f.pos[2] + d[1] * 60.0];
-        self.spawn_proj(PKind::Bullet, pos, [d[0] * 1700.0, 0.0, d[1] * 1700.0], i as i8, [0.0; 3]);
+        let ssb = if f.held >= 0 { self.items[f.held as usize].ssb } else { None };
+        let speed = if ssb == Some(jumpman_sim::smash::items::ItemKind::FireFlower) { 900.0 } else { 1700.0 };
+        if self.spawn_proj(PKind::Bullet, pos, [d[0] * speed, 0.0, d[1] * speed], i as i8, [0.0; 3]) {
+            if let Some(p) = self.proj.iter_mut().rev().find(|p| p.alive && p.owner == i as i8 && p.t == 0 && p.kind == PKind::Bullet) {
+                p.ssb = ssb;
+            }
+        }
         self.ev.push(Ev::Shot(pos));
         self.use_held(i);
     }
@@ -1656,7 +1757,7 @@ impl Brawl {
 
     fn spawn_proj(&mut self, kind: PKind, pos: [f32; 3], vel: [f32; 3], owner: i8, aim: [f32; 3]) -> bool {
         if let Some(p) = self.proj.iter_mut().find(|p| !p.alive) {
-            *p = Proj { alive: true, kind, pos, vel, owner, t: 0, mask: 0, aim };
+            *p = Proj { alive: true, kind, pos, vel, owner, t: 0, mask: 0, aim, ssb: None };
             true
         } else {
             false
@@ -1779,7 +1880,7 @@ impl Brawl {
     /// Apply damage and knockback. Returns false when the blow was ignored (invulnerable, ally).
     pub fn hit(&mut self, v: usize, a: i8, dmg: f32, dir: V2, kb: f32, up: f32) -> bool {
         let victim = self.f[v];
-        if !victim.alive || victim.inv > 0 {
+        if !victim.alive || victim.inv > 0 || self.smash_armored(v) {
             return false;
         }
         let (mult, atk_team) = if a >= 0 {
@@ -1825,6 +1926,8 @@ impl Brawl {
             }
             f.hit_mask = 0;
             f.buffer = false;
+            f.kvel = [0.0; 3];
+            f.launched = 0;
             f.stun = ((9.0 / weight.sqrt()) as u16).max(4);
             // Launched hard enough to splat against a wall for the next two thirds of a second.
             f.splat = if kbv >= 420.0 { 20 } else { 0 };
@@ -1992,7 +2095,10 @@ impl Brawl {
                             if let IState::Held(h) = it.state {
                                 self.f[h as usize].held = -1;
                             }
-                            self.explode(pos, 280.0, 20.0, 920.0, owner);
+                            match it.ssb {
+                                Some(s) => self.smash_item_blast(pos, 280.0, owner, s),
+                                None => self.explode(pos, 280.0, 20.0, 920.0, owner),
+                            }
                         }
                     }
                     continue;
@@ -2010,10 +2116,14 @@ impl Brawl {
                     let f = &self.f[j];
                     let wants = f.alive && (it.kind != ItemKind::Heal || f.hp < f.max_hp);
                     if wants && dist2([it.pos[0], it.pos[2]], pos_of(f)) < 80.0 + f.radius() && (it.pos[1] - f.pos[1]).abs() < 140.0 {
+                        use jumpman_sim::smash::items::ItemKind as S;
                         let f = &mut self.f[j];
-                        match it.kind {
-                            ItemKind::Boots => f.haste = HASTE_TICKS,
-                            ItemKind::Shield => f.shield = SHIELD_TICKS,
+                        match (it.kind, it.ssb) {
+                            (_, Some(S::Star)) => f.inv = f.inv.max(smash_items::STAR_TICKS),
+                            (_, Some(S::MaximTomato)) => f.hp = (f.hp + 0.5 * f.max_hp).min(f.max_hp),
+                            (_, Some(S::Heart)) => f.hp = f.max_hp,
+                            (ItemKind::Boots, _) => f.haste = HASTE_TICKS,
+                            (ItemKind::Shield, _) => f.shield = SHIELD_TICKS,
                             _ => f.hp = (f.hp + 32.0).min(f.max_hp),
                         }
                         self.items[k].alive = false;
@@ -2027,7 +2137,10 @@ impl Brawl {
                 self.items[k].fuse -= 1;
                 if self.items[k].fuse <= 0 {
                     self.items[k].alive = false;
-                    self.explode(it.pos, 280.0, 20.0, 920.0, it.owner);
+                    match it.ssb {
+                        Some(s) => self.smash_item_blast(it.pos, 280.0, it.owner, s),
+                        None => self.explode(it.pos, 280.0, 20.0, 920.0, it.owner),
+                    }
                     continue;
                 }
             }
@@ -2050,12 +2163,19 @@ impl Brawl {
                     }
                     if it.kind == ItemKind::Bomb {
                         self.items[k].alive = false;
-                        self.explode(it.pos, 280.0, 20.0, 920.0, it.owner);
+                        match it.ssb {
+                            Some(s) => self.smash_item_blast(it.pos, 280.0, it.owner, s),
+                            None => self.explode(it.pos, 280.0, 20.0, 920.0, it.owner),
+                        }
                         break;
                     }
                     let dir = norm2([it.vel[0], it.vel[2]], [f.pos[0] - it.pos[0], f.pos[2] - it.pos[2]]);
                     let scale = (speed / 800.0).clamp(0.5, 1.2);
-                    if self.hit(j, it.owner, dmg, dir, kb * scale, up) {
+                    let landed = match it.ssb {
+                        Some(s) => self.smash_item_strike(j, it.owner, s, dir, it.pos),
+                        None => self.hit(j, it.owner, dmg, dir, kb * scale, up),
+                    };
+                    if landed {
                         match it.kind {
                             ItemKind::Crate | ItemKind::Barrel => {
                                 self.items[k].alive = false;
@@ -2214,7 +2334,8 @@ impl Brawl {
                     for a in 0..3 {
                         p.pos[a] += p.vel[a] * DT;
                     }
-                    let mut dead = p.t > 40 || p.pos[1] < self.arena.void_y;
+                    let life = if p.ssb == Some(jumpman_sim::smash::items::ItemKind::FireFlower) { 9 } else { 40 };
+                    let mut dead = p.t > life || p.pos[1] < self.arena.void_y;
                     if self.wall_at(p.pos) {
                         dead = true;
                     }
@@ -2225,7 +2346,14 @@ impl Brawl {
                         }
                         if dist2([p.pos[0], p.pos[2]], pos_of(&f)) < f.radius() + 18.0 && p.pos[1] > f.pos[1] - 20.0 && p.pos[1] < f.pos[1] + f.height() {
                             let dir = norm2([p.vel[0], p.vel[2]], [1.0, 0.0]);
-                            self.hit(j, p.owner, 7.0, dir, 190.0, 80.0);
+                            match p.ssb {
+                                Some(s) => {
+                                    self.smash_item_strike(j, p.owner, s, dir, p.pos);
+                                }
+                                None => {
+                                    self.hit(j, p.owner, 7.0, dir, 190.0, 80.0);
+                                }
+                            }
                             dead = true;
                             break;
                         }
@@ -2582,7 +2710,8 @@ impl Brawl {
         let spot = self.arena.random_drop_spot(&mut self.rng);
         let low_hp = (0..self.n).any(|i| self.f[i].alive && self.f[i].hp_frac() < 0.45);
         let kind = if low_hp && self.rng.chance(0.3) { ItemKind::Heal } else { self.roll_item(false) };
-        self.spawn_item(kind, spot, true);
+        let slot = self.spawn_item(kind, spot, true);
+        self.maybe_smash_item(slot);
     }
 
     fn check_round_end(&mut self) {
@@ -2740,3 +2869,7 @@ impl Brawl {
 #[cfg(test)]
 #[path = "brawl_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "brawl_balance_tests.rs"]
+pub(crate) mod balance_tests;

@@ -99,17 +99,19 @@ pub(crate) fn drain_events(mut sim: ResMut<GameSim>, mut sfx: MessageWriter<Smas
 
 /// Per-frame puffs: every projectile in flight and the running special's own effects (where no SSB64 model draws them,
 /// `smash_models`).
-fn projectile_fx(sim: Res<GameSim>, time: Res<Time>, mut frame: Local<u32>, particles: Option<ResMut<Particles>>, models: Option<Res<super::smash_models::SmashModels>>) {
+fn projectile_fx(sim: Res<GameSim>, time: Res<Time>, mut frame: Local<u32>, particles: Option<ResMut<Particles>>, models: Option<Res<super::smash_models::SmashModels>>, brawl: Option<Res<crate::experiments::brawl_view::BrawlBridge>>) {
     let Some(mut p) = particles else { return };
     let ext = &sim.mario.smash;
-    if ext.fighter.is_none() || (ext.projectiles.is_empty() && ext.special.is_none()) {
+    // Gem Clash: the player's seat's projectiles (puffs; the SSB64 models follow the course sim's only)
+    let gem: &[jumpman_sim::smash::Projectile] = brawl.as_ref().filter(|b| b.active).map_or(&[], |b| &b.smash_projectiles[..]);
+    if ext.fighter.is_none() || (ext.projectiles.is_empty() && ext.special.is_none() && gem.is_empty()) {
         return;
     }
     *frame = frame.wrapping_add(1);
     let f = *frame;
     let t = time.elapsed_secs();
-    for pr in &ext.projectiles {
-        if pr.dead || models.as_ref().is_some_and(|m| m.covers(pr)) {
+    for (k, pr) in ext.projectiles.iter().chain(gem.iter()).enumerate() {
+        if pr.dead || (k < ext.projectiles.len() && models.as_ref().is_some_and(|m| m.covers(pr))) {
             continue;
         }
         let pos = pr.pos;

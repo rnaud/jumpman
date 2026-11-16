@@ -308,6 +308,14 @@ pub enum ItemEvent {
     Vanished { kind: ItemKind, pos: Vec3 },
 }
 
+/// A mode's item spawning: ticks between drops, most on the field, and the weighted set.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ItemRates {
+    pub every: u32,
+    pub max: usize,
+    pub pool: Vec<(ItemKind, u32)>,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Items {
     /// Spawn items near the fighter (the app turns it on where items make sense).
@@ -323,6 +331,11 @@ pub struct Items {
     /// Mario walked this tick (the hammer's walk / wait motion).
     pub moving: bool,
     pub events: Vec<ItemEvent>,
+    /// A mode's own spawn rule (set, rate, cap); `None`: the classic set every [`SPAWN_TICKS`], [`MAX_ON_FIELD`] at most.
+    pub rates: Option<ItemRates>,
+    /// Food eaten so far and the last one (a mode with its own health heals from these: Star Swarm).
+    pub meals: u32,
+    pub last_meal: Option<ItemKind>,
     spawn_timer: u32,
     rng: u32,
     next_id: u32,
@@ -485,6 +498,8 @@ pub fn step(m: &mut MarioRuntime) -> bool {
                 Class::Food => {
                     let heal = if it.kind == ItemKind::Heart { m.max_health } else { 0x400 as f64 };
                     m.smash.heal += heal;
+                    m.smash.items.meals += 1;
+                    m.smash.items.last_meal = Some(it.kind);
                     m.smash.items.events.push(ItemEvent::Eaten { kind: it.kind });
                     return begin(m, UseAct::Get, it.kind, 6, false, yaw);
                 }
@@ -738,7 +753,8 @@ pub fn after(m: &mut MarioRuntime) {
     // Spawning.
     if m.smash.items.enabled {
         m.smash.items.spawn_timer += 1;
-        if m.smash.items.spawn_timer >= SPAWN_TICKS && m.smash.items.list.len() < MAX_ON_FIELD {
+        let (every, max) = m.smash.items.rates.as_ref().map_or((SPAWN_TICKS, MAX_ON_FIELD), |r| (r.every, r.max));
+        if m.smash.items.spawn_timer >= every && m.smash.items.list.len() < max {
             m.smash.items.spawn_timer = 0;
             spawn_near(m);
         }
@@ -805,8 +821,25 @@ fn spawn_near(m: &mut MarioRuntime) {
             ItemKind::Star,
             ItemKind::Heart,
         ];
-        let k = (m.smash.items.rand() as usize) % (pool.len() + 2);
-        let kind = pool[k.min(pool.len() - 1)];
+        let kind = match m.smash.items.rates.clone().filter(|r| !r.pool.is_empty()) {
+            Some(r) => {
+                let total: u32 = r.pool.iter().map(|p| p.1).sum::<u32>().max(1);
+                let mut x = m.smash.items.rand() % total;
+                let mut pick = r.pool[0].0;
+                for (k, w) in r.pool {
+                    if x < w {
+                        pick = k;
+                        break;
+                    }
+                    x -= w;
+                }
+                pick
+            }
+            None => {
+                let k = (m.smash.items.rand() as usize) % (pool.len() + 2);
+                pool[k.min(pool.len() - 1)]
+            }
+        };
         m.smash.items.spawn(kind, [x, floor.height + 300.0, z]);
         return;
     }

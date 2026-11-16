@@ -1189,6 +1189,11 @@ impl Experiment for LastStarStandingExperiment {
             let terrain = self.terrain.as_ref().unwrap();
             let core = self.core.as_mut().unwrap();
             core.tick(terrain, &self.motions);
+            // The player's Smash specials (projectiles, hitboxes, items) hit the other Marios.
+            if host.sim.mario.smash.fighter.is_some() && core.fighters[0].alive {
+                let mut targets = super::smash_targets::LssTargets::new(&mut *core);
+                jumpman_sim::smash::resolve(&mut host.sim.mario.smash, &mut targets);
+            }
             // Marios are solid: the core pushed physics bodies out of each other (`Lss::separate_bodies`).
             if core.fighters[0].alive && core.fighters[0].body_push != [0.0; 2] {
                 let d = core.fighters[0].body_push;

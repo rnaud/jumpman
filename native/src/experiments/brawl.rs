@@ -229,7 +229,7 @@ impl GemClashExperiment {
         Self {
             core,
             stage: Stage::Menu,
-            menu: MenuView { mode: 0, arena: Self::initial_arena(), bots: 2, diff: 0, monsters: 1, cursor: 5, hero: 0 },
+            menu: MenuView { mode: 0, arena: Self::initial_arena(), bots: 2, diff: 0, monsters: 1, cursor: 5, hero: 0, smash: None },
             seed: env_num("JUMPMAN_BRAWL_SEED").unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64)),
             t: 0.0,
             ctl: ControllerSnapshot::default(),
@@ -543,6 +543,9 @@ impl GemClashExperiment {
             cfg.bots = total.saturating_sub(cfg.humans);
         }
         cfg.hero = host.brawl.hero;
+        cfg.smash[0] = host.brawl.smash;
+        // SSB64 items among the drops when the import has their models (`JUMPMAN_BRAWL_SMASH_ITEMS=0|1` overrides).
+        cfg.smash_items = std::env::var("JUMPMAN_BRAWL_SMASH_ITEMS").map_or(host.brawl.smash_items_installed, |v| v != "0");
         self.core = self.make_core(host, cfg);
         self.snap = Snap::of(&self.core);
         self.stage = Stage::Playing;
@@ -566,6 +569,7 @@ impl GemClashExperiment {
         let mut cfg = self.config();
         cfg.mode = Mode::Versus;
         cfg.hero = host.brawl.hero;
+        cfg.smash[0] = host.brawl.smash;
         self.core = self.make_core(host, cfg);
         self.snap = Snap::of(&self.core);
         self.build_arena(host);
@@ -690,7 +694,13 @@ impl GemClashExperiment {
         let f = &c.f[i];
         if f.human {
             if i == 0 {
-                if f.kind == Kind::Mario && f.hero != Hero::Mario { f.hero.name().into() } else { "You".into() }
+                if let Some(s) = f.smash {
+                    super::brawl_core::smash::name(s).into()
+                } else if f.kind == Kind::Mario && f.hero != Hero::Mario {
+                    f.hero.name().into()
+                } else {
+                    "You".into()
+                }
             } else {
                 format!("P{}", i + 1)
             }
@@ -720,6 +730,15 @@ impl GemClashExperiment {
         p.attack = c.button_pressed & B_BUTTON != 0;
         p.attack_held = c.button_down & B_BUTTON != 0;
         p.z = c.button_pressed & Z_TRIG != 0;
+        // A Smash fighter's special: N64 R (H, R2 / X on a pad, the touch SPECIAL); stick up or A held = up, down or Z
+        // held = down (the stick as the player holds it, before the camera turns it).
+        p.special = c.button_pressed & R_TRIG != 0;
+        p.special_held = c.button_down & R_TRIG != 0;
+        p.slot = match jumpman_sim::smash::slot_from_input(c) {
+            jumpman_sim::smash::SpecialSlot::Neutral => 0,
+            jumpman_sim::smash::SpecialSlot::Up => 1,
+            jumpman_sim::smash::SpecialSlot::Down => 2,
+        };
         let l = self.latched;
         p.s1 = l & 1 != 0;
         p.s2 = l & 2 != 0;
@@ -811,8 +830,12 @@ impl GemClashExperiment {
             }
             Act::GetUp => ACT_FORWARD_GROUND_KB,
             Act::Dead => ACT_DEATH_ON_BACK,
+            Act::Special => {
+                if air { ACT_FREEFALL } else { ACT_IDLE }
+            }
         };
-        host.brawl.hero_act = Some(crate::characters::smash::HeroAct { act: f.act, air, rising: f.vel[1] > 0.0, moving, jumps: f.jumps });
+        let special = if f.act == Act::Special { self.core.seats[0].as_ref().and_then(|s| s.special()) } else { None };
+        host.brawl.hero_act = Some(crate::characters::smash::HeroAct { act: f.act, air, rising: f.vel[1] > 0.0, moving, jumps: f.jumps, special });
         let m = &mut host.sim.mario;
         if self.mario_act != (act, arg) {
             m.set_action(act, arg);
@@ -842,6 +865,34 @@ impl GemClashExperiment {
         m.floor_height = f.pos[1] as f64 + origin().y as f64;
         m.events.clear();
         host.sim.refresh_view();
+    }
+
+    /// The player's Smash seat to the app: its sound / hit events go to the puppet Mario's queue (`characters::smash_fx`
+    /// drains them), its projectiles to the bridge in world positions (drawn as on the courses).
+    fn smash_feed(&mut self, host: &mut Host) {
+        let o = origin();
+        host.brawl.smash_projectiles.clear();
+        let Some(seat) = self.core.seats[0].as_mut() else { return };
+        let lift = seat.base_y as f64;
+        let shift = |p: [f64; 3]| [p[0] + o.x as f64, p[1] + lift + o.y as f64, p[2] + o.z as f64];
+        for e in std::mem::take(&mut seat.rt.smash.events) {
+            use jumpman_sim::smash::SmashEvent as E;
+            let e = match e {
+                E::Hit { pos, kind, damage } => E::Hit { pos: shift(pos), kind, damage },
+                E::Explode { pos, radius } => E::Explode { pos: shift(pos), radius },
+                E::Reflected { pos } => E::Reflected { pos: shift(pos) },
+                E::Absorbed { pos } => E::Absorbed { pos: shift(pos) },
+                other => other,
+            };
+            if host.sim.mario.smash.events.len() < 256 {
+                host.sim.mario.smash.events.push(e);
+            }
+        }
+        for p in &seat.rt.smash.projectiles {
+            let mut q = *p;
+            q.pos = shift(p.pos);
+            host.brawl.smash_projectiles.push(q);
+        }
     }
 
     fn fx_push(&mut self, e: FxView) {
@@ -1177,6 +1228,7 @@ impl GemClashExperiment {
                 Act::PoundLand => tilt = 0.6,
                 Act::Nova => sc = 1.0 + 0.15 * (t * 30.0).sin(),
                 Act::Hurt => tilt = -0.35,
+                Act::Special => {}
                 Act::Down => tilt = -1.45,
                 Act::GetUp => tilt = -0.7,
                 Act::Dead => {
@@ -1212,8 +1264,17 @@ impl GemClashExperiment {
                 v.kind = 0;
             }
         }
+        b.smash_items.clear();
         for k in 0..MAXI {
             let it = &c.items[k];
+            if let (true, Some(s)) = (it.alive, it.ssb) {
+                // drawn with the import's SSB64 model (`smash_models`), not the arena's props
+                let p = mix3(self.snap.it[k], it.pos, a);
+                let yaw = if let IState::Held(h) = it.state { c.f[h as usize].yaw } else { it.spin };
+                b.smash_items.push((s.model(), wv([p.x, p.y, p.z]), yaw));
+                b.items[k].on = false;
+                continue;
+            }
             let v = &mut b.items[k];
             *v = IView { on: it.alive, kind: it.kind as u8, pos: bv(mix3(self.snap.it[k], it.pos, a)), yaw: it.spin, tilt: if it.state == IState::Flying { it.spin * 0.5 } else { 0.0 }, lit: it.fuse > 0, held: matches!(it.state, IState::Held(_)) };
             if let IState::Held(h) = it.state {
@@ -1286,6 +1347,7 @@ impl GemClashExperiment {
 
         // ---- HUD ----
         b.menu.hero = if self.stage == Stage::Menu { b.hero } else { c.f[0].hero } as u8;
+        b.menu.smash = if self.stage == Stage::Menu { b.smash } else { c.f[0].smash };
         let h = &mut b.hud;
         h.n = if self.stage == Stage::Menu { 0 } else { c.n };
         let to_win = if c.cfg.mode == Mode::Versus { c.cfg.rounds_to_win } else { 0 };
@@ -1677,6 +1739,7 @@ impl Experiment for GemClashExperiment {
                 self.core.f[0].hp = self.core.f[0].max_hp;
             }
             self.core.tick(&inputs);
+            self.smash_feed(host);
             self.handle_events(host);
             if self.core.phase == Phase::MatchEnd && self.stage == Stage::Playing {
                 self.finish(host);
@@ -1711,6 +1774,7 @@ impl Experiment for GemClashExperiment {
         let e = std::mem::take(&mut host.brawl.edges);
         self.latched |= e;
         self.handle_cmds(host);
+        self.menu.smash = host.brawl.smash;
         if self.stage == Stage::Menu {
             host.brawl.menu = self.menu;
         }

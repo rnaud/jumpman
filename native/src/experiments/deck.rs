@@ -962,8 +962,8 @@ impl Experiment for StarDeckExperiment {
         host.cam.fog = None;
         host.cam.pose = None;
     }
-    fn before_step(&mut self, _host: &mut Host, _controller: &ControllerSnapshot) -> StepOverride {
-        StepOverride { controller: Some(ControllerSnapshot::default()), camera_yaw: None }
+    fn before_step(&mut self, host: &mut Host, controller: &ControllerSnapshot) -> StepOverride {
+        StepOverride { controller: Some(deck_controller(host.sim.mario.smash.fighter.is_some(), controller)), camera_yaw: None }
     }
     fn debug(&self) -> String {
         format!("star deck run {}", self.runs)
@@ -1841,11 +1841,33 @@ fn put_hero(sim: &mut GameSim, pos: [f64; 3], action: u32, yaw: f64) {
     sim.prev = sim.curr.clone();
 }
 
+/// The controller the stage hero gets: nothing (the cards move it), except a Smash fighter's special button (N64 R, with
+/// A / Z held for the up / down special) so it can play its specials on the stage between cards (`smash_targets::
+/// DeckTargets`: a few hits a turn count as attacks).
+pub fn deck_controller(smash: bool, c: &ControllerSnapshot) -> ControllerSnapshot {
+    if !smash || (c.button_down | c.button_pressed) & R_TRIG == 0 {
+        return ControllerSnapshot::default();
+    }
+    let keep = R_TRIG | if c.button_pressed & R_TRIG != 0 { A_BUTTON | Z_TRIG } else { 0 };
+    ControllerSnapshot { button_down: c.button_down & keep, button_pressed: c.button_pressed & R_TRIG, ..ControllerSnapshot::default() }
+}
+
 fn drive_hero(mut g: ResMut<DeckGame>, mut sim: ResMut<GameSim>) {
     let combat = g.run.screen == Screen::Combat;
     let home = hero_home(combat);
     let now = g.t;
     let floor_y = stage()[1];
+    // A Smash fighter's special on the stage (`deck_controller`): its hits land on the foes standing there.
+    if sim.mario.smash.fighter.is_some() && combat && g.choreo.is_none() {
+        let homes: Vec<[f64; 3]> = g.foes3d.iter().map(|f| f.home).collect();
+        if let Some(cb) = g.run.combat.as_mut() {
+            let mut t = super::smash_targets::DeckTargets { combat: cb, homes };
+            jumpman_sim::smash::resolve(&mut sim.mario.smash, &mut t);
+        }
+        if sim.mario.smash.active() {
+            return;
+        }
+    }
     let Some(mut c) = g.choreo else {
         // Idle at the home mark; snap back if anything nudged us off it.
         let d = (sim.mario.pos[0] - home[0]).hypot(sim.mario.pos[2] - home[2]);

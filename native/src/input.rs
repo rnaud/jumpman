@@ -258,7 +258,7 @@ pub fn read_input(
             mag = m;
         }
         // A Smash fighter's X is the special button (`characters::smash::west_is_special`), not one of Z's extras.
-        let in_mode = slot.as_ref().is_some_and(|s| s.id.is_some());
+        let in_mode = slot.as_ref().is_some_and(|s| crate::characters::smash::mode_takes_special(s.id));
         let x_special = current.as_ref().is_some_and(|c| crate::characters::smash::west_is_special(c, in_mode, b));
         let live = |x: &GamepadButton, a: Action| !(x_special && a == Action::Crouch && *x == GamepadButton::West);
         let held = |a| b.pad_buttons(a).iter().any(|x| live(x, a) && pad.pressed(*x));

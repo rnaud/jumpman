@@ -300,6 +300,8 @@ pub struct TouchControls {
     pub banjo_pressed: u8,
     /// A Smash fighter plays outside a mode (`smash::smash_input` sets it): the SPECIAL button is offered.
     pub smash_active: bool,
+    /// The running mode's own buttons (`mode_layout`, above the A/B grid) leave room for SPECIAL (Gem Clash).
+    pub smash_with_mode: bool,
     /// SPECIAL held / pressed since the last read.
     pub smash_down: bool,
     pub smash_pressed: bool,
@@ -319,7 +321,7 @@ impl TouchControls {
     /// The SPECIAL button is drawn and hit-tested: a Smash fighter plays and no mode has taken the buttons over
     /// (`mode_active` = an experiment's slot buttons are up).
     pub fn smash_shown(&self, mode_active: bool) -> bool {
-        self.smash_active && !self.hide_pad && !self.extra_active && !self.banjo_active && !mode_active
+        self.smash_active && !self.hide_pad && !self.extra_active && !self.banjo_active && (!mode_active || self.smash_with_mode)
     }
 
     /// A finger went down at `pos`: true if the extra top-bar button took it (see `top_extra`).

@@ -93,11 +93,13 @@ pub struct Brain {
     pub push_dir: V2,
     /// A drop close behind me (unit direction), zero when there is none: do not stand there with a foe in front.
     pub my_edge: V2,
+    /// A Smash fighter's ticks until it considers another special (`brawl_smash.rs` `bot_smash`).
+    pub smash_cd: i16,
 }
 
 impl Brain {
     pub fn new(diff: Diff, boss: bool, seed: u64) -> Self {
-        Self { diff, boss, goal: Goal::Wander, timer: 0, rng: Rng::new(seed), atk_cd: 0, jump_cd: 0, stuck: 0, last: [0.0; 2], wander: [0.0; 2], strafe: 1.0, dive_arm: false, spec_wait: 0, contact: 0, push_dir: [0.0; 2], my_edge: [0.0; 2] }
+        Self { diff, boss, goal: Goal::Wander, timer: 0, rng: Rng::new(seed), atk_cd: 0, jump_cd: 0, stuck: 0, last: [0.0; 2], wander: [0.0; 2], strafe: 1.0, dive_arm: false, spec_wait: 0, contact: 0, push_dir: [0.0; 2], my_edge: [0.0; 2], smash_cd: 0 }
     }
     pub fn reset(&mut self) {
         self.goal = Goal::Wander;
@@ -108,6 +110,7 @@ impl Brain {
         self.contact = 0;
         self.push_dir = [0.0; 2];
         self.my_edge = [0.0; 2];
+        self.smash_cd = 30;
     }
 }
 
@@ -300,6 +303,11 @@ impl Brawl {
                 inp.jump = true;
                 b.jump_cd = 10;
             }
+        }
+        if me.smash.is_some() {
+            let mut cd = b.smash_cd;
+            self.bot_smash(i, &mut b.rng, &mut cd, (p.atk_p * 2.5).min(1.5), &mut inp);
+            b.smash_cd = cd;
         }
         if inp.attack && b.rng.chance(p.whiff) {
             inp.attack = false;

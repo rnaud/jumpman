@@ -255,7 +255,8 @@ pub struct SmashHit {
     pub fighter: SmashFighter,
     /// The special it came from; `None` for a normal attack (jab, aerial, dash attack... see [`normal_attack_motion`]).
     pub mv: Option<SpecialMove>,
-    /// The SSB64 knockback inputs of the scripted hitbox that landed (`None`: a projectile or an approximate hitbox).
+    /// The SSB64 knockback inputs of the hit: the scripted hitbox's, a weapon's `WPAttributes`, or an approximation
+    /// (`smash_knockback`); `resolve` always fills it (`None` only from hand-made hits).
     pub knockback: Option<Knockback>,
     /// The SSB64 motion id that hit (scripted hitboxes only).
     pub motion: Option<u32>,
@@ -555,7 +556,7 @@ impl SmashExt {
 // Animation names
 // ---------------------------------------------------------------------------------------------
 
-fn special_motion(sp: &Special) -> (Vec<String>, f32, bool) {
+pub fn special_motion(sp: &Special) -> (Vec<String>, f32, bool) {
     use Phase as P;
     use SpecialMove::*;
     let a = sp.air;
@@ -3174,7 +3175,7 @@ pub fn resolve(ext: &mut SmashExt, t: &mut dyn SmashTargets) {
             if gone[i] || !touches(hb.pos, hb.radius, tg) || !can_hit(&log, hb.source, tg.key, hb.rehit) {
                 continue;
             }
-            let hit = SmashHit { damage: hb.damage, kind: hb.kind, dir: dir_from(center, tg.pos), knock: hb.knock, pos: hb.pos, fighter, mv: hit_mv, knockback: hb.knockback, motion: hb.motion };
+            let hit = SmashHit { damage: hb.damage, kind: hb.kind, dir: dir_from(center, tg.pos), knock: hb.knock, pos: hb.pos, fighter, mv: hit_mv, knockback: Some(hb.knockback.or_else(|| hit_mv.and_then(|mv| crate::smash_knockback::weapon(mv, None, hb.damage).filter(|_| mv == SpecialMove::Item))).unwrap_or_else(|| crate::smash_knockback::approximate(hb.damage, hb.kind))), motion: hb.motion };
             let out = t.hit(i, &hit);
             log.push((hb.source, tg.key, now));
             if out != HitOutcome::Miss {
@@ -3207,7 +3208,7 @@ pub fn resolve(ext: &mut SmashExt, t: &mut dyn SmashTargets) {
             if p.dead || gone[i] || !touches(p.pos, p.radius, tg) || !can_hit(&log, src, tg.key, p.rehit) {
                 continue;
             }
-            let hit = SmashHit { damage: p.damage, kind: p.hit, dir: dir_from(p.pos, tg.pos), knock: 10.0 + p.damage as f64, pos: p.pos, fighter: p.fighter, mv: Some(p.mv), knockback: None, motion: None };
+            let hit = SmashHit { damage: p.damage, kind: p.hit, dir: dir_from(p.pos, tg.pos), knock: 10.0 + p.damage as f64, pos: p.pos, fighter: p.fighter, mv: Some(p.mv), knockback: Some(crate::smash_knockback::weapon(p.mv, Some(p.kind), p.damage).unwrap_or_else(|| crate::smash_knockback::approximate(p.damage, p.hit))), motion: None };
             let out = t.hit(i, &hit);
             log.push((src, tg.key, now));
             if out == HitOutcome::Miss {

@@ -203,9 +203,11 @@ fn load_models(root: Option<Res<AssetRoot>>, assets: Option<Res<AssetServer>>, m
 }
 
 /// Turn the item layer on where a Smash fighter plays; drop the test item.
-fn item_setup(character: Res<Character>, mut sim: ResMut<GameSim>, mut models: ResMut<SmashModels>) {
+fn item_setup(character: Res<Character>, mut sim: ResMut<GameSim>, mut models: ResMut<SmashModels>, brawl: Option<Res<crate::experiments::brawl_view::BrawlBridge>>) {
     let smash = matches!(*character, Character::Smash(_));
-    let want = smash && std::env::var("JUMPMAN_SMASH_ITEMS").map_or(true, |v| v != "0");
+    // Gem Clash runs its own items (`brawl_items.rs`): the puppet Mario there spawns none.
+    let in_gem_clash = brawl.as_ref().is_some_and(|b| b.active);
+    let want = smash && !in_gem_clash && std::env::var("JUMPMAN_SMASH_ITEMS").map_or(true, |v| v != "0");
     if sim.mario.smash.items.enabled != want {
         sim.mario.smash.items.enabled = want;
     }
@@ -350,6 +352,7 @@ fn draw(
     names: Query<(&Name, &GlobalTransform)>,
     mut tfs: Query<(&mut Transform, &mut Visibility), With<SmashObj>>,
     particles: Option<ResMut<Particles>>,
+    brawl: Option<Res<crate::experiments::brawl_view::BrawlBridge>>,
 ) {
     let fighter = match *character {
         Character::Smash(f) => Some(f),
@@ -359,6 +362,15 @@ fn draw(
     let mut draws: Vec<Draw> = vec![];
     let over = fixed.overstep_fraction() as f64;
     let t = time.elapsed_secs();
+    // Gem Clash's SSB64 items (any character picks them up): the core's items in world positions.
+    if let Some(b) = brawl.as_ref().filter(|b| b.active) {
+        for (k, (model, pos, yaw)) in b.smash_items.iter().enumerate() {
+            if models.has(model) {
+                let lift = models.index.get(*model).map_or(0.0, |i| -i.min[1] * OBJ_SCALE);
+                draws.push(Draw { key: (5 << 40) | k as u64, model, pos: to_bevy(*pos) + Vec3::Y * lift, rot: Quat::from_rotation_y(*yaw), scale: 1.0, face: Face::None, visible: true });
+            }
+        }
+    }
     let mut particles = particles;
     if fighter.is_some() && ext.fighter.is_some() && !models.parts.is_empty() {
         // Projectiles.

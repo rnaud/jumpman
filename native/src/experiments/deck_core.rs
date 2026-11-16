@@ -15,6 +15,8 @@ pub const HAND_SIZE: usize = 5;
 pub const MAX_HAND: usize = 10;
 pub const MAX_ENEMIES: usize = 3;
 pub const POTION_SLOTS: usize = 3;
+/// Smash special hits that count each turn (a special between cards is a bonus, not a second deck).
+pub const SMASH_HITS_PER_TURN: u32 = 2;
 
 // ---------------------------------------------------------------------------------------------
 // Heroes, moves, statuses
@@ -980,6 +982,8 @@ pub struct Combat {
     pub best_chain: i32,
     next_uid: u32,
     badge_used: bool,
+    /// Smash special hits landed this turn (`smash_strike`, capped by [`SMASH_HITS_PER_TURN`]).
+    pub smash_hits: u32,
 }
 
 pub fn apply_damage_mods(base: i32, attacker: &Statuses, defender: &Statuses) -> i32 {
@@ -1031,6 +1035,7 @@ impl Combat {
             best_chain: 0,
             next_uid,
             badge_used: false,
+            smash_hits: 0,
         };
         if c.has(Relic::StarShard) {
             c.st.add(Status::Pumped, 1);
@@ -1069,6 +1074,7 @@ impl Combat {
 
     fn begin_turn(&mut self) {
         self.turn += 1;
+        self.smash_hits = 0;
         self.shell = 0;
         self.chain = 0;
         self.last_move = None;
@@ -1409,6 +1415,18 @@ impl Combat {
             }
             Own(s, n) => self.add_status(Who::Player, s, n),
         }
+    }
+
+    /// A Smash fighter's special landed on foe `t` (the hero plays it on the stage between cards,
+    /// `experiments::smash_targets::DeckTargets`): an attack of `base` with the usual modifiers, at most
+    /// [`SMASH_HITS_PER_TURN`] a turn so the cards stay the game. Returns whether it counted.
+    pub fn smash_strike(&mut self, t: usize, base: i32) -> bool {
+        if self.over() || self.smash_hits >= SMASH_HITS_PER_TURN || !self.foes.get(t).is_some_and(|f| f.alive) {
+            return false;
+        }
+        self.smash_hits += 1;
+        self.player_hit(t, base.max(1), true);
+        true
     }
 
     fn player_hit(&mut self, t: usize, base: i32, attack: bool) {

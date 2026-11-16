@@ -195,7 +195,7 @@ the fighter index loads) and `smash_hitbox::register`s it; `SmashExt::scripts` o
   (`knockback_base`), `element` (`Element`), `damage` (percent, before staling), `shield_damage`, `hit_ground`, `hit_air`,
   `can_rebound`, `sfx_kind`, `sfx_level`. `SmashHit` also has `motion` (the SSB64 motion id) and `mv: Option<SpecialMove>`
   (`None` for a normal attack). This is the input for SSB64's knockback (`ftParamGetCommonKnockback` family in
-  `src/ft/ftparam.c`) and the percent layer, which are not implemented yet.
+  `src/ft/ftparam.c`) and the percent layer: see "Knockback and percent".
 
 Use in the moves (`native/sim/src/smash.rs`):
 
@@ -287,13 +287,7 @@ Master Hand is not playable):
 - **Looks**: Link's sword and shield and Samus's arm cannon are joints of their models and come with them. Effects,
   projectiles, items and hand / face swaps are not drawn.
 
-Not done: per-fighter move feel (Gem Clash heroes from `attributes`), specials as moves, Master Hand as a boss.
-
-- **Sounds**: no voices are exported; the fighters use the `silent` voice set (SM64's hit sound, the star jingle).
-- **Looks**: Link's sword and shield and Samus's arm cannon are joints of their models and come with them. Projectiles
-  and special effects are particles (see Specials); items, hand / face swaps are not drawn.
-
-Not done: per-fighter move feel (Gem Clash heroes from `attributes`), voices, Master Hand as a boss.
+Not done: per-fighter move feel on the courses (speeds / jumps from `attributes`), Master Hand as a boss.
 
 ## Specials
 
@@ -303,9 +297,10 @@ units; app side `native/src/characters/smash.rs` (clips, input), `smash_fx.rs` (
 
 - **Input**: the special button is the N64 R: `Action::RButton` (H on the keyboard, rebindable; R2 on a pad). Special
   alone = neutral, with the stick pushed up = up special, down = down special (A held also means up, Z held down: a 3D
-  stick is also the walking direction). Neutral and up specials turn to the stick first. iOS / touch: **no special
-  button** (the HUD has none for these fighters; Banjo's R button is Banjo-only), so touch players get Mario's moves only.
-  Test hook: `JUMPMAN_STICK="3:r"` presses R at 3 s.
+  stick is also the walking direction). Neutral and up specials turn to the stick first. X on a pad is the special too
+  (unless the player bound X). iOS / touch: the **SPECIAL** button (`touch::Control::Smash`, left of B) for a Smash
+  fighter outside the modes and in Gem Clash (beside its SHOCK WAVE / SEEK BEAM buttons, `TouchControls::smash_with_mode`;
+  the other modes keep their own buttons and read R2 / H only). Test hook: `JUMPMAN_STICK="3:r"` presses R at 3 s.
 - **How it runs**: `MarioRuntime::smash` (`SmashExt`). While a special runs it owns Mario's frame like `step_banjo`
   does, moving him with the sim's own ground / air steps (walls, ceilings, floors, ledge grabs stay SM64's); a knockback,
   death or warp (anything that changes Mario's action from outside) cancels it. Recoveries end in the helpless fall
@@ -325,8 +320,8 @@ units; app side `native/src/characters/smash.rs` (clips, input), `smash_fx.rs` (
 - **Hits**: hitboxes (spheres, this tick) and projectiles hit `SmashTargets`: the course's SM64 objects (attacked like
   a punch, inside the sim), the walking goombas (defeated), Hold the Gate's foes (1% = 2.2 health, electric / sleep
   stun) and Star Swarm's swarm (1% = 1/6 of the run's weapon hit, sleep freezes). Kirby and Yoshi swallow what they
-  catch (bosses and elites resist). Gem Clash, Relic Descent, Deck, Last Stand and Party are not wired: Gem Clash plays
-  its own fighter sim (the specials do not run there), the others only see the SM64-object and goomba hits.
+  catch (bosses and elites resist). Relic Descent, Last Star Standing and Star Deck have adapters too (see "Minigame
+  adapters"); Gem Clash runs the specials on a seat per fighter ("Gem Clash"). Party is not wired (Mario-only).
 - **Sound hook**: `characters::smash_fx::SmashSpecialSfx { fighter, mv, slot, phase }` (a Bevy message) at each sound
   moment; `phase` is `SfxPhase::{Start, Charge, Full, Release, Projectile, Hit, Explode, Special, Land, End}`. Nothing
   plays yet: a sound layer reads the messages.
@@ -348,9 +343,124 @@ units; app side `native/src/characters/smash.rs` (clips, input), `smash_fx.rs` (
 
 The table's damage numbers are the fallback when the import has no `motion-events.json`.
 
-Not done: the ROM's weapon / effect models (fireball, Charge Shot, PK Thunder... are particles), knockback and percent on
-the fighters themselves (the scripts' knockback inputs are on every hit), shields, the specials in Gem Clash, a
-touch special button.
+Not done: shields; Party.
+
+## Knockback and percent (`native/sim/src/smash_knockback.rs`)
+
+SSB64's formulas from the decomp, engine-free:
+
+| What | Decomp | Here |
+|---|---|---|
+| Knockback | `ftParamGetCommonKnockback` (`src/ft/ftparam.c`): `((((p/10 + p*d/20) * w * 1.4) + 18) * growth/100) + base`, `p` = percent before the hit + the damage queued this frame (this hit), set knockback `(((1 + 10*f/20) * w * 1.4) + 18) * growth/100 + base`, capped at 2500; damage ratio / handicaps 1 | `knockback(percent, damage, &Knockback, weight)` |
+| Weight | `FTAttributes.weight` (`src/relocData/2xx_<Name>Main.c`, a knockback multiplier): Mario / Luigi / Fox 1.0, DK 0.83, Samus 0.92, Yoshi 0.93, Link / Falcon 0.96, Ness 1.1, Pikachu 1.16, Kirby 1.19, Jigglypuff 1.3 | `weight(fighter)` |
+| Angle | `ftCommonDamageGetKnockbackAngle`: 361 = 43 degrees in the air, on the ground 0 below 32 knockback else 42.5 | `launch_angle` |
+| Launch | `ftCommonDamageInitDamageVars`: `kb` units / frame along the angle (`vel_damage_air`), losing 1.7 a frame along itself (`ftmain.c`) | `Launch::of` (SM64 units / tick: `kb * K * 2`, decay `1.7 * K * 4`), `Launch::decay_step` |
+| Hitstun / level | `ftParamGetHitStun` = kb / 1.875 frames; `ftCommonDamageGetDamageLevel` 12 / 24 / 32 (level 3 = launched) | `hitstun_frames`, `damage_level` |
+| Hitlag | `ftParamGetHitLag` (US): `d/3 + 5` frames, electric x1.5 | `hitlag_frames` |
+| Weapons | `WPAttributes` of `*Special1.c` / `*Main.c` / `251_ITCommonData.c` (fireball 361 / 25 / base 10, boomerang 70 / 30 / 55, PK Fire 80 / 50 / 40, Thunder 70 / 50 / 80, Thunder Jolt 361 / 20 / 10...) | `weapon(mv, kind, damage)`; `resolve` now fills `SmashHit::knockback` for every hit (script, weapon table, items, else `approximate`) |
+| Percent | `percent_damage` | `Percent`; minigame foes: missing health as the percent (`minigame_launch`) |
+| Blast zones | `map_bound_*` (the stages' `blast` block, `game::ssb64::Stage`) | `BlastZone` (a box; Gem Clash builds it from its arena) |
+
+DI: SSB64 has no trajectory DI (only Smash DI during hitlag); not implemented.
+
+Where it applies: **Gem Clash** (every Smash hit, special, projectile, scripted normal attack and SSB64 item on any
+fighter, with the victim's SSB64 weight; a Gem Clash hero's weight is the inverse of its Gem Clash weight), the
+**minigames' foes** through their adapters (`minigame_launch`: Relic Descent's push, Last Star Standing's knock per
+tick, Gem Clash's monsters), and the course sim's own targets keep their behaviour.
+
+## Gem Clash (`native/src/experiments/brawl_smash.rs`, `brawl_items.rs`)
+
+A Smash fighter (the player's character, `Config::smash`, or a bot in tests / the balance harness) fights with its
+SSB64 moveset:
+
+- **Specials**: each Smash fighter has a **seat**, a private `MarioRuntime` on a flat floor whose `smash` layer runs the
+  special exactly as on the courses. The seat is anchored at the arena floor under the fighter (re-anchored when that
+  changes, the projectiles kept in place), stepped with the fighter's input while the special runs (`Act::Special`;
+  camera yaw 0, so world (x, z) = stick (x, -y)), and its motion is fed back through Gem Clash's collision
+  (`integrate`: walls, floors, the void, the blast zones). Projectiles keep flying after the special (the seat coasts
+  them). Hits resolve against the other fighters (SSB64 launch, Kirby copies a fighter he swallows, Sing puts to sleep,
+  Stone is armour, the Reflector sends Gem Clash's shots back, the PSI Magnet absorbs bullets and heals) and the
+  monsters. A blow cancels a special. Input: R (H, R2 / X, touch SPECIAL); stick up or A held = up, stick down or Z held
+  = down. H is still SEEK BEAM in the power form (it wins that tick).
+- **Normal attacks**: the punch chain, the dive, the ground pound and its landing play `Attack11` / `Attack12` /
+  `Attack13`, `AttackAirF`, `AttackAirLw`, `LandingAirLw` with the motion scripts' hitboxes, damage and knockback (the
+  punch chain's length from the script's end), when the import has them; else Mario's blows.
+- **Knockback**: the victim's percent is its lost health (`Fighter::percent`); a launch sets `Fighter::kvel` (decaying
+  1.7 a frame), hitstun (Hurt, or Down when launched), hitlag on both. A launched fighter flies over the invisible rim and
+  is knocked out beyond the blast zones (the rim / floor half size + 520, 2600 above the floor, the void below). Health
+  still knocks out at 0, as for everyone in Gem Clash; no HUD change (the cards keep the health bar; percent is not
+  shown, there is no slot for it).
+- **Bots**: Smash bots use their specials by range (`ai_use`: projectiles at range, rushes and slams close, Rest only on
+  a stunned foe), recover with their up special when off the floor with the jumps spent, release charges (Giant Punch,
+  Charge Shot) at the foe, reflect / absorb incoming shots. The app's Gem Clash opponents stay its own cast (Goombas,
+  Koopas...); Smash bots exist in the core (tests, balance) but the app does not draw them.
+- **Names**: cards and banners say the fighter's name ("JIGGLYPUFF POWER!", "PLAYING AS C. FALCON") instead of "You" /
+  "MARIO".
+- **SSB64 items** (`brawl_items.rs`, on in the app when the import has the object models; `JUMPMAN_BRAWL_SMASH_ITEMS=0|1`):
+  55% of the drops (`SMASH_ITEM_SHARE`) are SSB64 items from `SMASH_ITEM_TABLE` (Beam Sword, Home-Run Bat, Fan, Star
+  Rod, Hammer, Ray Gun, Fire Flower, Maxim Tomato, Heart Container, Star, Bob-omb, Green / Red Shell, Motion-Sensor
+  Bomb). Each rides a Gem Clash mechanic (swords / bat / fan / rod / hammer = the hammer's swing, Ray Gun / Fire Flower
+  = the blaster's shots, shells = a throwable, bombs = the bomb, food = the heart, Star = the bubble) so **every
+  character** picks them up and the bots use them; hits use SSB64 numbers (`item_knockback`: weapon tables for the
+  shots, the swing values, the item's `ITAttributes` damage when thrown) through `smash_hit`. Maxim Tomato heals half,
+  the Heart Container all, the Star makes the toucher invincible for `ITSTAR_INVINCIBLE_TIME`. Drawn with the import's
+  models (`BrawlBridge::smash_items` -> `characters::smash_models`). The arenas' own item spots are used; Gem Clash does
+  not run on the SSB64 stages, so their item points are not used.
+
+## Minigame adapters (`native/src/experiments/smash_targets.rs`)
+
+| Mode | Targets | Damage | Knockback / effects |
+|---|---|---|---|
+| Hold the Gate | the marching foes | 1% = 2.2 health | electric / sleep stun, swallow |
+| Star Swarm | the swarm | 1% = 1/6 of a weapon hit | sleep freezes; a swallow finishes a foe of up to four weapon hits (else 12%) |
+| Relic Descent (`RelicTargets`) | the dungeon's foes (not hidden ones) | 1% = 1/7 of the hero's swing | SSB64 push (`minigame_launch`), electric / sleep stun, swallow non-bosses |
+| Last Star Standing (`LssTargets`) | the other Marios | 1% = 1 hit point | SSB64 launch through the mode's knock |
+| Star Deck (`DeckTargets`) | the stage's foes | 1% = 0.5 attack, card modifiers | at most 2 special hits a turn (`SMASH_HITS_PER_TURN`); the hero plays specials on the stage between cards (`deck::deck_controller`) |
+
+Normal attacks are left to the modes (they score Mario's own punches). Every adapter multiplies by the fighter's
+`minigame_scale` (Balance). Star Swarm also runs the SSB64 items for a Smash fighter (`swarm_item_rates`: a drop every
+8 s, four at most, no containers; food heals the run's hero, the Star protects it; item hits go through `SwarmTargets`).
+Items there need the Smash fighter's item layer (non-Smash characters get none in Swarm).
+
+## Balance (`native/src/experiments/brawl_balance_tests.rs`)
+
+Harness: Gem Clash AI-vs-AI duels (Normal bots, first to one round, 4 min cap), every pair of the 16 characters (the
+12 Smash fighters and Mario, Link, Young Link, Banjo), 6 seeds x the 6 box arenas x both seat orders = 1080 duels per
+character, on 3 threads (about 2 s in `--release`); with the import's motion scripts
+(`JUMPMAN_SMASH_MOTION_EVENTS`), with and without SSB64 items. Minigame score: the fighter alone against a Star Swarm
+pack of 24 unkillable Skitters closing in at 240 units / s for 30 s, spamming one special at the nearest foe; the score
+is its best special's SSB64 percent per second through `SwarmTargets`.
+
+Tuning: Gem Clash `smash::tuning` (health, damage dealt): Donkey Kong 96 hp / 0.77, Kirby 95 hp / 0.81, Ness 104 hp /
+1.12, Mario / Luigi / Samus / Fox 1.08 damage, the rest SSB64's own (knockback dealt and speed stay 1.0). Minigames `smash_targets::minigame_scale`: Mario
+1.25, Luigi 1.1, Donkey Kong 0.5, Link 1.3, Samus 3.6, Yoshi 0.42, Kirby 1.05, Fox 1.2, Pikachu 0.38, Jigglypuff 0.95,
+Captain Falcon 0.8, Ness 0.85 (area multi-hitters down: Hand Slap, Yoshi Bomb, Thunder; single-target shooters up).
+
+| Fighter | win % before (no items / items) | after (no items / items) | swarm score before (best special) | after (x median) |
+|---|---|---|---|---|
+| Mario | 42 / 43 | 43 / 45 | 194 | 247 (0.92) |
+| Luigi | 42 / 47 | 44 / 48 | 232 | 256 (0.96) |
+| Donkey Kong | **63** / **61** | 54 / 54 | **576** | 289 (1.08) |
+| Link | 46 / 49 | 48 / 48 | 184 | 239 (0.89) |
+| Samus | 42 / 46 | 47 / 49 | 65 | 234 (0.88) |
+| Yoshi | 53 / 48 | 50 / 51 | **693** | 291 (1.09) |
+| Kirby | **66** / **61** | 56 / 53 | 247 | 259 (0.97) |
+| Fox | 42 / 43 | 43 / 44 | 209 | 251 (0.94) |
+| Pikachu | 47 / 47 | 47 / 46 | **735** | 280 (1.05) |
+| Jigglypuff | 53 / 52 | 55 / 54 | 291 | 277 (1.04) |
+| Captain Falcon | 46 / 46 | 44 / 46 | 365 | 292 (1.09) |
+| Ness | 40 / 42 | 49 / 48 | 327 | 275 (1.03) |
+| Mario (hero) | 53 / 53 | 55 / 52 | - | - |
+| Link (hero) | 56 / 57 | 55 / 58 | - | - |
+| Young Link (hero) | 53 / 50 | 54 / 51 | - | - |
+| Banjo (hero) | 55 / 55 | 55 / 55 | - | - |
+
+(Before: 4 seeds, all knobs 1.0; after: 6 seeds. Swarm before: one seed, the median then ~270.) Every character is in
+43-58% after, every swarm score within 0.88-1.09x of the median. Blast-zone KOs: 0 in these bot duels (health runs out
+first; the knockback grows only up to ~100% here), they are covered by tests. `smash_balance_regression` (always on)
+runs each Smash fighter against Mario and another fighter (12 duels each) and the swarm scores: no fighter below 8% or
+above 92%, no swarm score above 1.35x the median with the scripts (2.5x on the approximate fallback hitboxes).
+`balance_full` / `balance_swarm_slots` (`--ignored --nocapture`) print the tables.
 
 ## Stages
 
@@ -430,9 +540,9 @@ menus have no per-game music). Not modelled: reverb, the Mushroom Kingdom hurry 
 `cargo test -p jumpman ssb64_music` renders 15 themes (stage, menu, victory) and checks they are audible;
 `JUMPMAN_SSB64_MUSIC_WAV=<dir>` writes 20 s WAVs of them.
 
-Not done: weapon / effect animations (the ROM models are drawn static, see "Weapons, effects and items"), hitbox timing and damage
-from the motion event scripts, knockback and percent on the fighters themselves, shields, the specials in Gem Clash, a
-touch special button.
+Not done: weapon / effect animations (the ROM models are drawn static, see "Weapons, effects and items"), shields.
+(Hitboxes from the motion scripts, knockback / percent, the specials in Gem Clash and the touch SPECIAL button are
+done: see the sections above.)
 
 ## Weapons, effects and items
 

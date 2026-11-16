@@ -770,6 +770,8 @@ pub fn gem_clash_clip(act: crate::experiments::brawl_core::Act, air: bool, risin
         A::Down => once(DownFace, 1.0),
         A::GetUp => once(GetUp, 1.0),
         A::Dead => lp(Tumble, 1.0),
+        // the special's own motions play (`HeroAct::special`); this is the fallback
+        A::Special => once(Special, 1.0),
     }
 }
 
@@ -940,6 +942,8 @@ pub struct HeroAct {
     pub rising: bool,
     pub moving: bool,
     pub jumps: u8,
+    /// The special the fighter's seat runs (`brawl_smash.rs`): its motions play instead of the act's.
+    pub special: Option<jumpman_sim::smash::Special>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -986,7 +990,13 @@ fn drive_fighter(
     };
     let forced = forced_clip();
     // A special (`jumpman_sim::smash`) plays its own motions: the first one the fighter's table has.
-    let special = if hint.is_none() && forced.is_none() { m.smash.motion() } else { None };
+    let special = if forced.is_some() {
+        None
+    } else if let Some(h) = hint {
+        h.special.map(|s| jumpman_sim::smash::special_motion(&s))
+    } else {
+        m.smash.motion()
+    };
     let (name, sample) = if let Some((names, secs, looped)) = special {
         view.clock = ClipClock::default();
         let name = names.iter().find_map(|n| data.motion_clip(n)).unwrap_or_else(|| data.resolve(if m.action & ACT_FLAG_AIR != 0 { Move::Fall } else { Move::Wait }));
@@ -1033,6 +1043,13 @@ fn hold_root_motion(mut view: ResMut<SmashView>, children: Query<&Children>, nam
 /// come out as a down special).
 ///
 /// [`Bindings::smash_takes_west`]: crate::bindings::Bindings::smash_takes_west
+/// Whether the running mode keeps the special buttons for itself (X, the touch SPECIAL): every mode but Gem Clash, whose
+/// Smash fighters fight with their specials (`brawl_smash.rs`) and whose own buttons sit elsewhere (the SPECIAL button
+/// shows beside its SHOCK WAVE / SEEK BEAM, `TouchControls::smash_with_mode`).
+pub fn mode_takes_special(id: Option<crate::experiments::ExperimentId>) -> bool {
+    id.is_some_and(|i| i != crate::experiments::ExperimentId::Brawl)
+}
+
 pub fn west_is_special(current: &Character, in_mode: bool, bindings: &crate::bindings::Bindings) -> bool {
     matches!(current, Character::Smash(_)) && !in_mode && bindings.smash_takes_west()
 }
@@ -1053,11 +1070,12 @@ pub(crate) fn smash_input(
     tc: Option<ResMut<crate::touch::TouchControls>>,
 ) {
     let smash = matches!(*current, Character::Smash(_));
-    let in_mode = slot.as_ref().is_some_and(|s| s.id.is_some());
+    let in_mode = slot.as_ref().is_some_and(|s| mode_takes_special(s.id));
     let playing = state.is_none_or(|s| *s == crate::shell::AppState::Playing);
     let mut touch = (false, false);
     if let Some(mut tc) = tc {
         tc.smash_active = smash && playing && !in_mode;
+        tc.smash_with_mode = slot.as_ref().is_some_and(|s| s.id == Some(crate::experiments::ExperimentId::Brawl));
         if tc.smash_active {
             touch = (tc.smash_down, std::mem::take(&mut tc.smash_pressed));
         } else {
@@ -1471,8 +1489,15 @@ mod tests {
         app.update();
         assert_eq!(app.world().resource::<PlayerInput>().extra_down & R_TRIG, 0);
 
-        // Inside a mode: no touch SPECIAL and X is the mode's own button again; R2 still works.
+        // Gem Clash: the fighters use their specials there, so X and the touch SPECIAL stay (beside the mode's buttons).
         app.world_mut().resource_mut::<crate::experiments::ExperimentSlot>().id = Some(crate::experiments::ExperimentId::Brawl);
+        assert!(r_for(&mut app, GamepadButton::West), "X = special in Gem Clash");
+        assert!(r_for(&mut app, GamepadButton::RightTrigger2));
+        assert!(app.world().resource::<TouchControls>().smash_active && app.world().resource::<TouchControls>().smash_with_mode);
+        assert!(app.world().resource::<TouchControls>().smash_shown(true), "shown with the mode's SHOCK WAVE / SEEK BEAM");
+
+        // Inside another mode: no touch SPECIAL and X is the mode's own button again; R2 still works.
+        app.world_mut().resource_mut::<crate::experiments::ExperimentSlot>().id = Some(crate::experiments::ExperimentId::Swarm);
         assert!(!r_for(&mut app, GamepadButton::West));
         assert!(r_for(&mut app, GamepadButton::RightTrigger2));
         assert!(!app.world().resource::<TouchControls>().smash_active);

@@ -1332,6 +1332,7 @@ impl Experiment for StarSwarmExperiment {
     }
 
     fn exit(&mut self, host: &mut Host) {
+        host.sim.mario.smash.items.rates = None;
         host.bridge.active = false;
         host.bridge.summary = None;
         host.bridge.briefing = None;
@@ -1499,6 +1500,8 @@ impl Experiment for StarSwarmExperiment {
             let center = [self.center[0], self.center[2]];
             let mut targets = super::smash_targets::SwarmTargets::new(&mut self.core, center, |i| heights[i]);
             jumpman_sim::smash::resolve(&mut host.sim.mario.smash, &mut targets);
+            // SSB64 items: the swarm's own drop rule; food heals and the Star protects the run's hero.
+            super::smash_targets::swarm_items(&mut self.core, &mut host.sim.mario.smash.items);
         }
         // Foe bodies are solid: the core swept the hero's step against them and says where he really ends up.
         self.apply_body_push(host);

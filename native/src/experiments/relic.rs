@@ -1516,6 +1516,11 @@ impl Experiment for RelicDescentExperiment {
         let mario_pos = m.pos;
         let intent = self.intent;
         self.core.tick(&frame, &intent);
+        // A Smash fighter's specials (projectiles, hitboxes, items) hit the dungeon's foes too.
+        if host.sim.mario.smash.fighter.is_some() {
+            let mut targets = super::smash_targets::RelicTargets::new(&mut self.core);
+            jumpman_sim::smash::resolve(&mut host.sim.mario.smash, &mut targets);
+        }
         let ev = self.core.ev;
         let tick = self.core.tick;
         // Foes are solid: the core pushed the hero out of a body (`Relic::body_block`); move Mario with it.

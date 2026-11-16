@@ -39,6 +39,7 @@ pub mod oot_kankyo;
 pub mod sm64cam;
 pub mod smash;
 pub mod smash_hitbox;
+pub mod smash_knockback;
 pub mod spawned_star;
 pub mod state;
 pub mod state_consts;

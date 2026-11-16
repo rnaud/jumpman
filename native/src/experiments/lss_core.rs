@@ -1085,6 +1085,15 @@ impl Lss {
         dmg
     }
 
+    /// A Smash fighter's special (the player's, `experiments::smash_targets::LssTargets`) hit fighter `target`: `raw`
+    /// damage, knockback `force` per tick along `dir` and `lift` up. Returns the damage dealt (0: immune right now).
+    pub fn smash_hit(&mut self, target: usize, raw: f32, dir: [f32; 2], force: f32, lift: f32, source: [f32; 3]) -> f32 {
+        if target == 0 {
+            return 0.0;
+        }
+        self.hit(target, Some(0), raw, dir, force, lift, source)
+    }
+
     fn knock_dir(&self, from: [f32; 3], to: [f32; 3]) -> [f32; 2] {
         let (dx, dz) = (to[0] - from[0], to[2] - from[2]);
         let l = dx.hypot(dz);

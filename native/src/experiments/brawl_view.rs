@@ -161,6 +161,8 @@ pub struct MenuView {
     pub cursor: u8,
     /// The chosen character (`Hero as u8`).
     pub hero: u8,
+    /// The chosen Smash fighter, when it is one (its name replaces the hero's in PLAYING AS).
+    pub smash: Option<jumpman_sim::smash::SmashFighter>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -191,6 +193,14 @@ pub struct BrawlBridge {
     pub active: bool,
     /// The character the player picked (Mario, Link, Young Link, Banjo).
     pub hero: Hero,
+    /// The Smash fighter the player picked (it fights with its own moveset, `brawl_smash.rs`).
+    pub smash: Option<jumpman_sim::smash::SmashFighter>,
+    /// The player's Smash projectiles this frame (world positions, for `characters::smash_fx`).
+    pub smash_projectiles: Vec<jumpman_sim::smash::Projectile>,
+    /// The SSB64 items on the field (`brawl_items.rs`): model name, world position, yaw; drawn by `smash_models`.
+    pub smash_items: Vec<(&'static str, [f64; 3], f32)>,
+    /// The import's SSB64 object models are installed (`characters::smash_models::INDEX`): SSB64 items drop.
+    pub smash_items_installed: bool,
     pub screen: Screen,
     pub menu: MenuView,
     pub summary: SummaryView,
@@ -264,6 +274,10 @@ impl Default for BrawlBridge {
             cam_eye: Vec3::ZERO,
             cam_targets: vec![],
             hero_act: None,
+            smash: None,
+            smash_projectiles: vec![],
+            smash_items: vec![],
+            smash_items_installed: false,
         }
     }
 }
@@ -1380,7 +1394,7 @@ fn spawn_menu(commands: &mut Commands, a: &UiAssets, area: &SafeArea, m: &MenuVi
                     rr.insert(Act::Arrow(r as u8, 1));
                 });
             }
-            b.spawn(txt(a, &format!("PLAYING AS {}  -  change in the main menu (PLAY AS) or press V", super::brawl_core::HEROES[m.hero as usize % 4].name().to_uppercase()), if compact { 10.0 } else { 12.0 }, GOLD));
+            b.spawn(txt(a, &format!("PLAYING AS {}  -  change in the main menu (PLAY AS) or press V", m.smash.map_or(super::brawl_core::HEROES[m.hero as usize % 4].name(), super::brawl_core::smash::name).to_uppercase()), if compact { 10.0 } else { 12.0 }, GOLD));
             let mode = m.mode as usize % 2;
             let blurb = if mode == 0 { super::brawl_region::arena_blurb(m.arena) } else { "Six arenas, six harder rounds, then King Bob-omb. Three lives." };
             b.spawn(txt(a, blurb, if compact { 10.0 } else { 11.0 }, GOLD_HI));
@@ -1537,10 +1551,23 @@ fn overlay_display(state: Res<AppState>, mut roots: Query<&mut Visibility, With<
 
 /// Gem Clash plays whoever the player picked (the shell's PLAY AS row, `V`): the bridge carries that character into
 /// the next match. The choice is read at the start of a match, so a switch mid-round shows from the next one.
-fn pick_hero(character: Res<Character>, mut bridge: ResMut<BrawlBridge>) {
+fn pick_hero(character: Res<Character>, mut bridge: ResMut<BrawlBridge>, root: Option<Res<AssetRoot>>, mut checked: Local<Option<std::path::PathBuf>>) {
+    if let Some(r) = root.as_ref() {
+        if checked.as_ref() != Some(&r.0) {
+            *checked = Some(r.0.clone());
+            bridge.smash_items_installed = r.0.join(crate::characters::smash_models::INDEX).is_file();
+        }
+    }
     let h = Hero::from_character(*character);
     if bridge.hero != h {
         bridge.hero = h;
+    }
+    let s = match *character {
+        Character::Smash(f) => Some(f.sim()),
+        _ => None,
+    };
+    if bridge.smash != s {
+        bridge.smash = s;
     }
 }
 
