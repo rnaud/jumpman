@@ -10,7 +10,7 @@
 //! its short name. Everything 3D is drawn by the menu's private camera (render layer [`super::scene::LAYER`]) into the small
 //! scene image, the 2D layer (tiles, panel, READY) goes on top through the CPU framebuffer, exactly like the title and the
 //! mode grid. No course is loaded for this screen.
-use super::fb::{clean, mix, rgb, Fb, IRect, Rgba};
+use super::fb::{clean, mix, rgb, Fb, IRect, Rgba, GREEN_INK};
 use super::model::{char_info, lock_reason, roster, Ctx, Hit, Menu, Page};
 use super::scene::{self, CamState, MeshBuilder, SceneAssets, LAYER};
 use super::{Anim, Hits, Insets, LowRes, MenuRes, RetroActive};
@@ -875,7 +875,7 @@ pub fn draw_select(f: &mut Fb, menu: &Menu, ctx: &Ctx, hits: &mut Hits, anim: &m
         let nw = Fb::text_width(note, 1) + 10;
         let r = IRect::new(lay.feet.0 as i32 - nw / 2, lay.feet.1 as i32 - lay.model_h as i32 + 2, nw, 12);
         f.slab(r, rgb(0xd09a2a), rgb(0x8a5a0c), rgb(0xffe08a), rgb(0x4a2a04), rgb(0x2a1602));
-        f.text_centered(r.x + r.w / 2, r.y + 3, note, 1, rgb(0x2a1602));
+        f.ink_centered(r.x + r.w / 2, r.y + 3, note, 1, rgb(0x2a1602));
     }
 
     // The roster: group labels, then the tiles.
@@ -904,7 +904,7 @@ pub fn draw_select(f: &mut Fb, menu: &Menu, ctx: &Ctx, hits: &mut Hits, anim: &m
         let label = tile_name(c);
         let col = if on { rgb(0x3a1a04) } else if locked { rgb(0x9a9aae) } else { rgb(0xeef2ff) };
         let ty = r.y + 4 + (r.h - 4 - 7) / 2;
-        f.text_centered(r.x + r.w / 2, ty, label, 1, col);
+        if on { f.ink_centered(r.x + r.w / 2, ty, label, 1, col) } else { f.text_centered(r.x + r.w / 2, ty, label, 1, col) }
         if locked && !on {
             draw_lock(f, r.x + r.w - 6, r.y + 1);
         }
@@ -941,7 +941,7 @@ pub fn draw_select(f: &mut Fb, menu: &Menu, ctx: &Ctx, hits: &mut Hits, anim: &m
     if reason.is_none() {
         let pulse = (t * 5.0).sin() * 0.5 + 0.5;
         f.slab(rb, mix(rgb(0x4ad060), rgb(0x8aff8a), pulse * 0.5), rgb(0x1a8a30), rgb(0xc8ffc8), rgb(0x0a4a18), rgb(0x03220a));
-        f.text_centered(rb.x + rb.w / 2, rb.y + (rb.h - 14) / 2, "READY", 2, rgb(0x04300c));
+        f.ink_centered(rb.x + rb.w / 2, rb.y + (rb.h - 14) / 2, "READY", 2, GREEN_INK);
     } else {
         f.slab(rb, rgb(0x6a6a78), rgb(0x3a3a46), rgb(0x9a9aa8), rgb(0x20202a), rgb(0x0a0a10));
         f.text_centered(rb.x + rb.w / 2, rb.y + (rb.h - 14) / 2, "LOCKED", 2, rgb(0xc0c0cc));

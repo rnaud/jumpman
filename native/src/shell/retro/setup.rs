@@ -3,7 +3,7 @@
 //! the character select. Shown before anything is loaded: READY on the select then loads the one course these choices
 //! need and the mode starts straight away (`experiments::start_setup`). Drawn into the CPU framebuffer over the title
 //! backdrop, like the grid.
-use super::fb::{clean, mix, rgb, Fb, IRect, Rgba};
+use super::fb::{clean, mix, rgb, Fb, IRect, Rgba, GREEN_INK};
 use super::model::{Ctx, Hit, Menu};
 use super::{Hits, Insets};
 
@@ -98,7 +98,7 @@ pub fn draw_setup(f: &mut Fb, menu: &Menu, ctx: &Ctx, hits: &mut Hits, t: f32, s
     let on = menu.opt >= ctx.setup.len();
     let pulse = (t * 5.0).sin() * 0.5 + 0.5;
     f.slab(n, mix(rgb(0x4ad060), rgb(0x8aff8a), if on { pulse * 0.6 } else { 0.0 }), rgb(0x1a8a30), rgb(0xc8ffc8), rgb(0x0a4a18), rgb(0x03220a));
-    f.text_centered(n.x + n.w / 2, n.y + (n.h - 7) / 2, "NEXT: CHOOSE HERO", 1, rgb(0x04300c));
+    f.ink_centered(n.x + n.w / 2, n.y + (n.h - 7) / 2, "NEXT: CHOOSE HERO", 1, GREEN_INK);
     if on {
         f.frame(n.inflate(2), GOLD);
     }

@@ -2,7 +2,7 @@
 //! (BACK, the two tabs, the position) and an info box for the highlighted mode (its icon, name, tagline, why it is locked
 //! and PLAY). Everything is drawn into the CPU framebuffer; the layout is pure and adapts to the canvas (landscape phone,
 //! desktop, portrait tablet) and the safe-area insets. Navigation lives in [`super::model`].
-use super::fb::{clean, mix, rgb, Fb, IRect, Rgba};
+use super::fb::{clean, mix, rgb, Fb, IRect, Rgba, GREEN_INK};
 use super::icons;
 use super::model::{sign_lines, sign_name, Ctx, Hit, Menu};
 use super::{wrap_text, Anim, Hits, Insets};
@@ -93,7 +93,7 @@ fn dialog(f: &mut Fb, r: IRect) {
 fn tab(f: &mut Fb, r: IRect, label: &str, sel: bool) {
     if sel {
         f.slab(r, rgb(0xffd23a), rgb(0xe08a18), rgb(0xfff1a8), rgb(0x8a4a08), rgb(0x3a1a04));
-        f.text_centered(r.x + r.w / 2, r.y + 4, label, 1, rgb(0x3a1a04));
+        f.ink_centered(r.x + r.w / 2, r.y + 4, label, 1, rgb(0x3a1a04));
     } else {
         f.slab(r, rgb(0x33449a), rgb(0x1a2468), rgb(0x5b70c8), rgb(0x0a1040), rgb(0x040720));
         f.text_centered(r.x + r.w / 2, r.y + 4, label, 1, rgb(0xdfe6ff));
@@ -214,7 +214,7 @@ pub fn draw_grid(f: &mut Fb, menu: &Menu, ctx: &Ctx, hits: &mut Hits, anim: &Ani
         if d.enabled {
             let pulse = (t * 5.0).sin() * 0.5 + 0.5;
             f.slab(play, mix(rgb(0x4ad060), rgb(0x8aff8a), pulse * 0.5), rgb(0x1a8a30), rgb(0xc8ffc8), rgb(0x0a4a18), rgb(0x03220a));
-            f.text_centered(play.x + play.w / 2, play.y + (play.h - 7) / 2, "PLAY", 1, rgb(0x04300c));
+            f.ink_centered(play.x + play.w / 2, play.y + (play.h - 7) / 2, "PLAY", 1, GREEN_INK);
         } else {
             f.slab(play, rgb(0x6a6a78), rgb(0x3a3a46), rgb(0x9a9aa8), rgb(0x20202a), rgb(0x0a0a10));
             f.text_centered(play.x + play.w / 2, play.y + (play.h - 7) / 2, "LOCKED", 1, rgb(0xc0c0cc));

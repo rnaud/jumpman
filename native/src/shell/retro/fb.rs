@@ -9,6 +9,9 @@ pub const fn rgb(c: u32) -> Rgba {
     [(c >> 16) as u8, (c >> 8) as u8, c as u8, 255]
 }
 
+/// Near-black green for labels on the green go-buttons (READY, PLAY, NEXT).
+pub const GREEN_INK: Rgba = rgb(0x031a07);
+
 pub fn with_alpha(c: Rgba, a: u8) -> Rgba {
     [c[0], c[1], c[2], a]
 }
@@ -254,6 +257,16 @@ impl Fb {
 
     pub fn text_centered(&mut self, cx: i32, y: i32, s: &str, scale: i32, c: Rgba) {
         self.text(cx - Self::text_width(s, scale) / 2, y, s, scale, c);
+    }
+
+    /// Dark lettering on a bright button (READY, PLAY, a gold tab): no drop shadow, which would sit dark-on-dark under
+    /// the letters and smear them. Large lettering is drawn a pixel bolder so it survives the bilinear upscale.
+    pub fn ink_centered(&mut self, cx: i32, y: i32, s: &str, scale: i32, c: Rgba) {
+        let x = cx - Self::text_width(s, scale) / 2;
+        if scale >= 2 {
+            self.glyphs(x + 1, y, s, scale, &|_| c);
+        }
+        self.glyphs(x, y, s, scale, &|_| c);
     }
 }
 
