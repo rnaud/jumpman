@@ -32,7 +32,7 @@ BAD_EXT = {'.glb', '.gltf', '.wav', '.aiff', '.aifc', '.ogg', '.mp3', '.m64', '.
 
 def check_byor_zip(data: bytes, repo: Path):
     """Every member of byor-src.zip must be on the allowlist of make-byor-src.py (decomp files named in decomp-manifest.txt, the
-    music template, the sound-player sequence and the original assets), carry no ROM magic, and the music template's four ROM blob
+    music templates and the original assets), carry no ROM magic, and the music template's four ROM blob
     ranges must be all zero (it is the engine code only)."""
     bad = []
     spec = importlib.util.spec_from_file_location('make_byor_src', HERE / 'make-byor-src.py')

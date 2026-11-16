@@ -1,17 +1,17 @@
 #!/bin/sh
 # Writes the `byor-src` tree both BYOR apps carry (macOS: Contents/Resources/byor-src, iOS: <app>/byor-src):
 # the original (non-Nintendo) assets, the decomp source files the importer reads (byor/decomp-manifest.txt) and the music
-# template + sound-player sequence. The import itself is the pure-Rust byor-rs crate linked into the app: no Python, no
+# templates. The import itself is the pure-Rust byor-rs crate linked into the app: no Python, no
 # scripts, no hashes file. No ROM data; byor/verify-byor-app.py audits the result.
 #   stage-byor-src.sh DEST
 set -eu
 cd "$(dirname "$0")/.."
 src="$1"
 repo="${BYOR_REPO_ROOT:-..}"  # a repo checkout (override to point at one whose reference/ submodules are populated)
-rm -rf "$src"; mkdir -p "$src/byor" "$src/reference" "$src/scripts/music" "$src/scripts/data"
-# The Rust importer (byor-rs) reads: the sound-player sequence (assembled once, iOS has no assembler: byor/gen-precomputed.py) and
-# the data-less music engine template (mostly zeros: shipped gzipped; the importer reads either form).
-cp byor/sm64-us-sound-player.bin byor/sm64-us-sound-player.json "$src/byor/"
+rm -rf "$src"; mkdir -p "$src/reference" "$src/scripts/music" "$src/scripts/data"
+# The Rust importer (byor-rs) reads the data-less music engine template (mostly zeros: shipped gzipped; the importer reads
+# either form). The sound-player sequence is assembled at import time from the decomp's 00_sound_player.s + seq_macros.inc
+# (byor-rs/src/seq_asm.rs), which decomp-manifest.txt stages below.
 cp $repo/scripts/music/sm64-us-template.json "$src/scripts/music/"
 gzip -9 -n -c $repo/scripts/music/sm64-us-template.wasm > "$src/scripts/music/sm64-us-template.wasm.gz"
 # MK64's engine template (same idea) and the cached Banjo-Kazooie map catalogue.

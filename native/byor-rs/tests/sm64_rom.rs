@@ -84,7 +84,7 @@ fn music_wasm_matches_render_music_template() {
         &reference,
         &std::fs::read(repo.join("scripts/music/sm64-us-template.wasm")).unwrap(),
         &std::fs::read_to_string(repo.join("scripts/music/sm64-us-template.json")).unwrap(),
-        &std::fs::read(repo.join("native/byor/sm64-us-sound-player.bin")).unwrap(),
+        &byor_rs::seq_asm::sound_player(&reference).unwrap(),
     )
     .unwrap();
     let want = std::fs::read(PathBuf::from(data).join("assets/audio/music/sm64-us.wasm")).unwrap();

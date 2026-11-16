@@ -93,8 +93,9 @@ pub fn run(source: &Path, stage: &Path, z64: &[u8], progress: &mut dyn FnMut(u32
     std::fs::create_dir_all(&music_dir).map_err(|e| e.to_string())?;
     std::fs::write(music_dir.join("sounds.json"), music::sounds_json(&decomp)?).map_err(|e| e.to_string())?;
     let layout = first_file(source, &["scripts/music/sm64-us-template.json"])?;
-    let player = first_file(source, &["native/byor/sm64-us-sound-player.bin", "byor/sm64-us-sound-player.bin"])?;
-    let wasm = sm64::music_wasm(z64, &assets_json, &ext, &decomp, &read_maybe_gz(source, "scripts/music/sm64-us-template.wasm")?, &read(&layout)?, &std::fs::read(player).map_err(|e| e.to_string())?)?;
+    // sequence 0 is assembly in the decomp: assembled here from its source (no ROM data, no external assembler)
+    let player = crate::seq_asm::sound_player(&decomp)?;
+    let wasm = sm64::music_wasm(z64, &assets_json, &ext, &decomp, &read_maybe_gz(source, "scripts/music/sm64-us-template.wasm")?, &read(&layout)?, &player)?;
     std::fs::write(music_dir.join("sm64-us.wasm"), wasm).map_err(|e| e.to_string())?;
     std::fs::write(music_dir.join("courses.json"), music::courses_json(&decomp)?).map_err(|e| e.to_string())?;
     // the stage's extraction tree is only needed during the import

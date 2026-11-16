@@ -9,15 +9,16 @@ The exporters, the decomp's `extract_assets.py` and `assemble_sound.py` are writ
   mio0 / n64graphics / skyconv / aifc_decode -> `_jtools.run` (the unmodified decomp C sources, compiled into the app)
   cc <aiff_extract_codebook.c | vadpcm_enc.c ...> -o X -> writes a stub X; running X calls `_jtools`
   cc ids.c -o ids                          -> `ids` prints the SOUND_* constants, evaluated by `mini_cpp` below
-  clang -x assembler-with-cpp 00_sound_player.s -o sfx.o -> an ELF stub whose .rodata is the precomputed bytes of that
-                                              file (scripts/music/sm64-us-sound-player.bin), checked against the
-                                              source's sha256 so a changed decomp file cannot silently use stale bytes
+  clang -x assembler-with-cpp 00_sound_player.s -o sfx.o -> an ELF stub whose .rodata is that file assembled by
+                                              byor/seq_asm.py (the subset of cpp + GNU as it uses; anything else fails)
 
 The same module also runs on macOS (`JUMPMAN_INPROC=1`, with a `_jtools` built for the host Python) so the iOS path is
 testable, and byte-compared with the subprocess path, without a device.
 """
-import contextlib, gc, hashlib, io, json, os, re, runpy, struct, sys, threading, traceback
+import contextlib, gc, io, json, os, re, runpy, struct, sys, threading, traceback
 from pathlib import Path
+
+import seq_asm  # noqa: E402  (sits next to this file)
 
 LOCK = threading.RLock()
 CANCEL = threading.Event()
@@ -239,7 +240,7 @@ def sound_ids(source_text, defines, include_dirs):
 
 
 # ----------------------------------------------------------------------------------------------------------------
-# ELF stub for the precomputed sound-player sequence
+# ELF stub for the assembled sound-player sequence
 
 def make_elf_rodata(blob):
     names = b'\0.rodata\0.shstrtab\0'
@@ -252,25 +253,11 @@ def make_elf_rodata(blob):
     return ehdr + blob + names + b'\0' * (sh_off - str_off - len(names)) + sections
 
 
-def _precomputed_sound_player():
-    for base in (Path(__file__).resolve().parent,):
-        f = base / 'sm64-us-sound-player.bin'
-        if f.is_file():
-            return json.loads(f.with_suffix('.json').read_text()), f.read_bytes()
-    raise RuntimeError('missing sm64-us-sound-player.bin (run byor/gen-precomputed.py on a Mac)')
-
-
-def sound_player_digest(src, include_dirs):
-    """sha256 over the .s file and the macro include it pulls in: ties the precomputed bytes to the decomp sources."""
-    macros = next((Path(d) / 'seq_macros.inc' for d in include_dirs if (Path(d) / 'seq_macros.inc').is_file()), None)
-    return hashlib.sha256(Path(src).read_bytes() + b'\0' + (macros.read_bytes() if macros else b'')).hexdigest()
-
-
-def _assemble_sound_player(src, out, cwd, include_dirs):
-    meta, blob = _precomputed_sound_player()
-    if sound_player_digest(Path(cwd, src), [Path(cwd, d) for d in include_dirs]) != meta['source_sha256']:
-        raise RuntimeError('00_sound_player.s changed since sm64-us-sound-player.bin was generated; '
-                           'run byor/gen-precomputed.py on a Mac')
+def _assemble_sound_player(src, out, cwd, include_dirs, defines):
+    try:
+        blob = seq_asm.assemble_file(Path(cwd, src), [Path(cwd, d) for d in include_dirs], defines)
+    except seq_asm.AsmError as e:
+        raise RuntimeError(f'00_sound_player.s: {e}') from None
     Path(out).write_bytes(make_elf_rodata(blob))
 
 
@@ -329,7 +316,8 @@ def _compile(argv, cwd):
     first = os.path.basename(srcs[0])
     if first == '00_sound_player.s':
         try:
-            _assemble_sound_player(srcs[0], out, cwd, [argv[i + 1] for i, a in enumerate(argv) if a == '-I'])
+            _assemble_sound_player(srcs[0], out, cwd, [argv[i + 1] for i, a in enumerate(argv) if a == '-I'],
+                                   [a[2:] for a in argv if a.startswith('-D')])
         except RuntimeError as e:
             return 1, b'', str(e).encode()
         return 0, b'', b''

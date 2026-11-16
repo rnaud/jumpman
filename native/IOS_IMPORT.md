@@ -36,9 +36,8 @@ Why D works without touching the exporters: `byor/inproc.py` replaces `subproces
 `python3 script.py` runs in-process (`runpy`, cwd/argv/stdout captured), `make` is a no-op, tool names go to `_jtools`,
 `cc tool.c -o X` writes a stub `X` that dispatches to `_jtools`, `cc ids.c` is evaluated by a 100-line mini C preprocessor
 (`sounds.h` is plain `#define`s), and the one thing that really needs an assembler (`00_sound_player.s`, 8 k lines of
-`.byte` macros) is substituted by its precomputed bytes `byor/sm64-us-sound-player.bin` (13 KB, a *decomp source*
-product, not ROM data) after checking the source files' sha256 recorded in the `.json` next to it
-(`byor/gen-precomputed.py` regenerates; a changed decomp file fails loudly instead of using stale bytes).
+`.byte` macros) is assembled in process by `byor/seq_asm.py` (the Python twin of `byor-rs/src/seq_asm.rs`: exactly the
+cpp + GNU as subset that file and `seq_macros.inc` use, byte-identical to clang; anything outside the subset fails loudly).
 `pipeline.py` itself only gained a 10-line `run()` branch (`INPROC`), so macOS and iOS share one source of truth, and the same
 layer runs on a Mac with `JUMPMAN_INPROC=1` (a Mac build of `_jtools`, `ios/import/build-mac-jtools.sh`) which is how
 parity is proven without a device.

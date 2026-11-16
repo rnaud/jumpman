@@ -12,8 +12,8 @@ Checks, over every file of the bundle:
   5. Binary assets inside the decomp source trees (`byor-src/reference`): none of png/jpg/glb/wav/aiff/aifc/
      m64/bin/tbl/ctl/z64 may appear (the decomps carry code and text, no ROM data).
   6. iOS layout (`JumpmanBYOR.app`: `byor-src` at the top level, `python/` + `Frameworks/`): the same rules apply
-     (all of them are path-based and layout-agnostic); additionally `byor-src/byor/` may hold only the precomputed
-     sound-player sequence (a decomp *source* product, size-capped).
+     (all of them are path-based and layout-agnostic); additionally there must be no `byor-src/byor/` (the importer
+     assembles the sound-player sequence from decomp source at import time).
   7. Content hashes: no file in the bundle is byte-identical to a ROM-derived file of the repo checkout
      (every file under assets/ and public/ that is not an ORIGINAL asset) when --repo-root is given or detectable.
 Exit status 0 = clean, 1 = violations (listed).
@@ -91,14 +91,11 @@ def main():
         if '/byor-src/reference/' in rel and p.suffix.lower() in BINARY_IN_SOURCE:
             bad.append(f'binary asset inside decomp source tree: {rel}')
             n_src_binary += 1
-    # byor-src/byor: the importer's own files only (the precomputed sound-player bytes are assembled decomp source).
-    allowed_byor = {'sm64-us-sound-player.bin', 'sm64-us-sound-player.json'}
+    # byor-src/byor: nothing (the sound-player sequence is assembled from decomp source during the import).
     for p in files:
         rel = '/' + str(p.relative_to(app))
-        if '/byor-src/byor/' in rel and p.name not in allowed_byor:
+        if '/byor-src/byor/' in rel:
             bad.append(f'unexpected file in byor-src/byor: {rel}')
-        if p.name == 'sm64-us-sound-player.bin' and p.stat().st_size > 65536:
-            bad.append(f'precomputed sound player is suspiciously large: {rel}')
     # Staged asset folders: allowlist only.
     for top in ('assets', 'public'):
         for p in files:

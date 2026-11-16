@@ -171,7 +171,7 @@ The SM64 exporters read 2,279 decomp files listed in `native/byor/decomp-manifes
 deflated zip, measured). Plan that keeps `verify-apk.py` meaningful:
 
 1. `byor/stage-byor-src.sh` already stages exactly that set (the iOS bundle). Add a step to `.github/workflows/android.yml` that
-   zips the staged `byor-src/reference/sm64` plus `scripts/music/*` and `native/byor/sm64-us-sound-player.bin` into one file
+   zips the staged `byor-src/reference/sm64` plus `scripts/music/*` into one file
    `byor-src.zip`, and a Gradle `assets` source set that packages only that file as `assets/byor-src.zip` (the `.zip` suffix is
    not in `BAD_EXT`).
 2. `verify-apk.py` gets one narrow exception: `assets/byor-src.zip` may exist if and only if every member (a) is listed in
@@ -201,8 +201,8 @@ Remaining Python to port for SM64: `export-courses.py` (745, regex over the leve
 
 ## 9. Android packaging of the SM64 import (this stage) and what was run
 
-* `native/android/make-byor-src.py` builds `byor-src.zip` (2,313 files, 9.2 MB): the 2,279 sm64 decomp files, the music template, the
-  sound-player sequence and the original assets. Gradle packages only that file (`src/byorAssets`, git-ignored), the CI workflow got one
+* `native/android/make-byor-src.py` builds `byor-src.zip` (2,313 files, 9.2 MB): the 2,279 sm64 decomp files, the music template and the
+  original assets (the sound-player sequence is assembled from the staged decomp source, `byor-rs/src/seq_asm.rs`). Gradle packages only that file (`src/byorAssets`, git-ignored), the CI workflow got one
   step to build it, `verify-apk.py` allows `assets/byor-src.zip` and nothing else under `assets/`, checking every member against the same
   allowlist, ROM magic, size, and that the music template's four ROM blob ranges are all zero.
 * `MainActivity` unpacks it once per installed build to `<files>/byor-src` (zip-slip safe); `android::init_env` sets `JUMPMAN_BYOR_SRC`

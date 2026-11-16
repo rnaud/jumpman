@@ -16,6 +16,7 @@ pub mod oot;
 pub mod pipeline;
 pub mod png;
 pub mod rom;
+pub mod seq_asm;
 pub mod sm64;
 pub mod ssb64;
 pub mod ssb64_motions;

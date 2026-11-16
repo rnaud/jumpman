@@ -187,8 +187,8 @@ pub fn export_audio(samples: &Path, out: &Path) -> Result<usize, String> {
 
 /// `scripts/render-music-template.py` for the US build: the music engine wasm with the user's sequences, banks and samples
 /// patched into the data-less template. `out` is the tree `extract` wrote (needs `sound/sequences/us/*.m64`), `decomp` the
-/// decomp checkout (`sound/sound_banks`, `sound/sequences.json`), `sound_player` the precomputed bytes of
-/// `00_sound_player.s` (`native/byor/sm64-us-sound-player.bin`).
+/// decomp checkout (`sound/sound_banks`, `sound/sequences.json`), `sound_player` the assembled bytes of the decomp's
+/// `sound/sequences/00_sound_player.s` ([`crate::seq_asm::sound_player`]).
 pub fn music_wasm(rom: &[u8], assets_json: &[u8], out: &Path, decomp: &Path, template: &[u8], layout_json: &str, sound_player: &[u8]) -> Result<Vec<u8>, String> {
     let map: Value = serde_json::from_slice(assets_json).map_err(|e| e.to_string())?;
     let list = entries(&map)?;

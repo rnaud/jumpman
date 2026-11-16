@@ -130,7 +130,7 @@ pub fn is_byor_install() -> bool {
 /// sits at the top of the .app).
 pub fn is_byor_bundle() -> bool {
     let exe_dir = std::env::current_exe().ok().and_then(|e| e.canonicalize().ok()).and_then(|e| e.parent().map(PathBuf::from));
-    let has = |d: &Path, rel: &str| d.join(rel).join("byor/sm64-us-sound-player.bin").is_file();
+    let has = |d: &Path, rel: &str| d.join(rel).join("scripts/music/sm64-us-template.json").is_file();
     exe_dir.is_some_and(|d| has(&d, "../Resources/byor-src") || (cfg!(target_os = "ios") && has(&d, "byor-src")))
 }
 

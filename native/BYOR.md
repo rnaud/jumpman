@@ -63,7 +63,8 @@ All five games are imported by `byor-rs` (`native/byor-rs`, `ANDROID_IMPORT.md`)
 Android): the setup screen (`src/byor.rs`) calls `byor_rs::cli::run`, which speaks the `@@PROGRESS/@@DONE/@@FAIL/@@STATUS`
 protocol and keeps the `stamps/<game>.json` format and the atomic stage-and-swap install. No python3, Xcode Command Line
 Tools, C compiler or embedded interpreter is needed or bundled; the apps carry `byor-src` with the decomp files of
-`byor/decomp-manifest.txt`, the music engine templates, the BK map catalogue, the SM64 sound-player sequence and the original assets.
+`byor/decomp-manifest.txt`, the music engine templates, the BK map catalogue and the original assets (the SM64 sound-player sequence is
+assembled from the decomp's `00_sound_player.s` at import time by `byor-rs/src/seq_asm.rs`).
 `byor/pipeline.py` and `scripts/export-*.py` stay in the repository as the reference implementation: `byor-rs` is verified
 byte for byte against their output (`byor/compare-data-dir.py`, `byor-rs/tests/*_rom.rs`) but they are not shipped.
 Stamps carry the hash `rust-<game>-<revision>` (`byor_rs::pipeline::PORTED`); an install made by the old Python pipeline shows
